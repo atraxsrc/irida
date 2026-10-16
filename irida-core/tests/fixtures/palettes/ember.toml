@@ -32,3 +32,7 @@ error = "Brick"
 blue = "Slate blue"
 magenta = "Heather"
 cyan = "Verdigris"
+
+[pins]
+"normal.black" = "#2A2F38"
+"cosmic.neutral_10" = "#E6E8EE"
