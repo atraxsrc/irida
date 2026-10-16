@@ -748,6 +748,27 @@ fn same_path_skip_gives_its_reason() {
     assert_eq!(read(&conf), "from a\n");
 }
 
+#[test]
+fn same_path_twice_in_one_target_keeps_note() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    let twice = format!(
+        "{}\n[[file]]\npath = \"~/.config/x/f.conf\"\nwrite = \"file\"\ntemplate = \"t.tmpl\"\n",
+        file_target("d", "~/.config/x/f.conf")
+    );
+    put_target(&env, "d", &twice, &[("t.tmpl", "from d\n")]);
+    let conf = env.write(".config/x/f.conf", "mine\n");
+
+    let report = run(&env, &ember).unwrap();
+    applied(&report, "d");
+    let notes = warnings(&report, "d")
+        .iter()
+        .filter(|w| w.contains("replaced your file"))
+        .count();
+    assert_eq!(notes, 1, "{:?}", warnings(&report, "d"));
+    assert_eq!(read(&conf), "from d\n");
+}
+
 fn block_target(name: &str, comment: &str) -> String {
     format!(
         "name = \"{name}\"\ndetect = {{}}\n\n[[file]]\npath = \"~/.zshrc\"\nwrite = \"block\"\ntemplate = \"t.tmpl\"\ncomment = \"{comment}\"\n"
