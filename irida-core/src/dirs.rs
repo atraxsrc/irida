@@ -1,5 +1,6 @@
 //! XDG folders and path expansion.
 
+use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
 
@@ -26,8 +27,8 @@ impl fmt::Display for DirsError {
 
 impl std::error::Error for DirsError {}
 
-fn xdg(name: &str, fallback: PathBuf) -> PathBuf {
-    match std::env::var_os(name) {
+fn xdg(value: Option<OsString>, fallback: PathBuf) -> PathBuf {
+    match value {
         Some(v) if Path::new(&v).is_absolute() => PathBuf::from(v),
         _ => fallback,
     }
@@ -35,14 +36,31 @@ fn xdg(name: &str, fallback: PathBuf) -> PathBuf {
 
 impl Dirs {
     pub fn from_env() -> Result<Dirs, DirsError> {
-        let home = match std::env::var_os("HOME") {
-            Some(h) if !h.is_empty() => PathBuf::from(h),
+        let var = std::env::var_os;
+        Dirs::from_vars(
+            var("HOME"),
+            var("XDG_CONFIG_HOME"),
+            var("XDG_DATA_HOME"),
+            var("XDG_STATE_HOME"),
+        )
+    }
+
+    /// Build the folders from raw variable values. `home` must be absolute;
+    /// relative XDG values are ignored.
+    pub fn from_vars(
+        home: Option<OsString>,
+        xdg_config: Option<OsString>,
+        xdg_data: Option<OsString>,
+        xdg_state: Option<OsString>,
+    ) -> Result<Dirs, DirsError> {
+        let home = match home {
+            Some(h) if Path::new(&h).is_absolute() => PathBuf::from(h),
             _ => return Err(DirsError::NoHome),
         };
         Ok(Dirs {
-            config: xdg("XDG_CONFIG_HOME", home.join(".config")),
-            data: xdg("XDG_DATA_HOME", home.join(".local/share")),
-            state: xdg("XDG_STATE_HOME", home.join(".local/state")),
+            config: xdg(xdg_config, home.join(".config")),
+            data: xdg(xdg_data, home.join(".local/share")),
+            state: xdg(xdg_state, home.join(".local/state")),
             home,
         })
     }

@@ -3,7 +3,7 @@ mod common;
 use std::path::PathBuf;
 
 use common::{TestEnv, fixture, palette};
-use irida_core::dirs::Dirs;
+use irida_core::dirs::{Dirs, DirsError};
 use irida_core::store::{Settings, Store, StoreError};
 
 #[test]
@@ -106,4 +106,24 @@ fn save_rejects_bad_slug() {
     assert!(!env.dirs.data.join("irida/x").exists());
     assert!(!env.dirs.data.join("irida/palettes/../x").exists());
     assert!(!env.dirs.data.join("irida/palettes").exists());
+}
+
+#[test]
+fn dirs_from_vars() {
+    use std::ffi::OsString;
+    let o = |s: &str| Some(OsString::from(s));
+    assert_eq!(Dirs::from_vars(o("rel/home"), None, None, None).unwrap_err(), DirsError::NoHome);
+    assert_eq!(Dirs::from_vars(o(""), None, None, None).unwrap_err(), DirsError::NoHome);
+    assert_eq!(Dirs::from_vars(None, None, None, None).unwrap_err(), DirsError::NoHome);
+
+    let d = Dirs::from_vars(o("/h"), o("rel/cfg"), o("rel/data"), o("rel/state")).unwrap();
+    assert_eq!(d.config, PathBuf::from("/h/.config"));
+    assert_eq!(d.data, PathBuf::from("/h/.local/share"));
+    assert_eq!(d.state, PathBuf::from("/h/.local/state"));
+
+    let d = Dirs::from_vars(o("/h"), o("/x/cfg"), o("/x/data"), o("/x/state")).unwrap();
+    assert_eq!(d.home, PathBuf::from("/h"));
+    assert_eq!(d.config, PathBuf::from("/x/cfg"));
+    assert_eq!(d.data, PathBuf::from("/x/data"));
+    assert_eq!(d.state, PathBuf::from("/x/state"));
 }
