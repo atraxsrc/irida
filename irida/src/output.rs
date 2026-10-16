@@ -2,6 +2,7 @@
 
 use irida_core::apply::{ApplyReport, SkipReason, TargetResult, TargetStatus, UndoReport};
 use irida_core::contrast::ContrastReport;
+use irida_core::export::{BY_HAND, ExportReport, ExportStatus};
 use irida_core::palette::Palette;
 use irida_core::reload::ReloadStatus;
 
@@ -94,6 +95,55 @@ pub fn format_undo(r: &UndoReport) -> String {
             "  could not restore {}: {error}\n",
             path.display()
         ));
+    }
+    out
+}
+
+pub fn format_export(r: &ExportReport, p: &Palette) -> String {
+    let mut out = format!("Exported {} to {}\n", p.name, r.repo.display());
+    for line in &r.lines {
+        let (word, extra) = match &line.status {
+            ExportStatus::Created => ("created", String::new()),
+            ExportStatus::Updated => ("updated", String::new()),
+            ExportStatus::Unchanged => ("unchanged", String::new()),
+            ExportStatus::Kept => ("kept", String::new()),
+            ExportStatus::Skipped(reason) => ("skipped", format!(": {reason}")),
+            ExportStatus::Stale => ("stale?", " (not written by this export)".to_string()),
+        };
+        out.push_str(&format!("  {word:<10}{}{extra}\n", line.path));
+    }
+    for note in &r.notes {
+        out.push_str(note);
+        out.push('\n');
+    }
+    let rewritten = r
+        .lines
+        .iter()
+        .filter(|l| l.status == ExportStatus::Updated)
+        .count();
+    if rewritten > 0 {
+        out.push_str(&format!(
+            "{rewritten} existing files were rewritten; review with git diff\n"
+        ));
+    }
+    out.push_str(&format!("By hand: {BY_HAND}\n"));
+    let failures = r.contrast.failures().len();
+    if failures == 0 {
+        out.push_str("Contrast: all pass\n");
+        return out;
+    }
+    out.push_str(&format!("Contrast: {failures} failure(s)\n"));
+    let check = format_check(p, &r.contrast);
+    let mut lines = check.lines().skip(1);
+    if let Some(header) = lines.next() {
+        out.push_str(header);
+        out.push('\n');
+    }
+    for (row, line) in r.contrast.rows.iter().zip(lines) {
+        if !row.passes() {
+            out.push_str(line);
+            out.push('\n');
+        }
     }
     out
 }
