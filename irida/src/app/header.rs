@@ -141,6 +141,7 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
         Dialog::Unsaved(leave) => {
             let body = match leave {
                 Leave::Exit => "Save your changes before closing?",
+                Leave::Import { .. } => "Save your changes before the import replaces them?",
                 _ => "Save your changes first?",
             };
             widget::dialog()
