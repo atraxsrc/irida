@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::dirs::Dirs;
+use crate::import::{import_rice, is_rice_folder};
 use crate::palette::{Palette, validate_slug};
 use crate::write::atomic_write;
 
@@ -17,6 +18,7 @@ pub enum StoreError {
     NotFound(String),
     BadSlug(String),
     Unreadable { path: PathBuf, message: String },
+    Import { path: PathBuf, message: String },
     Io { path: PathBuf, source: io::Error },
 }
 
@@ -25,7 +27,7 @@ impl fmt::Display for StoreError {
         match self {
             StoreError::NotFound(what) => write!(f, "not found: {what}"),
             StoreError::BadSlug(slug) => write!(f, "invalid palette slug: {slug:?}"),
-            StoreError::Unreadable { path, message } => {
+            StoreError::Unreadable { path, message } | StoreError::Import { path, message } => {
                 write!(f, "{}: {message}", path.display())
             }
             StoreError::Io { path, source } => write!(f, "{}: {source}", path.display()),
@@ -185,8 +187,14 @@ impl Store {
             if file.is_file() {
                 return read_palette(&file);
             }
+            if is_rice_folder(path) {
+                return import_rice(path).map_err(|e| StoreError::Import {
+                    path: e.path,
+                    message: e.message,
+                });
+            }
             return Err(StoreError::NotFound(format!(
-                "{arg}: rice repo folders are supported from plan 2"
+                "{arg}: no palette.toml, and not a rice repo (the folder must be named cosmic-<slug>-theme)"
             )));
         }
         self.load(arg)
