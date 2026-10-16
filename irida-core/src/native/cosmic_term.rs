@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use super::{KeyFileWrite, NativePlan};
+use super::{ExportFile, KeyFileWrite, NativePlan};
 use crate::derive::derive;
 use crate::dirs::Dirs;
 use crate::palette::{Mode, Palette};
@@ -88,21 +88,7 @@ fn scheme_id(schemes: &Schemes, name: &str) -> Result<u64, TargetError> {
 }
 
 pub(crate) fn plan(palettes: &[&Palette], dirs: &Dirs) -> Result<NativePlan, TargetError> {
-    match palettes {
-        [_] => {}
-        [a, b] if a.mode != b.mode => {}
-        [_, _] => {
-            return Err(TargetError::Invalid(
-                "a pair needs one dark and one light palette".into(),
-            ));
-        }
-        _ => {
-            return Err(TargetError::Invalid(format!(
-                "expected one palette or a pair, got {}",
-                palettes.len()
-            )));
-        }
-    }
+    super::check_palettes(palettes)?;
 
     let dir = config_dir(dirs);
     let mut dark: Schemes = read_key(&dir, "color_schemes_dark")?.unwrap_or_default();
@@ -156,4 +142,21 @@ pub(crate) fn plan(palettes: &[&Palette], dirs: &Dirs) -> Result<NativePlan, Tar
         ));
     }
     Ok(out)
+}
+
+/// `cosmic-term/<Stem>-term.ron` and the `syntax_theme_<mode>` that selects it.
+pub(crate) fn export(p: &Palette) -> Vec<ExportFile> {
+    vec![
+        ExportFile {
+            path: format!("cosmic-term/{}-term.ron", p.stem()),
+            contents: derive(p).term.to_scheme(&p.name).to_ron() + "\n",
+        },
+        ExportFile {
+            path: format!(
+                "cosmic/config/{CONFIG_ID}/v{VERSION}/syntax_theme_{}",
+                p.mode
+            ),
+            contents: ron_text(&p.name),
+        },
+    ]
 }

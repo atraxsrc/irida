@@ -270,3 +270,35 @@ fn matches_cosmic_config_format() {
     let written: PathBuf = custom.join("cosmic/com.system76.CosmicTerm/v1/color_schemes_dark");
     assert_eq!(std::fs::read_to_string(written).unwrap(), planned);
 }
+
+#[test]
+fn export_term() {
+    use irida_core::native::export;
+    for (slug, rice, name) in [
+        ("ember", "Ember", "Ember"),
+        ("emberday", "EmberDay", "Ember Day"),
+    ] {
+        let p = palette(slug);
+        let files = export(NativeKind::CosmicTerm, &p);
+        let get = |path: &str| {
+            files
+                .iter()
+                .find(|f| f.path == path)
+                .unwrap_or_else(|| panic!("{path} exported"))
+                .contents
+                .clone()
+        };
+        assert_eq!(files.len(), 2);
+        assert_eq!(
+            get(&format!("cosmic-term/{rice}-term.ron")),
+            common::fixture_text(&format!("rices/{rice}-term.ron"))
+        );
+        assert_eq!(
+            get(&format!(
+                "cosmic/config/com.system76.CosmicTerm/v1/syntax_theme_{}",
+                p.mode
+            )),
+            format!("\"{name}\"")
+        );
+    }
+}
