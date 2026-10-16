@@ -1,7 +1,9 @@
 //! Text output for the CLI.
 
+use irida_core::apply::{ApplyReport, SkipReason, TargetResult, TargetStatus, UndoReport};
 use irida_core::contrast::ContrastReport;
 use irida_core::palette::Palette;
+use irida_core::reload::ReloadStatus;
 
 pub fn format_check(p: &Palette, r: &ContrastReport) -> String {
     let mut out = format!("{} ({})\n", p.name, p.mode);
@@ -36,6 +38,59 @@ pub fn format_check(p: &Palette, r: &ContrastReport) -> String {
         out.push_str("all pass\n");
     } else {
         out.push_str(&format!("{n} failure(s)\n"));
+    }
+    out
+}
+
+/// One line per target in report order, each warning indented below it, then
+/// the targets that are not installed folded into a single line.
+pub fn format_targets(targets: &[TargetResult]) -> String {
+    let mut out = String::new();
+    let mut not_installed = Vec::new();
+    for t in targets {
+        let name = &t.name;
+        let line = match &t.status {
+            TargetStatus::Applied(ReloadStatus::Reloaded | ReloadStatus::NotNeeded) => {
+                format!("{name}: applied")
+            }
+            TargetStatus::Applied(ReloadStatus::NotRunning) => {
+                format!("{name}: applied, not running")
+            }
+            TargetStatus::Applied(ReloadStatus::Restart(msg)) => {
+                format!("{name}: applied, {msg}")
+            }
+            TargetStatus::Applied(ReloadStatus::Failed(msg)) => {
+                format!("{name}: applied, reload failed ({msg}); restart {name} to see it")
+            }
+            TargetStatus::Skipped(SkipReason::Disabled) => format!("{name}: skipped, turned off"),
+            TargetStatus::Skipped(SkipReason::Broken(msg)) => format!("{name}: skipped, {msg}"),
+            TargetStatus::Skipped(SkipReason::NotInstalled) => {
+                not_installed.push(name.as_str());
+                continue;
+            }
+        };
+        out.push_str(&line);
+        out.push('\n');
+        for w in &t.warnings {
+            out.push_str(&format!("  {w}\n"));
+        }
+    }
+    if !not_installed.is_empty() {
+        out.push_str(&format!("not installed: {}\n", not_installed.join(", ")));
+    }
+    out
+}
+
+pub fn format_apply(r: &ApplyReport) -> String {
+    let mut out = format_targets(&r.targets);
+    out.push_str("Undo with: irida undo\n");
+    out
+}
+
+pub fn format_undo(r: &UndoReport) -> String {
+    let mut out = format!("Restored apply {} ({})\n", r.record_id, r.palette);
+    for (path, error) in &r.failures {
+        out.push_str(&format!("  could not restore {}: {error}\n", path.display()));
     }
     out
 }
