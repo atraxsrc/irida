@@ -89,3 +89,40 @@ fn errors_name_the_template() {
     assert!(check_syntax("t", "{% for %}").is_err());
     assert!(check_syntax("t", "{{ nope }}").is_ok());
 }
+
+#[test]
+fn export_flag() {
+    let p = palette("ember");
+    let apply = Renderer::new(&p);
+    assert_eq!(apply.render("t", "{{ export }}").unwrap(), "false");
+    assert_eq!(
+        apply
+            .render("t", "{{ slug if export else 'irida' }}")
+            .unwrap(),
+        "irida"
+    );
+    let export = Renderer::for_export(&p);
+    assert_eq!(export.render("t", "{{ export }}").unwrap(), "true");
+    assert_eq!(
+        export
+            .render("t", "{{ slug if export else 'irida' }}")
+            .unwrap(),
+        "ember"
+    );
+}
+
+#[test]
+fn empty_names_dropped() {
+    let text = common::fixture_text("palettes/ember.toml")
+        .replace("blue = \"Slate blue\"", "blue = \"\"")
+        .replace("cyan = \"Verdigris\"", "cyan = \"  \"");
+    let p = irida_core::palette::Palette::from_toml(&text).unwrap();
+    assert!(!p.names.contains_key(&irida_core::role::Role::Blue));
+    assert!(!p.names.contains_key(&irida_core::role::Role::Cyan));
+    assert_eq!(
+        Renderer::new(&p)
+            .render("t", "{{ names.blue }} {{ names.cyan }} {{ names.accent }}")
+            .unwrap(),
+        "blue cyan Ember"
+    );
+}

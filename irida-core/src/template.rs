@@ -5,7 +5,7 @@ use std::fmt;
 use std::str::FromStr;
 use std::sync::Arc;
 
-use minijinja::value::Value;
+use minijinja::value::{Value, ValueKind};
 use minijinja::{AutoEscape, Environment, Error, ErrorKind, UndefinedBehavior};
 
 use crate::color::{self, Rgb};
@@ -34,6 +34,15 @@ fn base_env() -> Environment<'static> {
     env.set_keep_trailing_newline(true);
     env.set_undefined_behavior(UndefinedBehavior::Strict);
     env.set_auto_escape_callback(|_| AutoEscape::None);
+    // Booleans print as `true` and `false`, the way the files Irida writes spell them.
+    env.set_formatter(|out, state, value| {
+        if value.kind() == ValueKind::Bool {
+            let b = value.is_true();
+            out.write_str(if b { "true" } else { "false" })?;
+            return Ok(());
+        }
+        minijinja::escape_formatter(out, state, value)
+    });
     env
 }
 
@@ -103,7 +112,17 @@ fn ansi_map(get: impl Fn(Ansi) -> Rgb) -> BTreeMap<&'static str, String> {
 }
 
 impl Renderer {
+    /// A renderer for applying to this machine: `export` is `false`.
     pub fn new(p: &Palette) -> Renderer {
+        Renderer::build(p, false)
+    }
+
+    /// A renderer for exporting a rice repo: `export` is `true`.
+    pub fn for_export(p: &Palette) -> Renderer {
+        Renderer::build(p, true)
+    }
+
+    fn build(p: &Palette, export: bool) -> Renderer {
         let derived = derive(p);
         let roles: BTreeMap<String, Rgb> = Role::ALL
             .iter()
@@ -118,6 +137,7 @@ impl Renderer {
         ctx.insert("slug".into(), Value::from(p.slug.clone()));
         ctx.insert("stem".into(), Value::from(p.stem()));
         ctx.insert("mode".into(), Value::from(p.mode.to_string()));
+        ctx.insert("export".into(), Value::from(export));
         ctx.insert(
             "notes".into(),
             Value::from(p.notes.clone().unwrap_or_default()),
