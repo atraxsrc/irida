@@ -80,7 +80,10 @@ fn readme_block_transparent_and_alone() {
         irida_core::slot::PinValue::None,
     );
     let block = readme_block(&p, None);
-    assert!(block.contains(" Pane, transparent | `#1B1E24` |"), "{block}");
+    assert!(
+        block.contains(" Pane, transparent | `#1B1E24` |"),
+        "{block}"
+    );
     assert!(!block.contains("| Role | Ember |"), "{block}");
     assert!(block.ends_with("`irida check .`.\n"), "{block}");
 }
@@ -145,8 +148,15 @@ fn switch_sh() {
             "rices/cosmic-{slug}-theme/scripts/switch.sh"
         )));
         assert_eq!(got, want, "{slug}");
-        assert_eq!(status(&report, "scripts/switch.sh"), [&ExportStatus::Created]);
-        let syntax = Command::new("/bin/bash").arg("-n").arg(&path).status().unwrap();
+        assert_eq!(
+            status(&report, "scripts/switch.sh"),
+            [&ExportStatus::Created]
+        );
+        let syntax = Command::new("/bin/bash")
+            .arg("-n")
+            .arg(&path)
+            .status()
+            .unwrap();
         assert!(syntax.success(), "{slug}");
     }
 
@@ -275,7 +285,10 @@ fn user_target_cannot_take_an_unmarked_readme() {
     fs::write(repo.join("README.md"), "# Mine\n").unwrap();
 
     let report = run(&env, &palette("ember"), None, &repo);
-    assert_eq!(fs::read_to_string(repo.join("README.md")).unwrap(), "# Mine\n");
+    assert_eq!(
+        fs::read_to_string(repo.join("README.md")).unwrap(),
+        "# Mine\n"
+    );
     let st = status(&report, "README.md");
     assert!(
         st.contains(&&ExportStatus::Skipped("no irida markers".into())),
