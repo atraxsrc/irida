@@ -161,8 +161,21 @@ fn py_unescape(s: &str) -> String {
     out
 }
 
+/// `s` as the inside of a Python string: backslash and quote escaped, and
+/// control characters written `\xHH`, so the line stays valid Python.
 fn py_escape(s: &str) -> String {
-    s.replace('\\', r"\\").replace('"', r#"\""#)
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str(r"\\"),
+            '"' => out.push_str(r#"\""#),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
+            c => out.push(c),
+        }
+    }
+    out
 }
 
 /// [`py_escape`] with `/` written `\x2f`, so the ` / ` between the container
@@ -186,7 +199,7 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
     let mut roles = BTreeMap::new();
     let mut names = BTreeMap::new();
     let mut keep = |role: Role, name: String| {
-        if name != capitalised(role) {
+        if !name.trim().is_empty() && name != capitalised(role) {
             names.insert(role, name);
         }
     };

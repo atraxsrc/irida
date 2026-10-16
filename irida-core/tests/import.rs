@@ -263,6 +263,40 @@ fn partial_names_round_trip_through_contrast_py() {
 }
 
 #[test]
+fn control_and_blank_names_through_contrast_py() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let mut ember = palette("ember");
+    ember.names.insert(Role::Text, "Ink\nDeep".into());
+    export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &ember,
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let path = copy.join("scripts/contrast.py");
+    let script = fs::read_to_string(&path).unwrap();
+    // The newline is escaped, so the line stays one valid Python string.
+    assert!(script.contains(r#"("Text", "Ink\x0aDeep", "#), "{script}");
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        got.names.get(&Role::Text).map(String::as_str),
+        Some("Ink\nDeep")
+    );
+
+    // A blank name in a hand-made script is no name, as in the README.
+    let blank = script.replace(r#"("Text", "Ink\x0aDeep", "#, r#"("Text", " ", "#);
+    assert_ne!(blank, script);
+    fs::write(&path, blank).unwrap();
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
+    assert!(!got.names.contains_key(&Role::Text), "{:?}", got.names);
+    got.validate().unwrap();
+}
+
+#[test]
 fn contrast_py_of_another_shape_is_flagged() {
     let env = TestEnv::new();
     let copy = copy_repo(&env, "ember");
