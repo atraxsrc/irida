@@ -326,7 +326,12 @@ fn refreshed_names_the_markers_record() {
     let id = applied.record_id().unwrap();
     // `s` never saw its first apply finish.
     assert_eq!(s.record_id(), None);
-    assert_eq!(s.refreshed(&env.dirs).record_id(), Some(id));
+    assert_eq!(s.clone().refreshed(&env.dirs).record_id(), Some(id));
+
+    // A record the apply made but stopped before writing to is not taken.
+    put_marker(&env, &format!("palette = \"ember\"\nrecord = {}\n", id + 1));
+    fs::create_dir_all(applies_dir(&env).join((id + 1).to_string())).unwrap();
+    assert_eq!(s.refreshed(&env.dirs).record_id(), None);
 }
 
 #[test]

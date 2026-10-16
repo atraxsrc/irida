@@ -489,7 +489,7 @@ pub(crate) fn drive_effects(state: &mut super::state::State, effects: Vec<Effect
                    queue: &mut std::collections::VecDeque<Msg>| {
         for e in effects {
             if e.is_io() {
-                queue.extend(perform(e, &state.ctx));
+                queue.extend(perform_caught(e, &state.ctx));
             } else {
                 ui.push(e);
             }
