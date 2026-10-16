@@ -118,6 +118,11 @@ pub enum Leave {
     },
     /// Open a wallpaper draft, unsaved.
     Draft(Palette),
+    /// Replace the open palette with an import, then open it.
+    Import {
+        palette: Box<Palette>,
+        notes: Vec<String>,
+    },
     Exit,
 }
 
@@ -1519,6 +1524,23 @@ impl State {
                 });
                 Vec::new()
             }
+            // On Discard the edits go at once, so a save cannot bury the
+            // import.
+            Leave::Import { palette, notes } => {
+                if let Some(Current::Editable {
+                    saved: Some(saved),
+                    working,
+                    ..
+                }) = &mut self.current
+                {
+                    *working = saved.clone();
+                }
+                vec![Effect::SaveImport {
+                    palette: *palette,
+                    notes,
+                    replace: true,
+                }]
+            }
             Leave::Exit => vec![Effect::Exit],
         }
     }
@@ -2311,6 +2333,16 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         }
         Msg::Imported(Err(e)) => vec![state.toast(format!("Not imported: {e}"))],
         Msg::ImportReplace => match state.dialog.take() {
+            // Over the open palette, its edits are asked about before the
+            // import is written.
+            Some(Dialog::ImportCollision {
+                palette,
+                notes,
+                replace_ok: true,
+            }) if state.open_is(&palette.slug) => state.leave(Leave::Import {
+                palette: Box::new(palette),
+                notes,
+            }),
             Some(Dialog::ImportCollision {
                 palette,
                 notes,
@@ -2359,7 +2391,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             let mut lines = vec![format!("Imported {}", p.name)];
             lines.extend(notes);
             let mut effects = vec![state.toast(lines.join("\n")), Effect::ListEntries];
-            effects.extend(state.leave(Leave::Open(p.slug)));
+            // The open palette was replaced, its edits asked about already:
+            // reopen it from the store.
+            if state.open_is(&p.slug) {
+                state.dialog = None;
+                effects.extend(state.go(Leave::Open(p.slug)));
+            } else {
+                effects.extend(state.leave(Leave::Open(p.slug)));
+            }
             effects
         }
         Msg::ImportSaved { result: Err(e), .. } => {
@@ -4103,6 +4142,71 @@ mod tests {
         assert_eq!(store.versions("ember").unwrap().len(), 4);
         assert_eq!(store.load("ember").unwrap().notes.as_deref(), Some("Kept"));
         assert_eq!(working(&state).notes.as_deref(), Some("Kept"));
+    }
+
+    #[test]
+    fn import_replace_over_dirty_open_palette_asks_first() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "noir"]);
+        let mut state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        let before = snapshot(&tmp);
+
+        // Cancel writes nothing and keeps the edits.
+        import(&mut state);
+        drive(&mut state, Msg::ImportReplace);
+        assert!(
+            matches!(&state.dialog, Some(Dialog::Unsaved(Leave::Import { palette, .. }))
+                if palette.slug == "ember"),
+            "{:?}",
+            state.dialog
+        );
+        assert_eq!(snapshot(&tmp), before);
+        drive(&mut state, Msg::CloseDialog);
+        assert!(state.dialog.is_none());
+        assert_eq!(snapshot(&tmp), before);
+        assert_eq!(store.versions("ember").unwrap().len(), 1);
+        assert!(state.dirty());
+        assert_eq!(working(&state).roles.get(Role::Accent), red());
+
+        // Save saves the edits as a version, then the import on top.
+        import(&mut state);
+        drive(&mut state, Msg::ImportReplace);
+        drive(&mut state, Msg::UnsavedSave);
+        assert!(state.dialog.is_none());
+        assert_eq!(store.versions("ember").unwrap().len(), 3);
+        assert_eq!(
+            store
+                .load_version("ember", 2)
+                .unwrap()
+                .roles
+                .get(Role::Accent),
+            red()
+        );
+        let imported = store.load("ember").unwrap();
+        assert_ne!(imported.roles.get(Role::Accent), red());
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert_eq!(working(&state), &imported);
+        assert!(!state.dirty());
+        assert_eq!(state.versions, store.versions("ember").unwrap());
+
+        // Discard drops the edits and opens the import.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        import(&mut state);
+        drive(&mut state, Msg::ImportReplace);
+        assert!(matches!(
+            &state.dialog,
+            Some(Dialog::Unsaved(Leave::Import { .. }))
+        ));
+        drive(&mut state, Msg::UnsavedDiscard);
+        assert!(state.dialog.is_none());
+        assert_eq!(store.versions("ember").unwrap().len(), 4);
+        let imported = store.load("ember").unwrap();
+        assert_ne!(imported.roles.get(Role::Accent), red());
+        assert_eq!(working(&state), &imported);
+        assert!(!state.dirty());
+        assert_eq!(state.versions, store.versions("ember").unwrap());
     }
 
     #[test]
