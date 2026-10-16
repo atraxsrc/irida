@@ -13,3 +13,4 @@ pub mod term;
 pub mod write;
 pub mod reload;
 pub mod native;
+pub mod record;
