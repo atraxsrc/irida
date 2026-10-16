@@ -122,7 +122,9 @@ rices use: Ember Day's fastfetch line colour has a blue channel of exactly
 | bright foreground, dim foreground | bright black, `muted` |
 
 **Ramps** for gradients (cava bars, btop meters) interpolate in OKLab, so steps
-look even. Templates ask for them by name: `ramp("comment", "accent", 8)`.
+look even. Templates ask for them by name: cava's bars run
+`ramp("success", "accent", 4)` then `ramp("accent", "error", 5)`, the same
+success to accent to error order as btop's meters.
 
 Ember's `normal.black` is the hand-picked `#2A2F38`; the rule gives
 `#2B2F37`, 1 off. Import keeps the real value as a pin.
@@ -203,7 +205,11 @@ background = "Stone"
 ```
 
 Templates and export also get a `stem`: the name with spaces removed
-(`EmberDay`), used in rice file names such as `btop/EmberDay.theme`.
+(`EmberDay`), used in rice file names such as `btop/EmberDay.theme`. The
+COSMIC palette inside the desktop theme uses a fourth form, spaces replaced by
+hyphens (`Ember-Day`), as the rices do. A name is ASCII letters and digits in
+words separated by single spaces, because it lands unescaped in shell, JSON,
+Lua and RON files. An empty display name in `[names]` counts as missing.
 
 Import reads an existing rice repo. Roles come from `scripts/contrast.py` when
 it exists (Ember and Ember Day only). Otherwise they come from
@@ -216,6 +222,17 @@ scheme is the one named in
 of `cosmic-term/*.ron` (Noir ships six). Every slot that differs from its
 derived value is imported as a pin, so Noir and Dossier open unchanged. Base16
 import comes later.
+
+The folder must be named `cosmic-<slug>-theme` and hold exactly one
+`cosmic/*.ron`, whose file name gives the stem and whose palette variant gives
+the mode. The name is the terminal scheme's name, and it must match the stem
+(spaces removed); otherwise import stops and says which to rename. `pair` and `notes` are left
+unset, since a repo has no machine-readable source for them. Pinning is done in
+stages (normal, then bright, then the rest) so a pinned normal colour is not
+pinned again in its bright and dim forms: Ember needs 2 pins, Ember Day 0,
+Noir 22 and Dossier 21. The desktop theme's own hand-tuned fields beyond
+`cosmic.neutral_10` and `cosmic.gray_2` are not imported, so exporting an
+imported Noir or Dossier rewrites their `cosmic/<Stem>.ron`; export says so.
 
 ## 4. Targets
 
@@ -239,9 +256,14 @@ comment = "#"
 [reload]
 signal = { process = "cava", signal = "USR2" }
 
-[rice]
+[[rice]]
 path = "cava/config.colors"
-install = "block"
+template = "cava.tmpl"
+
+[[rice]]
+path = "cava/install.sh"
+template = "install.sh.tmpl"
+executable = true
 ```
 
 ### Write kinds
@@ -251,7 +273,7 @@ install = "block"
 | `file` | Irida owns the whole file | btop theme, Neovim colorscheme |
 | `block` | Irida writes only between its begin and end marker comments | cava colours, zsh colours |
 | `key` | Irida sets one key's value and touches nothing else | btop's `color_theme` |
-| `native` | Built-in only, written through COSMIC's config library | COSMIC desktop, COSMIC Terminal |
+| `native` | Built-in only; Irida writes COSMIC's per-key config files itself, byte for byte as COSMIC's config library would | COSMIC desktop, COSMIC Terminal |
 
 `key` exists for apps that rewrite their own config and would delete marker
 comments. btop rewrites `btop.conf` on exit. A `key` file entry names the key
@@ -267,6 +289,20 @@ Paths expand `~` and honour `$XDG_CONFIG_HOME`. A symlinked config is written
 through to its target, so dotfile managers keep working, and the file keeps its
 permissions. A file that did not exist before is recorded as absent and
 deleted on undo.
+
+A `file` entry with `create_only = true` is written only when the file does
+not exist yet; an existing file is left alone, with a note when it lacks a
+line Irida needs. lsd needs this:
+`color.theme: custom` lives in its YAML `config.yaml`, which no flat `key` edit
+can set safely.
+
+Two writes to the same file in one apply (from two targets, or a `key` and a
+`block` in one target) would overwrite each other, since each is planned from
+the file on disk. The second is skipped with a warning naming the first target.
+
+A `file` write that replaces an existing file with different contents, which
+the previous apply did not write, says so ("replaced your file; irida undo
+restores it"): fastfetch's `config.jsonc` is a whole layout, not just colours.
 
 Block markers:
 
@@ -288,28 +324,41 @@ from 0 to 1 (`rgba(232,113,58,0.8)`), `ansi` (`38;2;232;113;58`). Functions:
 `mix(a, b, t)` (the derivation mix; fastfetch lines, zsh autosuggest and the
 Neovim `bg2` need it) and `ramp(from, to, steps)`. Both take roles, slots or
 hex strings; a role wins over a slot of the same name (`background`). `ramp` steps run from 2 to 16 and each step is clamped into sRGB
-before rounding.
+before rounding. An `export` variable is `false` when applying and `true` when
+exporting a rice, so one template can name the Neovim scheme `irida` on the
+user's machine and `<slug>` in the repo, or leave the zsh aliases out of the
+`~/.zshrc` block.
 
 Other `target.toml` fields: `detect.flatpak` (the flatpak id), `reload.command`
-(a command line, the alternative to `reload.signal`) and
-`reload.min_version = { command = "btop --version", version = "1.3.2" }`.
-Below that version Irida reports "restart" instead of signalling: SIGUSR2
-kills btop 1.3.0. `[rice]` is an array (`[[rice]]`), one entry per file, since
-btop needs a `file` for the theme and a `key` for `color_theme`.
+(a command line, the alternative to `reload.signal`),
+`reload.min_version = { command = "btop --version", version = "1.3.2" }` and
+`reload.hint` (a sentence shown as "restart" advice when nothing can be
+reloaded, such as "open a new shell or run exec zsh"). A signal is sent only
+when the target's binary is on `PATH`; a target found only by its config folder
+cannot be running. Below the minimum
+version Irida reports "restart" instead of signalling: SIGUSR2 kills btop
+1.3.0. `[[rice]]` is an array, one entry per exported file: `path` (itself a
+template, such as `btop/{{ stem }}.theme`, and never absolute or outside the
+repo), `template`, and `executable` for install scripts. Install scripts are
+per-app templates that reproduce the rices' own `install.sh` files, not
+scripts generated from a write kind, because each app installs differently.
+Rice templates are syntax-checked at export, not when targets load, so a broken
+rice template never blocks apply.
 
 ### Detection
 
 A target is detected when its binary is on `PATH` or its config folder exists,
 including the flatpak config location under `~/.var/app/<id>/config/` when the
-target lists a flatpak id. Undetected targets are hidden under "Not installed".
+target lists a flatpak id. `detect.config` may also name a file, such as
+`~/.zshrc`, so a bash user who merely has zsh installed does not get a new
+`~/.zshrc`. Undetected targets are hidden under "Not installed".
 
 ### Native targets
 
-- **COSMIC desktop.** Build a `cosmic_theme::ThemeBuilder` from the palette,
-  write it with `write_entry` (generated by the `CosmicConfigEntry` derive) to
-  `ThemeBuilder::dark_config()` or `light_config()`, then write the built
-  `Theme` to `Theme::dark_config()` or `light_config()`. This is what Settings'
-  Import does. A pair fills both slots. Apply reads the user's current builder
+- **COSMIC desktop.** Build a `cosmic_theme::ThemeBuilder` from the palette
+  and its `Theme` with `build()`, staged in a temporary folder (see below);
+  this is the mechanism Settings' Import uses for the dark or light slot. A
+  pair fills both slots. Apply reads the user's current builder
   and overlays only the colour fields, so their spacing and radii survive.
   Export writes the rices' shared house style instead (radii 2.0, `frosted:
   Low`, `gaps: (0, 7)`, `active_hint: 1`, the alpha map). The `CosmicPalette`
@@ -317,9 +366,25 @@ target lists a flatpak id. Undetected targets are hidden under "Not installed".
   is a linear ramp from background (dark) or container (light) to text, with
   dark `neutral_10` pinnable as `cosmic.neutral_10`; `neutral_tint` is
   `neutral_5`; `gray_1` is container; `gray_2` is `normal.black` (dark) or
-  pane (light). Irida builds configs with `Config::with_custom_path` so tests
-  never touch the real config folder.
-- **COSMIC mode.** Applying a single palette switches COSMIC to that palette's
+  pane (light). `Config::with_custom_path` is only ever pointed at a
+  temporary folder, in tests and in use.
+
+  In detail: Irida copies the user's builder key files into a temporary
+  folder, reads them there with `get_entry` (a bad key falls back to its
+  default, with a warning), sets the 11 colour keys (`palette`,
+  `neutral_tint`, `bg_color`, `primary_container_bg`, `secondary_container_bg`,
+  `text_tint`, `accent`, `success`, `warning`, `destructive`, and
+  `window_hint` = accent), and lets `write_entry` write the builder and the
+  built `Theme` into that temporary folder. The 11 builder colour keys and all
+  39 `Theme` keys are then written to the real config as ordinary key files,
+  so the apply record covers them; the user's builder keys for spacing,
+  radii, gaps and frosting are never written (the built `Theme` carries their
+  values through). `get_entry` on the real folder would create
+  folders, so it is never called there. Because of the overlay, applying a
+  rice's palette does not give the same `Theme` as importing that rice's
+  `.ron` in Settings, which also sets its house style. GTK and Qt theme exports
+  are left to COSMIC itself.
+- **COSMIC mode.** Part of the COSMIC desktop target. Applying a single palette switches COSMIC to that palette's
   mode (`com.system76.CosmicTheme.Mode`, `is_dark`), as `switch.sh` does today.
   Applying a pair leaves the mode alone, since both slots are filled. Only
   `is_dark` is written; when `auto_switch` is on the result warns that COSMIC
@@ -415,10 +480,23 @@ claude.ai artifacts on 2026-10-16.
 
 ## 6. Rice repo export
 
-Each target's `[rice]` section gives `path`, where its output goes in the repo,
-and `install`, the write kind (`file`, `block` or `key`) the generated
-`install.sh` uses on the user's machine. Export walks the same targets as Apply, so a template
-exists once.
+Each target's `[[rice]]` entries give the files it adds to the repo (section
+4). Export walks every built-in and user target that has them, installed or
+not, so a template exists once. The native targets export the desktop
+`cosmic/<Stem>.ron` (the house style plus the palette, matching `Ember.ron`
+byte for byte) and the terminal `cosmic-term/<Stem>-term.ron`.
+
+`irida export <palette> <folder>`: when `<folder>` is named
+`cosmic-<slug>-theme` it is the repo itself; a folder named for another slug
+is an error; any other folder is the parent, and the repo is created inside
+it. Missing folders are created. Export exits 0 even when contrast fails
+(`check` is the gate) and 2 when a write fails. Nothing is written outside the
+repo, not even through a symlinked folder inside it, and two sources never
+write the same repo file: built-in targets, the native exports, Irida's own
+files and the README come first, and a user target that collides is skipped.
+When existing files are rewritten, the summary says how many and suggests
+`git diff`; a rewritten desktop `.ron` gets its own note, since its hand-tuned
+radii, gaps and colours are replaced.
 
 Export writes into `cosmic-<slug>-theme/`, matching the current repos:
 
@@ -429,10 +507,20 @@ Export writes into `cosmic-<slug>-theme/`, matching the current repos:
   `nvim/`, `fastfetch/`, `lsd/`, `zsh/<slug>.zsh` and `cava/` (new), each
   with its `install.sh`, made executable
 - `scripts/switch.sh`, the shared script with its settings block filled in
-  and the slug added to its `RICES` list
+  and the slug added to its `RICES` list. Three changes make it work in a repo
+  Irida exported: it skips Claude Desktop and `update_system.sh` when they are
+  absent, and runs `cava/install.sh`. The other repos can take the same lines.
 - `README.md` with the palette table, and `docs/showcase.md` as a skeleton
   with the contrast table (window and pane ratios)
-- `.gitignore` and `.pre-commit-config.yaml` when absent
+- `.gitignore`, `.pre-commit-config.yaml` and the `cosmic/config/` baseline
+  files only when absent. `icon_theme` is never written, since no icon pack
+  exists for a new rice.
+
+Neovim gets `colors/<slug>.lua` in the repo but only `colors/irida.lua` on the
+user's machine (no LazyVim spec, whose load order Irida cannot control), and
+apply says to run `:colorscheme irida`. lsd's colours are written as truecolor
+`[r, g, b]` arrays, which lsd 1.0 reads, instead of the rices' hand-picked
+256-colour indices.
 
 Exporting into an existing rice repo replaces only generated files. In
 `README.md` and `docs/showcase.md`, Irida fills only its marked blocks:
@@ -443,7 +531,10 @@ Exporting into an existing rice repo replaces only generated files. In
 <!-- <<< irida palette <<< -->
 ```
 
-A file with no markers is left alone and named in the summary. The summary
+`docs/showcase.md` uses the same form with `irida contrast`. A file with no
+markers is left alone and named in the summary; a missing file gets the full
+skeleton. Files that look generated but were not written this time (another
+`cosmic/*.ron`) are named, never deleted. The summary
 lists what is still done by hand (wallpaper, icons, cursor, Firefox,
 Claude Desktop, `update_system.sh`, LICENSE, screenshot) and any contrast
 failures.
@@ -524,8 +615,9 @@ uses edition 2024 and Rust 1.93 or newer, as libcosmic does.
 3. Built-in targets: COSMIC desktop, COSMIC Terminal, btop, Neovim, fastfetch,
    lsd, zsh, cava (days 6 to 9)
 4. App: layout B, role editor, preview scene, Apply sheet (days 9 to 12)
-5. Compare, pairs, import of existing rices, rice export, .deb (days 12 to 13)
-6. Try it live (day 14; the first thing to slip if time runs short)
+5. Compare, pairs, import of existing rices, rice export (days 12 to 13)
+6. The .deb (it needs the app, its `.desktop` file and icon), then try it live
+   (day 14; try it live is the first thing to slip if time runs short)
 
 ## 12. Later
 
