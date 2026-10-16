@@ -2361,9 +2361,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Some(Dialog::ImportCollision {
                 mut palette, notes, ..
             }) => {
-                let entries = &state.entries;
-                let name =
-                    keep_both_name(&palette.name, |slug| entries.iter().any(|e| e.slug == slug));
+                // An open draft's slug is taken too, though not yet stored.
+                let name = keep_both_name(&palette.name, |slug| {
+                    state.entries.iter().any(|e| e.slug == slug) || state.open_is(slug)
+                });
                 let Some(name) = name else {
                     let text = format!(
                         "Not imported: {0} Two to {0} Ten all exist. Delete one, or import under another name.",
@@ -2391,14 +2392,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             let mut lines = vec![format!("Imported {}", p.name)];
             lines.extend(notes);
             let mut effects = vec![state.toast(lines.join("\n")), Effect::ListEntries];
-            // The open palette was replaced, its edits asked about already:
-            // reopen it from the store.
-            if state.open_is(&p.slug) {
-                state.dialog = None;
-                effects.extend(state.go(Leave::Open(p.slug)));
-            } else {
-                effects.extend(state.leave(Leave::Open(p.slug)));
-            }
+            // A Replace over the open palette asked about its edits before
+            // it wrote, so this only asks about an edit made since, or an
+            // open draft.
+            effects.extend(state.leave(Leave::Open(p.slug)));
             effects
         }
         Msg::ImportSaved { result: Err(e), .. } => {
@@ -4207,6 +4204,56 @@ mod tests {
         assert_eq!(working(&state), &imported);
         assert!(!state.dirty());
         assert_eq!(state.versions, store.versions("ember").unwrap());
+    }
+
+    /// Opens an unsaved draft called `name`, built from the open palette.
+    fn open_draft(state: &mut State, name: &str) -> Palette {
+        let mut p = working(state).clone();
+        p.name = name.to_string();
+        p.slug = slug_from_name(name);
+        state.go(Leave::Draft(p.clone()));
+        assert!(state.dirty());
+        p
+    }
+
+    #[test]
+    fn import_over_open_draft_asks_first() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["noir"]);
+        let mut state = start(&tmp);
+        let draft = open_draft(&mut state, "Ember");
+
+        // No stored ember, so it saves as new, then asks about the draft.
+        import(&mut state);
+        assert_eq!(slugs(&store), ["ember", "noir"]);
+        assert!(
+            matches!(&state.dialog, Some(Dialog::Unsaved(Leave::Open(s))) if s == "ember"),
+            "{:?}",
+            state.dialog
+        );
+        assert_eq!(working(&state), &draft);
+        assert!(state.dirty());
+    }
+
+    #[test]
+    fn import_keep_both_skips_open_draft() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["noir"]);
+        let mut state = start(&tmp);
+        import(&mut state);
+        assert_eq!(open_slug(&state), Some("ember"));
+        let draft = open_draft(&mut state, "Ember Two");
+
+        import(&mut state);
+        drive(&mut state, Msg::ImportKeepBoth);
+        assert_eq!(slugs(&store), ["ember", "emberthree", "noir"]);
+        assert!(
+            matches!(&state.dialog, Some(Dialog::Unsaved(Leave::Open(s))) if s == "emberthree"),
+            "{:?}",
+            state.dialog
+        );
+        assert_eq!(working(&state), &draft);
+        assert!(state.dirty());
     }
 
     #[test]
