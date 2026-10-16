@@ -15,7 +15,7 @@ ron.workspace = true
 include_dir.workspace = true
 thiserror.workspace = true
 nix.workspace = true
-
-[dev-dependencies]
 cosmic-config.workspace = true
 tempfile.workspace = true
+
+[dev-dependencies]

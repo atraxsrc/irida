@@ -1,5 +1,6 @@
 //! Native targets: applications whose own config files Irida plans directly.
 
+pub mod cosmic_desktop;
 pub mod cosmic_term;
 
 use std::path::PathBuf;
@@ -48,6 +49,7 @@ pub fn check_palettes(palettes: &[&Palette]) -> Result<(), TargetError> {
 pub fn export(kind: NativeKind, p: &Palette) -> Vec<ExportFile> {
     match kind {
         NativeKind::CosmicTerm => cosmic_term::export(p),
+        NativeKind::CosmicDesktop => cosmic_desktop::export(p),
     }
 }
 
@@ -59,5 +61,6 @@ pub fn plan(
 ) -> Result<NativePlan, TargetError> {
     match kind {
         NativeKind::CosmicTerm => cosmic_term::plan(palettes, dirs),
+        NativeKind::CosmicDesktop => cosmic_desktop::plan(palettes, dirs),
     }
 }
