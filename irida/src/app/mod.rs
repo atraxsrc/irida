@@ -63,8 +63,8 @@ impl App {
         self.run_effects(effects)
     }
 
-    /// Toasts and exit happen here; the IO effects run in order on one
-    /// blocking thread, so a later effect sees an earlier one's writes.
+    /// Toasts, timers and exit happen here; the IO effects run in order on
+    /// one blocking thread, so a later effect sees an earlier one's writes.
     fn run_effects(&mut self, effects: Vec<Effect>) -> Task<Message> {
         let mut tasks = Vec::new();
         let mut io = Vec::new();
@@ -74,6 +74,12 @@ impl App {
                 Effect::Copy(text) => tasks.push(cosmic::iced::clipboard::write(text)),
                 Effect::ChooseFolder(purpose) => tasks.push(choose_folder(purpose)),
                 Effect::ChooseImage => tasks.push(choose_image()),
+                Effect::StartTimer(delay, generation) => {
+                    tasks.push(cosmic::task::future(async move {
+                        tokio::time::sleep(delay).await;
+                        Message::Ui(Msg::LiveTick(generation))
+                    }));
+                }
                 Effect::Exit => tasks.push(cosmic::iced::exit()),
                 effect => {
                     debug_assert!(effect.is_io());

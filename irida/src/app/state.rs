@@ -4,6 +4,7 @@
 
 use std::collections::BTreeMap;
 use std::path::PathBuf;
+use std::time::Duration;
 
 use cosmic::cosmic_theme::palette::{FromColor, Hsv, Srgb};
 use cosmic::iced::Color;
@@ -14,6 +15,7 @@ use irida_core::contrast::{RoleContrast, check};
 use irida_core::derive::derive;
 use irida_core::draft::{Cluster, draft, draft_palette};
 use irida_core::export::ExportLine;
+use irida_core::live::LiveSession;
 use irida_core::palette::{Mode, Palette, Roles, slug_from_name, validate_name};
 use irida_core::reload::ReloadStatus;
 use irida_core::role::Role;
@@ -154,6 +156,70 @@ pub enum Dialog {
     },
     /// A snapshot name for saved version `n`.
     Snapshot { n: u32, name: String },
+    /// Keep or Revert the live session, then do `then`. `pending` is the
+    /// session a previous run left open, which has no Cancel.
+    KeepOrRevert {
+        then: Option<LiveThen>,
+        pending: bool,
+    },
+}
+
+/// What waits for the live session to end.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum LiveThen {
+    /// Show the Switch list.
+    Switch,
+    /// Ask to delete the open palette.
+    Delete,
+    /// Open the Apply sheet.
+    Apply,
+    /// Leave the open palette (open another, create, close).
+    Leave(Leave),
+}
+
+/// How a live session ends.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LiveEnd {
+    Keep,
+    Revert,
+}
+
+/// An open try-it-live session, as the app drives it. Applies run one at a
+/// time: an edit made while one runs waits, and the newest runs next.
+#[derive(Debug, Clone)]
+pub struct Live {
+    /// `None` while the session is starting.
+    session: Option<LiveSession>,
+    /// The palette it applies.
+    slug: String,
+    /// The text-field edit the next tick applies; older ticks are stale.
+    generation: u64,
+    /// A start, an apply or the end is running.
+    busy: bool,
+    /// An edit waits for the running apply.
+    queued: bool,
+    /// The session a previous run left open: offered Keep or Revert, never
+    /// applied to.
+    from_last_run: bool,
+    /// What the last apply sent, so an unchanged copy is not sent again.
+    applied: Option<Palette>,
+    /// Keep or Revert, chosen; runs once nothing else is running.
+    end: Option<(LiveEnd, Option<LiveThen>)>,
+}
+
+impl Live {
+    fn new(slug: String, session: Option<LiveSession>, from_last_run: bool) -> Live {
+        Live {
+            busy: session.is_none(),
+            session,
+            slug,
+            generation: 0,
+            queued: false,
+            from_last_run,
+            applied: None,
+            end: None,
+        }
+    }
 }
 
 /// A palette the open one can be paired with.
@@ -552,6 +618,18 @@ fn half_label(p: &Palette) -> String {
 /// What the Compare chip's tooltip says while it is disabled.
 pub const COMPARE_NEEDS_VERSION: &str = "Save a version first (Ctrl+S)";
 
+/// How long after the last keystroke a text field's edit is applied live.
+pub const LIVE_DELAY: Duration = Duration::from_millis(400);
+
+/// The try-live toggle's tooltip for a draft that was never saved.
+pub const LIVE_NEEDS_SAVE: &str = "Save the palette first";
+
+/// The try-live toggle's tooltip when no target reloads live.
+pub const LIVE_NEEDS_TARGET: &str = "Try it live needs COSMIC, COSMIC Terminal or cava";
+
+/// Undo during a live session.
+pub const LIVE_BLOCKS_UNDO: &str = "Turn off Try it live first: Keep or Revert, then undo.";
+
 /// The error a hex field shows for anything but six hex digits.
 pub const HEX_ERROR: &str = "Use six hex digits, like #E8713A";
 
@@ -849,8 +927,27 @@ pub enum Msg {
         name: Option<String>,
         result: Result<(), String>,
     },
-    /// An item a later version builds.
-    NotYet(&'static str),
+    // Try it live.
+    /// The header toggle.
+    LiveToggle(bool),
+    LiveStarted(Result<LiveSession, String>),
+    /// A text field's timer ran out for this generation.
+    LiveTick(u64),
+    /// A live apply finished; `session` carries its record.
+    LiveApplied {
+        session: LiveSession,
+        result: Result<ApplyReport, ApplyFailure>,
+    },
+    /// Keep or Revert in the dialog.
+    LiveKeep,
+    LiveRevert,
+    LiveKept(Result<(), String>),
+    /// `None` when the session had written nothing.
+    LiveReverted(Result<Option<UndoDone>, String>),
+    /// The session a previous run left open, read at start.
+    LivePending(Option<LiveSession>),
+    /// Whether a target that reloads live is installed and usable.
+    LiveTargets(bool),
 }
 
 #[derive(Debug, Clone)]
@@ -930,6 +1027,22 @@ pub enum Effect {
     ChooseFolder(FolderFor),
     /// Ask for an image with the file chooser.
     ChooseImage,
+    /// Open a live session for this palette slug.
+    StartLive(String),
+    /// Apply to the targets that reload live, in the session.
+    LiveApply {
+        session: LiveSession,
+        palette: Palette,
+        settings: Settings,
+    },
+    /// Send `Msg::LiveTick(generation)` after the delay.
+    StartTimer(Duration, u64),
+    KeepLive(LiveSession),
+    RevertLive(LiveSession),
+    /// Read the session a previous run left open.
+    FindPendingLive,
+    /// Read whether a target that reloads live can be used.
+    LoadLiveTargets(Settings),
     Exit,
 }
 
@@ -942,6 +1055,7 @@ impl Effect {
                 | Effect::Copy(_)
                 | Effect::ChooseFolder(_)
                 | Effect::ChooseImage
+                | Effect::StartTimer(..)
                 | Effect::Exit
         )
     }
@@ -979,6 +1093,10 @@ pub struct State {
     pair_palette: Option<Palette>,
     /// A version Compare read, by number, or why it could not be read.
     compare_version: Option<(u32, Result<Palette, String>)>,
+    /// The open try-it-live session.
+    live: Option<Live>,
+    /// A target that reloads live is installed and usable.
+    live_targets: bool,
 }
 
 /// Toasts kept in `State::toasts`.
@@ -1005,6 +1123,8 @@ impl State {
             versions: Vec::new(),
             pair_palette: None,
             compare_version: None,
+            live: None,
+            live_targets: false,
         };
         (state, vec![Effect::SeedStarters, Effect::LoadStore])
     }
@@ -1121,6 +1241,15 @@ impl State {
                 Some(COMPARE_NEEDS_VERSION)
             }
             HeaderItem::Pair if self.unsaved_draft() => Some("Save it first (Ctrl+S)"),
+            HeaderItem::TryLive if self.live.is_none() => {
+                if self.unsaved_draft() {
+                    Some(LIVE_NEEDS_SAVE)
+                } else if self.editable() && !self.live_targets {
+                    Some(LIVE_NEEDS_TARGET)
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -1270,7 +1399,12 @@ impl State {
 
     pub fn header_enabled(&self, item: HeaderItem) -> bool {
         match item {
-            HeaderItem::Mode | HeaderItem::TryLive | HeaderItem::Apply => self.editable(),
+            HeaderItem::Mode | HeaderItem::Apply => self.editable(),
+            // On, it can always be turned off (unless it is ending).
+            HeaderItem::TryLive => match &self.live {
+                Some(live) => live.end.is_none(),
+                None => self.stored_palette().is_some() && self.live_targets,
+            },
             // Pairing works on the stored palette, which a draft is not yet.
             HeaderItem::Pair => self.stored_palette().is_some(),
             HeaderItem::Compare => self.stored_palette().is_some() && !self.versions.is_empty(),
@@ -1356,6 +1490,9 @@ impl State {
     /// Do `leave`, first asking Save, Discard or Cancel when there are
     /// unsaved changes.
     fn leave(&mut self, leave: Leave) -> Vec<Effect> {
+        if self.live.is_some() {
+            return self.ask_live(LiveThen::Leave(leave));
+        }
         if self.dirty() {
             self.dialog = Some(Dialog::Unsaved(leave));
             Vec::new()
@@ -1487,6 +1624,122 @@ impl State {
         }
     }
 
+    /// Try it live is on (or ending).
+    pub fn live_on(&self) -> bool {
+        self.live.is_some()
+    }
+
+    /// Ask Keep or Revert, then do `then`.
+    fn ask_live(&mut self, then: LiveThen) -> Vec<Effect> {
+        self.menu_open = false;
+        // Already ending: `then` follows it (the newest request wins).
+        if let Some(Live {
+            end: Some((_, waiting)),
+            ..
+        }) = &mut self.live
+        {
+            *waiting = Some(then);
+            return Vec::new();
+        }
+        self.dialog = Some(Dialog::KeepOrRevert {
+            then: Some(then),
+            pending: false,
+        });
+        Vec::new()
+    }
+
+    /// The session, when the open palette's edits are applied to it.
+    fn live_for_edits(&mut self) -> Option<&mut Live> {
+        let slug = match &self.current {
+            Some(Current::Editable { slug, .. }) => slug.clone(),
+            _ => return None,
+        };
+        self.live
+            .as_mut()
+            .filter(|l| !l.from_last_run && l.end.is_none() && l.slug == slug)
+    }
+
+    /// An edit to apply at once (a picker release, a pin): it runs now, or
+    /// next when an apply is running. A text field's waiting timer is
+    /// made stale, since this apply carries its edit too.
+    fn live_now(&mut self) -> Vec<Effect> {
+        let Some(live) = self.live_for_edits() else {
+            return Vec::new();
+        };
+        live.generation += 1;
+        live.queued = true;
+        self.live_next()
+    }
+
+    /// A text field's edit: applied `LIVE_DELAY` after the last keystroke.
+    fn live_later(&mut self) -> Vec<Effect> {
+        let Some(live) = self.live_for_edits() else {
+            return Vec::new();
+        };
+        live.generation += 1;
+        vec![Effect::StartTimer(LIVE_DELAY, live.generation)]
+    }
+
+    /// What the session does next, once nothing runs: end when asked,
+    /// else apply the waiting edit.
+    fn live_next(&mut self) -> Vec<Effect> {
+        let working = self.current.as_ref().and_then(Current::working).cloned();
+        let settings = self.settings.clone();
+        let Some(live) = self.live.as_mut() else {
+            return Vec::new();
+        };
+        if live.busy {
+            return Vec::new();
+        }
+        let Some(session) = live.session.clone() else {
+            return Vec::new();
+        };
+        if let Some((end, _)) = &live.end {
+            live.busy = true;
+            live.queued = false;
+            return vec![match end {
+                LiveEnd::Keep => Effect::KeepLive(session),
+                LiveEnd::Revert => Effect::RevertLive(session),
+            }];
+        }
+        if !std::mem::take(&mut live.queued) {
+            return Vec::new();
+        }
+        // Edits that cannot be saved are not applied either; Save says why.
+        let Some(palette) = working.filter(|w| {
+            w.slug == live.slug && w.validate().is_ok() && live.applied.as_ref() != Some(w)
+        }) else {
+            return Vec::new();
+        };
+        live.busy = true;
+        live.applied = Some(palette.clone());
+        vec![Effect::LiveApply {
+            session,
+            palette,
+            settings,
+        }]
+    }
+
+    /// The session ended (or never started): do what waited for it.
+    fn live_then(&mut self, then: Option<LiveThen>) -> Vec<Effect> {
+        match then {
+            None => Vec::new(),
+            Some(LiveThen::Switch) => update(self, Msg::ShowSwitch),
+            Some(LiveThen::Delete) => update(self, Msg::ShowDelete),
+            Some(LiveThen::Apply) => update(self, Msg::ShowApply),
+            Some(LiveThen::Leave(leave)) => self.leave(leave),
+        }
+    }
+
+    /// A Keep or Revert that failed: the session stays on, so it can be
+    /// ended again.
+    fn live_end_failed(&mut self) {
+        if let Some(live) = self.live.as_mut() {
+            live.busy = false;
+            live.end = None;
+        }
+    }
+
     /// The slug to open at start: the last palette when it is readable, else
     /// the first readable entry, else the first entry.
     fn start_slug(&self) -> Option<String> {
@@ -1522,6 +1775,8 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     )));
                 }
             }
+            effects.push(Effect::FindPendingLive);
+            effects.push(Effect::LoadLiveTargets(state.settings.clone()));
             if let Some(slug) = state.start_slug() {
                 effects.push(Effect::OpenPalette(slug));
             }
@@ -1619,18 +1874,16 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             vec![state.toast(format!("Could not save your settings: {e}"))]
         }
         Msg::SetRole(role, value) => {
-            if let Some(working) = state.working_mut() {
-                working.roles.set(role, value);
-                state.fields.remove(&Field::Hex(role));
-            }
-            Vec::new()
+            set_role(state, role, value);
+            state.live_now()
         }
-        Msg::SetMode(mode) => {
-            if let Some(working) = state.working_mut() {
+        Msg::SetMode(mode) => match state.working_mut() {
+            Some(working) => {
                 working.mode = mode;
+                state.live_later()
             }
-            Vec::new()
-        }
+            None => Vec::new(),
+        },
         Msg::Expand(role) => {
             let Some(working) = state.current.as_ref().and_then(Current::working) else {
                 return Vec::new();
@@ -1649,10 +1902,12 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             // The model's own task only writes the clipboard on Copied,
             // which `Effect::Copy` does instead.
             drop(state.picker.update::<Msg>(u.clone()));
-            let color = match u {
-                ColorPickerUpdate::ActiveColor(hsv) => Some(rgb_from_hsv(hsv)),
+            // A drag shows in the editor at once and reaches the live apps
+            // when it is released.
+            let (color, release) = match u {
+                ColorPickerUpdate::ActiveColor(hsv) => (Some(rgb_from_hsv(hsv)), false),
                 ColorPickerUpdate::ActionFinished | ColorPickerUpdate::AppliedColor => {
-                    state.picker.get_applied_color().map(rgb_from_color)
+                    (state.picker.get_applied_color().map(rgb_from_color), true)
                 }
                 ColorPickerUpdate::Copied(_) => {
                     let hex = state
@@ -1662,10 +1917,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                         .map(|p| p.roles.get(role).to_hex());
                     return hex.map(Effect::Copy).into_iter().collect();
                 }
-                _ => None,
+                _ => (None, false),
             };
             match color {
-                Some(c) => update(state, Msg::SetRole(role, c)),
+                Some(c) if release => update(state, Msg::SetRole(role, c)),
+                Some(c) => {
+                    set_role(state, role, c);
+                    Vec::new()
+                }
                 None => Vec::new(),
             }
         }
@@ -1685,17 +1944,18 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 }
                 Err(_) => state.set_field(Field::Hex(role), text, Some(HEX_ERROR)),
             }
-            Vec::new()
+            state.live_later()
         }
         Msg::SetName(role, text) => {
-            if let Some(working) = state.working_mut() {
-                if text.trim().is_empty() {
-                    working.names.remove(&role);
-                } else {
-                    working.names.insert(role, text);
-                }
+            let Some(working) = state.working_mut() else {
+                return Vec::new();
+            };
+            if text.trim().is_empty() {
+                working.names.remove(&role);
+            } else {
+                working.names.insert(role, text);
             }
-            Vec::new()
+            state.live_later()
         }
         Msg::Pin(slot) => {
             if let Some(working) = state.working_mut()
@@ -1708,14 +1968,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     .expect("a colour pin is always allowed");
                 state.fields.remove(&Field::PinHex(slot));
             }
-            Vec::new()
+            state.live_now()
         }
         Msg::Unpin(slot) => {
             if let Some(working) = state.working_mut() {
                 working.pins.remove(slot);
                 state.fields.remove(&Field::PinHex(slot));
             }
-            Vec::new()
+            state.live_now()
         }
         Msg::PinHexInput(slot, text) => {
             let Some(working) = state.working_mut() else {
@@ -1734,7 +1994,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 }
                 Err(_) => state.set_field(Field::PinHex(slot), text, Some(HEX_ERROR)),
             }
-            Vec::new()
+            state.live_later()
         }
         Msg::NoBackground(on) => {
             if let Some(working) = state.working_mut() {
@@ -1748,14 +2008,15 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     working.pins.remove(Slot::Background);
                 }
             }
-            Vec::new()
+            state.live_now()
         }
-        Msg::SetNotes(text) => {
-            if let Some(working) = state.working_mut() {
+        Msg::SetNotes(text) => match state.working_mut() {
+            Some(working) => {
                 working.notes = (!text.trim().is_empty()).then_some(text);
+                state.live_later()
             }
-            Vec::new()
-        }
+            None => Vec::new(),
+        },
         Msg::Save => state.save().into_iter().collect(),
         Msg::Menu(open) => {
             state.menu_open = open;
@@ -1763,6 +2024,9 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         }
         Msg::ShowSwitch => {
             state.menu_open = false;
+            if state.live.is_some() {
+                return state.ask_live(LiveThen::Switch);
+            }
             if state.menu_enabled(MenuItem::Switch) {
                 state.dialog = Some(Dialog::Switch);
             }
@@ -1844,6 +2108,9 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         }
         Msg::ShowDelete => {
             state.menu_open = false;
+            if state.live.is_some() && state.current.is_some() {
+                return state.ask_live(LiveThen::Delete);
+            }
             if let Some(current) = &state.current {
                 let slug = current.slug().to_string();
                 let label = match current {
@@ -1887,6 +2154,15 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 Vec::new()
             }
         },
+        // The session a previous run left open waits for an answer.
+        Msg::CloseDialog
+            if matches!(
+                state.dialog,
+                Some(Dialog::KeepOrRevert { pending: true, .. })
+            ) =>
+        {
+            Vec::new()
+        }
         Msg::CloseDialog => {
             state.dialog = None;
             state.menu_open = false;
@@ -1896,6 +2172,9 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         Msg::ShowApply => {
             if !state.header_enabled(HeaderItem::Apply) {
                 return Vec::new();
+            }
+            if state.live.is_some() {
+                return state.ask_live(LiveThen::Apply);
             }
             match state.checked_working("applied") {
                 Ok(palette) => vec![Effect::LoadApplySheet {
@@ -1917,6 +2196,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             if working.slug != slug || state.dialog.is_some() {
                 return Vec::new();
             }
+            state.live_targets = any_live_target(&targets);
             state.dialog = Some(Dialog::Apply(State::apply_sheet(working, targets, *pair)));
             Vec::new()
         }
@@ -1968,6 +2248,9 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         }
         Msg::UndoLastApply => {
             state.menu_open = false;
+            if state.live.is_some() {
+                return vec![state.toast(LIVE_BLOCKS_UNDO)];
+            }
             vec![Effect::Undo]
         }
         Msg::Undone(Ok(done)) => {
@@ -2429,10 +2712,174 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Err(e) if name.is_some() => vec![state.toast(format!("Snapshot not saved: {e}"))],
             Err(e) => vec![state.toast(format!("Could not remove the snapshot name: {e}"))],
         },
-        Msg::NotYet(what) => {
-            state.menu_open = false;
-            vec![state.toast(format!("Coming soon: {what}"))]
+        Msg::LiveToggle(true) => {
+            if state.live.is_some() || !state.header_enabled(HeaderItem::TryLive) {
+                return Vec::new();
+            }
+            let slug = state.current.as_ref().map(|c| c.slug().to_string());
+            let Some(slug) = slug else {
+                return Vec::new();
+            };
+            state.live = Some(Live::new(slug.clone(), None, false));
+            vec![Effect::StartLive(slug)]
         }
+        Msg::LiveToggle(false) => {
+            if state.live.as_ref().is_some_and(|l| l.end.is_none()) {
+                state.dialog = Some(Dialog::KeepOrRevert {
+                    then: None,
+                    pending: false,
+                });
+            }
+            Vec::new()
+        }
+        Msg::LiveStarted(Ok(session)) => {
+            let Some(live) = state.live.as_mut().filter(|l| l.session.is_none()) else {
+                return Vec::new();
+            };
+            live.session = Some(session);
+            live.busy = false;
+            // The open palette shows live at once.
+            live.queued = true;
+            state.live_next()
+        }
+        Msg::LiveStarted(Err(e)) => {
+            let then = state
+                .live
+                .take()
+                .and_then(|l| l.end)
+                .and_then(|(_, then)| then);
+            let mut effects = vec![state.toast(format!("Could not start Try it live: {e}"))];
+            effects.extend(state.live_then(then));
+            effects
+        }
+        Msg::LiveTick(generation) => {
+            match state.live_for_edits() {
+                Some(live) if live.generation == generation => live.queued = true,
+                _ => return Vec::new(),
+            }
+            state.live_next()
+        }
+        Msg::LiveApplied { session, result } => {
+            let Some(live) = state.live.as_mut() else {
+                return Vec::new();
+            };
+            live.session = Some(session);
+            live.busy = false;
+            let mut effects = Vec::new();
+            if let Err(failure) = result {
+                // Sent again with the next edit.
+                live.applied = None;
+                effects.push(state.toast(live_failure_text(&failure)));
+            }
+            effects.extend(state.live_next());
+            effects
+        }
+        Msg::LiveKeep | Msg::LiveRevert => {
+            let Some(Dialog::KeepOrRevert { then, .. }) = state.dialog.clone() else {
+                return Vec::new();
+            };
+            let Some(live) = state.live.as_mut().filter(|l| l.end.is_none()) else {
+                state.dialog = None;
+                return Vec::new();
+            };
+            let end = if matches!(msg, Msg::LiveKeep) {
+                LiveEnd::Keep
+            } else {
+                LiveEnd::Revert
+            };
+            live.end = Some((end, then));
+            state.dialog = None;
+            state.live_next()
+        }
+        Msg::LiveKept(Ok(())) => {
+            let then = state
+                .live
+                .take()
+                .and_then(|l| l.end)
+                .and_then(|(_, then)| then);
+            let mut effects =
+                vec![state.toast(
+                    "Kept the live colours. Undo last apply puts back what was there before.",
+                )];
+            effects.extend(state.live_then(then));
+            effects
+        }
+        Msg::LiveKept(Err(e)) => {
+            state.live_end_failed();
+            vec![state.toast(format!(
+                "Could not end Try it live: {e}. Turn it off to try again."
+            ))]
+        }
+        Msg::LiveReverted(Ok(done)) if done.as_ref().is_none_or(|d| d.failures.is_empty()) => {
+            let then = state
+                .live
+                .take()
+                .and_then(|l| l.end)
+                .and_then(|(_, then)| then);
+            let mut effects = vec![state.toast("Reverted the live colours")];
+            effects.extend(state.live_then(then));
+            effects
+        }
+        Msg::LiveReverted(result) => {
+            // Files that could not be put back keep the session open, so
+            // Revert is offered again (here, and at the next start).
+            state.live_end_failed();
+            let mut lines = match result {
+                Ok(done) => done.map(|d| d.failures).unwrap_or_default(),
+                Err(e) => vec![format!("Could not revert: {e}")],
+            };
+            lines.push("Turn Try it live off to try Revert again.".to_string());
+            vec![state.toast(lines.join("\n"))]
+        }
+        Msg::LivePending(Some(session)) => {
+            if state.live.is_some() {
+                return Vec::new();
+            }
+            let slug = session.palette().to_string();
+            state.live = Some(Live::new(slug, Some(session), true));
+            state.menu_open = false;
+            state.dialog = Some(Dialog::KeepOrRevert {
+                then: None,
+                pending: true,
+            });
+            Vec::new()
+        }
+        Msg::LivePending(None) => Vec::new(),
+        Msg::LiveTargets(any) => {
+            state.live_targets = any;
+            Vec::new()
+        }
+    }
+}
+
+/// Set `role` in the working copy, as typed or picked.
+fn set_role(state: &mut State, role: Role, value: Rgb) {
+    if let Some(working) = state.working_mut() {
+        working.roles.set(role, value);
+        state.fields.remove(&Field::Hex(role));
+    }
+}
+
+/// A target that reloads live is installed and can be applied.
+pub fn any_live_target(targets: &[TargetInfo]) -> bool {
+    targets
+        .iter()
+        .any(|t| t.live && t.detected && t.broken.is_none())
+}
+
+/// The toast for a live apply that failed. A write that could not be
+/// rolled back is put back by Revert, not by Undo.
+fn live_failure_text(failure: &ApplyFailure) -> String {
+    match failure {
+        ApplyFailure::Write {
+            path,
+            reason,
+            rolled_back: false,
+        } => format!(
+            "Could not write {}: {reason}. Turn Try it live off and Revert to put your files back.",
+            path.display()
+        ),
+        other => format!("Not applied live: {}", other.text()),
     }
 }
 
@@ -2961,19 +3408,6 @@ mod tests {
         update(&mut state, Msg::CloseRequested);
         let ui = drive(&mut state, Msg::UnsavedSave);
         assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
-    }
-
-    #[test]
-    fn not_yet_items_toast() {
-        let tmp = TempDir::new().unwrap();
-        store_with(&tmp, &["ember"]);
-        let mut state = start(&tmp);
-        state.menu_open = true;
-        let ui = drive(&mut state, Msg::NotYet("Try it live"));
-        assert!(
-            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: Try it live")
-        );
-        assert!(!state.menu_open);
     }
 
     fn derived(state: &State, slot: Slot) -> Option<Rgb> {
@@ -4305,5 +4739,481 @@ mod tests {
         assert_eq!(open_slug(&state), Some("noir"));
         assert!(!state.header_enabled(HeaderItem::Compare));
         assert!(state.header_enabled(HeaderItem::Pair));
+    }
+
+    // Try it live. cava is found by its config folder in the temp home; the
+    // path stays empty, so nothing is signalled.
+
+    /// cava's config in the temp home, holding `x\n`.
+    fn put_cava(tmp: &TempDir) -> PathBuf {
+        let config = Dirs::under(tmp.path()).config.join("cava/config");
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::write(&config, "x\n").unwrap();
+        config
+    }
+
+    fn live_marker(tmp: &TempDir) -> PathBuf {
+        Dirs::under(tmp.path()).state.join("irida/live.toml")
+    }
+
+    /// The palettes the live applies among `effects` write.
+    fn live_applies(effects: &[Effect]) -> Vec<&Palette> {
+        effects
+            .iter()
+            .filter_map(|e| match e {
+                Effect::LiveApply { palette, .. } => Some(palette),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The generation of the one timer `effects` start.
+    fn timer(effects: &[Effect]) -> u64 {
+        match effects {
+            [Effect::StartTimer(delay, generation)] => {
+                assert_eq!(*delay, LIVE_DELAY);
+                *generation
+            }
+            other => panic!("no timer: {other:?}"),
+        }
+    }
+
+    /// Ember open with cava installed, try it live on and its first apply
+    /// done; cava's config path.
+    fn live_on(tmp: &TempDir) -> (State, PathBuf) {
+        store_with(tmp, &["ember", "noir"]);
+        let config = put_cava(tmp);
+        let mut state = start(tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert!(state.header_enabled(HeaderItem::TryLive));
+        assert_eq!(state.header_tooltip(HeaderItem::TryLive), None);
+        drive(&mut state, Msg::LiveToggle(true));
+        assert!(state.live_on());
+        assert_ne!(
+            fs::read_to_string(&config).unwrap(),
+            "x\n",
+            "turning it on applies the open palette"
+        );
+        assert!(live_marker(tmp).exists());
+        (state, config)
+    }
+
+    #[test]
+    fn debounce_applies_latest_only() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, config) = live_on(&tmp);
+        let g1 = timer(&update(
+            &mut state,
+            Msg::HexInput(Role::Accent, "#111111".to_string()),
+        ));
+        let g2 = timer(&update(
+            &mut state,
+            Msg::HexInput(Role::Accent, "#222222".to_string()),
+        ));
+        let g3 = timer(&update(
+            &mut state,
+            Msg::HexInput(Role::Accent, "#333333".to_string()),
+        ));
+        assert!(g1 < g2 && g2 < g3);
+        assert!(update(&mut state, Msg::LiveTick(g1)).is_empty());
+        assert!(update(&mut state, Msg::LiveTick(g2)).is_empty());
+        let effects = update(&mut state, Msg::LiveTick(g3));
+        let applies = live_applies(&effects);
+        assert_eq!(applies.len(), 1, "{effects:?}");
+        assert_eq!(applies[0].roles.get(Role::Accent), hex("#333333"));
+        drive_effects(&mut state, effects);
+        assert!(fs::read_to_string(&config).unwrap().contains("#333333"));
+
+        // Late ticks apply nothing more.
+        assert!(update(&mut state, Msg::LiveTick(g3)).is_empty());
+        assert!(update(&mut state, Msg::LiveTick(g1)).is_empty());
+
+        // The other text fields and the mode chip wait too.
+        timer(&update(
+            &mut state,
+            Msg::SetName(Role::Accent, "Flame".to_string()),
+        ));
+        timer(&update(&mut state, Msg::SetNotes("warm".to_string())));
+        let bright_red = Slot::Ansi(Tone::Bright, Ansi::Red);
+        drive(&mut state, Msg::Pin(bright_red));
+        timer(&update(
+            &mut state,
+            Msg::PinHexInput(bright_red, "#ABCDEF".to_string()),
+        ));
+        let g = timer(&update(&mut state, Msg::SetMode(Mode::Light)));
+        let effects = update(&mut state, Msg::LiveTick(g));
+        let applies = live_applies(&effects);
+        assert_eq!(applies.len(), 1, "{effects:?}");
+        assert_eq!(applies[0].mode, Mode::Light);
+        assert_eq!(
+            applies[0].pins.get(bright_red),
+            Some(PinValue::Color(hex("#ABCDEF")))
+        );
+        assert_eq!(applies[0].notes.as_deref(), Some("warm"));
+
+        // Without a session nothing is scheduled.
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        put_cava(&tmp);
+        let mut state = start(&tmp);
+        assert!(
+            update(
+                &mut state,
+                Msg::HexInput(Role::Accent, "#111111".to_string())
+            )
+            .is_empty()
+        );
+        assert!(update(&mut state, Msg::SetRole(Role::Accent, red())).is_empty());
+    }
+
+    #[test]
+    fn picker_release_applies_now() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, config) = live_on(&tmp);
+        drive(&mut state, Msg::Expand(Some(Role::Accent)));
+        let green = Hsv::from_color(Srgb::new(0.0_f32, 1.0, 0.0));
+        let effects = update(
+            &mut state,
+            Msg::Picker(ColorPickerUpdate::ActiveColor(green)),
+        );
+        assert!(
+            live_applies(&effects).is_empty(),
+            "a drag waits: {effects:?}"
+        );
+        assert_eq!(working(&state).roles.get(Role::Accent), hex("#00FF00"));
+        let effects = update(&mut state, Msg::Picker(ColorPickerUpdate::ActionFinished));
+        let applies = live_applies(&effects);
+        assert_eq!(applies.len(), 1, "{effects:?}");
+        assert_eq!(applies[0].roles.get(Role::Accent), hex("#00FF00"));
+        drive_effects(&mut state, effects);
+        assert!(fs::read_to_string(&config).unwrap().contains("#00FF00"));
+
+        // A colour typed in the picker applies when it is applied.
+        drive(
+            &mut state,
+            Msg::Picker(ColorPickerUpdate::Input("#0000FF".to_string())),
+        );
+        let effects = update(&mut state, Msg::Picker(ColorPickerUpdate::AppliedColor));
+        assert_eq!(live_applies(&effects).len(), 1, "{effects:?}");
+        drive_effects(&mut state, effects);
+
+        // SetRole applies at once too.
+        let effects = update(&mut state, Msg::SetRole(Role::Success, red()));
+        assert_eq!(live_applies(&effects).len(), 1, "{effects:?}");
+    }
+
+    #[test]
+    fn pin_applies_now() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = live_on(&tmp);
+        let bright_red = Slot::Ansi(Tone::Bright, Ansi::Red);
+        let effects = update(&mut state, Msg::Pin(bright_red));
+        let applies = live_applies(&effects);
+        assert_eq!(applies.len(), 1, "{effects:?}");
+        assert!(applies[0].pins.is_pinned(bright_red));
+        drive_effects(&mut state, effects);
+
+        let effects = update(&mut state, Msg::Unpin(bright_red));
+        assert_eq!(live_applies(&effects).len(), 1, "{effects:?}");
+        drive_effects(&mut state, effects);
+        let effects = update(&mut state, Msg::NoBackground(true));
+        assert_eq!(live_applies(&effects).len(), 1, "{effects:?}");
+        drive_effects(&mut state, effects);
+        // Pinning what is pinned changes nothing, so nothing is applied.
+        let effects = update(&mut state, Msg::NoBackground(true));
+        assert!(live_applies(&effects).is_empty(), "{effects:?}");
+    }
+
+    #[test]
+    fn applies_run_one_at_a_time() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, config) = live_on(&tmp);
+        let first = update(&mut state, Msg::SetRole(Role::Accent, red()));
+        assert_eq!(live_applies(&first).len(), 1);
+        // While it runs, edits wait; the newest runs next.
+        let blue = hex("#0000FF");
+        assert!(update(&mut state, Msg::SetRole(Role::Accent, hex("#00FF00"))).is_empty());
+        assert!(update(&mut state, Msg::SetRole(Role::Accent, blue)).is_empty());
+        let [effect] = <[Effect; 1]>::try_from(first).unwrap();
+        let msgs = perform(effect, &state.ctx);
+        let next = update(&mut state, msgs.into_iter().next().unwrap());
+        let applies = live_applies(&next);
+        assert_eq!(applies.len(), 1, "{next:?}");
+        assert_eq!(applies[0].roles.get(Role::Accent), blue);
+        drive_effects(&mut state, next);
+        assert!(fs::read_to_string(&config).unwrap().contains("#0000FF"));
+
+        // Revert asked while an apply runs waits for it, and drops the
+        // edits still waiting.
+        let running = update(&mut state, Msg::SetRole(Role::Accent, red()));
+        assert_eq!(live_applies(&running).len(), 1);
+        assert!(update(&mut state, Msg::SetRole(Role::Accent, hex("#00FF00"))).is_empty());
+        drive(&mut state, Msg::LiveToggle(false));
+        assert!(update(&mut state, Msg::LiveRevert).is_empty());
+        // Closing meanwhile waits for the revert, then asks about the
+        // unsaved edits.
+        assert!(update(&mut state, Msg::CloseRequested).is_empty());
+        assert!(state.dialog.is_none());
+        let [effect] = <[Effect; 1]>::try_from(running).unwrap();
+        let msgs = perform(effect, &state.ctx);
+        let next = update(&mut state, msgs.into_iter().next().unwrap());
+        assert!(
+            matches!(next.as_slice(), [Effect::RevertLive(_)]),
+            "{next:?}"
+        );
+        drive_effects(&mut state, next);
+        assert_eq!(fs::read(&config).unwrap(), b"x\n");
+        assert!(!state.live_on());
+        assert!(!live_marker(&tmp).exists());
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
+    }
+
+    #[test]
+    fn off_asks_keep_or_revert() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, config) = live_on(&tmp);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::SetRole(Role::Error, hex("#00FF00")));
+        assert!(drive(&mut state, Msg::LiveToggle(false)).is_empty());
+        let asked = Some(Dialog::KeepOrRevert {
+            then: None,
+            pending: false,
+        });
+        assert_eq!(state.dialog, asked);
+        assert!(state.live_on(), "on until the user chooses");
+
+        // Cancel keeps it on.
+        drive(&mut state, Msg::CloseDialog);
+        assert!(state.dialog.is_none());
+        assert!(state.live_on());
+        assert!(live_marker(&tmp).exists());
+
+        // Undo waits for the session to end.
+        drive(&mut state, Msg::UndoLastApply);
+        assert_eq!(last_toast(&state), LIVE_BLOCKS_UNDO);
+
+        // Keep leaves the colours, and one undo puts back the files from
+        // before the session.
+        drive(&mut state, Msg::LiveToggle(false));
+        drive(&mut state, Msg::LiveKeep);
+        assert!(state.dialog.is_none());
+        assert!(!state.live_on());
+        assert!(!live_marker(&tmp).exists());
+        assert!(fs::read_to_string(&config).unwrap().contains("#FF0000"));
+        assert!(last_toast(&state).starts_with("Kept the live colours"));
+        drive(&mut state, Msg::UndoLastApply);
+        assert_eq!(fs::read(&config).unwrap(), b"x\n");
+    }
+
+    #[test]
+    fn revert_restores() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, config) = live_on(&tmp);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        let g = timer(&update(&mut state, Msg::SetMode(Mode::Light)));
+        drive(&mut state, Msg::LiveTick(g));
+        assert!(fs::read_to_string(&config).unwrap().contains("#FF0000"));
+        drive(&mut state, Msg::LiveToggle(false));
+        drive(&mut state, Msg::LiveRevert);
+        assert_eq!(fs::read(&config).unwrap(), b"x\n");
+        assert!(!state.live_on());
+        assert!(state.dialog.is_none());
+        assert!(!live_marker(&tmp).exists());
+        assert_eq!(last_toast(&state), "Reverted the live colours");
+        // The edits stay in the editor, unsaved.
+        assert!(state.dirty());
+        assert_eq!(working(&state).roles.get(Role::Accent), red());
+
+        // A new session can start after it.
+        drive(&mut state, Msg::LiveToggle(true));
+        assert!(state.live_on());
+        assert!(fs::read_to_string(&config).unwrap().contains("#FF0000"));
+    }
+
+    #[test]
+    fn pending_offer_at_start() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember", "noir"]);
+        let config = put_cava(&tmp);
+        // A run that applied live, then stopped without Keep or Revert.
+        let ctx = ctx(&tmp);
+        let noir = starter("noir");
+        let mut session = irida_core::live::LiveSession::start(&ctx, "noir").unwrap();
+        let req = irida_core::apply::ApplyRequest {
+            palette: &noir,
+            pair: None,
+            only: None,
+            live_only: false,
+        };
+        session.apply(&ctx, &Settings::default(), &req).unwrap();
+        drop(session);
+        assert_ne!(fs::read(&config).unwrap(), b"x\n");
+
+        let mut state = start(&tmp);
+        let asked = Some(Dialog::KeepOrRevert {
+            then: None,
+            pending: true,
+        });
+        assert_eq!(state.dialog, asked);
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert!(state.live_on());
+        // It is not dismissed without a choice, and edits are not applied
+        // into the old session.
+        drive(&mut state, Msg::CloseDialog);
+        assert_eq!(state.dialog, asked);
+        let effects = update(&mut state, Msg::SetRole(Role::Accent, red()));
+        assert!(live_applies(&effects).is_empty(), "{effects:?}");
+
+        drive(&mut state, Msg::LiveRevert);
+        assert_eq!(fs::read(&config).unwrap(), b"x\n");
+        assert!(state.dialog.is_none());
+        assert!(!state.live_on());
+        assert!(!live_marker(&tmp).exists());
+        let state = start(&tmp);
+        assert!(state.dialog.is_none(), "{:?}", state.dialog);
+        assert!(!state.live_on());
+    }
+
+    #[test]
+    fn switch_and_close_ask_first() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, config) = live_on(&tmp);
+
+        // Switch: Keep or Revert first, then the list.
+        drive(&mut state, Msg::ShowSwitch);
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::KeepOrRevert {
+                then: Some(LiveThen::Switch),
+                pending: false,
+            })
+        );
+        drive(&mut state, Msg::LiveKeep);
+        assert!(!state.live_on());
+        assert_eq!(state.dialog, Some(Dialog::Switch));
+        drive(&mut state, Msg::CloseDialog);
+
+        // Close with unsaved edits: Keep or Revert, then the unsaved question.
+        // The kept colours are what a later Revert goes back to.
+        let kept = fs::read(&config).unwrap();
+        assert_ne!(kept, b"x\n");
+        drive(&mut state, Msg::LiveToggle(true));
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        assert!(fs::read_to_string(&config).unwrap().contains("#FF0000"));
+        assert!(drive(&mut state, Msg::CloseRequested).is_empty());
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::KeepOrRevert {
+                then: Some(LiveThen::Leave(Leave::Exit)),
+                pending: false,
+            })
+        );
+        // Cancel stays open and on.
+        drive(&mut state, Msg::CloseDialog);
+        assert!(state.live_on());
+        drive(&mut state, Msg::CloseRequested);
+        let ui = drive(&mut state, Msg::LiveRevert);
+        assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+        assert_eq!(fs::read(&config).unwrap(), kept);
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
+        let ui = drive(&mut state, Msg::UnsavedDiscard);
+        assert!(matches!(ui.as_slice(), [Effect::Exit]), "{ui:?}");
+
+        // Delete and Apply ask first too.
+        drive(&mut state, Msg::LiveToggle(true));
+        drive(&mut state, Msg::ShowDelete);
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::KeepOrRevert {
+                then: Some(LiveThen::Delete),
+                pending: false,
+            })
+        );
+        drive(&mut state, Msg::LiveKeep);
+        assert!(matches!(state.dialog, Some(Dialog::Delete { .. })));
+        drive(&mut state, Msg::CloseDialog);
+        drive(&mut state, Msg::LiveToggle(true));
+        drive(&mut state, Msg::ShowApply);
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::KeepOrRevert {
+                then: Some(LiveThen::Apply),
+                pending: false,
+            })
+        );
+        drive(&mut state, Msg::LiveRevert);
+        assert!(matches!(state.dialog, Some(Dialog::Apply(_))));
+        drive(&mut state, Msg::CloseDialog);
+
+        // So does anything else that leaves the palette, like New.
+        drive(&mut state, Msg::LiveToggle(true));
+        drive(&mut state, Msg::ShowNew);
+        drive(&mut state, Msg::NameInput("Moss".to_string()));
+        drive(&mut state, Msg::NameConfirm);
+        assert!(matches!(
+            state.dialog,
+            Some(Dialog::KeepOrRevert {
+                then: Some(LiveThen::Leave(Leave::Create(_))),
+                ..
+            })
+        ));
+        drive(&mut state, Msg::LiveRevert);
+        assert!(matches!(
+            state.dialog,
+            Some(Dialog::Unsaved(Leave::Create(_)))
+        ));
+        drive(&mut state, Msg::UnsavedDiscard);
+        assert_eq!(open_slug(&state), Some("moss"));
+        assert!(!state.live_on());
+    }
+
+    #[test]
+    fn toggle_needs_saved_palette_and_live_target() {
+        // No live target installed.
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        put_a(&tmp);
+        let mut state = start(&tmp);
+        assert!(!state.header_enabled(HeaderItem::TryLive));
+        assert_eq!(
+            state.header_tooltip(HeaderItem::TryLive),
+            Some(LIVE_NEEDS_TARGET)
+        );
+        assert!(drive(&mut state, Msg::LiveToggle(true)).is_empty());
+        assert!(!state.live_on());
+        assert!(!live_marker(&tmp).exists());
+
+        // A draft that was never saved.
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        put_cava(&tmp);
+        let mut state = start(&tmp);
+        assert!(state.header_enabled(HeaderItem::TryLive));
+        let mut draft = starter("noir");
+        draft.slug = "moss".to_string();
+        draft.name = "Moss".to_string();
+        state.current = Some(Current::Editable {
+            slug: "moss".to_string(),
+            saved: None,
+            working: draft,
+        });
+        assert!(!state.header_enabled(HeaderItem::TryLive));
+        assert_eq!(
+            state.header_tooltip(HeaderItem::TryLive),
+            Some(LIVE_NEEDS_SAVE)
+        );
+        drive(&mut state, Msg::LiveToggle(true));
+        assert!(!state.live_on());
+
+        // A palette that cannot be read.
+        state.current = Some(Current::Unreadable {
+            slug: "broken".to_string(),
+            error: "bad".to_string(),
+            text: String::new(),
+        });
+        assert!(!state.header_enabled(HeaderItem::TryLive));
+        drive(&mut state, Msg::LiveToggle(true));
+        assert!(!state.live_on());
+        assert!(!live_marker(&tmp).exists());
     }
 }

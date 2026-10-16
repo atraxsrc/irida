@@ -7,7 +7,7 @@ use cosmic::widget::{self, button, popover, text};
 use irida_core::palette::Mode;
 
 use super::state::{
-    Dialog, ExportSummary, HeaderItem, Leave, MenuItem, Msg, NameFor, Split, State,
+    Dialog, ExportSummary, HeaderItem, Leave, LiveThen, MenuItem, Msg, NameFor, Split, State,
 };
 use super::{apply_sheet, compare, wallpaper};
 
@@ -80,13 +80,19 @@ pub fn end(state: &State) -> Vec<Element<'_, Msg>> {
         Some(Mode::Light) => ("Light", Mode::Dark),
         _ => ("Dark", Mode::Light),
     };
-    let live = widget::toggler(false)
+    let live = widget::toggler(state.live_on())
         .label("Try it live".to_string())
         .on_toggle_maybe(
             state
                 .header_enabled(HeaderItem::TryLive)
-                .then_some(|_| Msg::NotYet("Try it live")),
+                .then_some(Msg::LiveToggle),
         );
+    let live: Element<'_, Msg> = match state.header_tooltip(HeaderItem::TryLive) {
+        Some(tip) => {
+            widget::tooltip(live, text::body(tip), widget::tooltip::Position::Bottom).into()
+        }
+        None => live.into(),
+    };
     vec![
         chip(
             mode_label.to_string(),
@@ -107,7 +113,7 @@ pub fn end(state: &State) -> Vec<Element<'_, Msg>> {
             matches!(state.split, Split::Saved(_)),
             Msg::Compare,
         ),
-        live.into(),
+        live,
         button::suggested("Apply")
             .on_press_maybe(
                 state
@@ -177,8 +183,39 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
             compare::pair_dialog(state, choices, confirm.as_deref())
         }
         Dialog::Snapshot { n, name } => compare::snapshot_dialog(state, *n, name),
+        Dialog::KeepOrRevert { then, pending } => keep_or_revert(then.as_ref(), *pending),
     };
     Some(d.into())
+}
+
+/// Keep or Revert the live colours. The session a previous run left open
+/// has no Cancel.
+fn keep_or_revert(then: Option<&LiveThen>, pending: bool) -> widget::Dialog<'static, Msg> {
+    let (title, body) = if pending {
+        (
+            "Your last live session is still applied. Keep it or revert?",
+            "Irida closed while trying a palette live. Keep leaves those colours, and Undo last apply can still undo them. Revert puts back your files from before the session.",
+        )
+    } else {
+        let title = match then {
+            None => "Keep the live colours?",
+            Some(_) => "Keep or revert the live colours first?",
+        };
+        (
+            title,
+            "Keep leaves them applied, and Undo last apply can still undo them. Revert puts back your files from before you turned Try it live on.",
+        )
+    };
+    let d = widget::dialog()
+        .title(title)
+        .body(body)
+        .primary_action(button::suggested("Keep").on_press(Msg::LiveKeep))
+        .tertiary_action(button::destructive("Revert").on_press(Msg::LiveRevert));
+    if pending {
+        d
+    } else {
+        d.secondary_action(button::standard("Cancel").on_press(Msg::CloseDialog))
+    }
 }
 
 /// What an export wrote, as `irida export` prints it.
