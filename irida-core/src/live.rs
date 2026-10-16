@@ -1,9 +1,11 @@
 //! Try it live: a session of applies to the targets that reload live, held in
 //! one apply record from the start, then kept or reverted. The marker
 //! `$XDG_STATE_HOME/irida/live.toml` names the open session, so a session cut
-//! short by a crash is found on the next start.
+//! short by a crash is found on the next start. The app holds a lock on
+//! `$XDG_STATE_HOME/irida/app.lock` while it runs, so a second window knows
+//! the marker may be the first window's open session.
 
-use std::fs;
+use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io;
 use std::path::PathBuf;
 
@@ -27,6 +29,25 @@ struct Marker {
     /// The session's record, once its first apply has created it.
     #[serde(skip_serializing_if = "Option::is_none")]
     record: Option<u32>,
+}
+
+/// Take the app's lock, held while the returned file is open (the kernel
+/// lets it go on exit or crash). `None` when another Irida window holds it.
+pub fn lock_app(dirs: &Dirs) -> io::Result<Option<File>> {
+    let path = dirs.state.join("irida/app.lock");
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    let file = OpenOptions::new()
+        .create(true)
+        .truncate(false)
+        .write(true)
+        .open(path)?;
+    match file.try_lock() {
+        Ok(()) => Ok(Some(file)),
+        Err(TryLockError::WouldBlock) => Ok(None),
+        Err(TryLockError::Error(e)) => Err(e),
+    }
 }
 
 fn marker_path(dirs: &Dirs) -> PathBuf {
@@ -290,5 +311,26 @@ pub fn pending(dirs: &Dirs) -> Option<LiveSession> {
             let _ = remove_marker(dirs);
             None
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use tempfile::TempDir;
+
+    use super::*;
+
+    #[test]
+    fn app_lock_is_held_by_one_window() {
+        let tmp = TempDir::new().unwrap();
+        let dirs = Dirs::under(tmp.path());
+        let first = lock_app(&dirs).unwrap();
+        assert!(first.is_some());
+        assert!(lock_app(&dirs).unwrap().is_none(), "a second window");
+        drop(first);
+        assert!(
+            lock_app(&dirs).unwrap().is_some(),
+            "free once the first exits"
+        );
     }
 }

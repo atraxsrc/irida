@@ -3,6 +3,8 @@
 //! read `State` and emit `Msg`.
 
 use std::collections::BTreeMap;
+use std::fs::File;
+use std::io;
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -632,6 +634,9 @@ pub const LIVE_NEEDS_SAVE: &str = "Save the palette first";
 /// The try-live toggle's tooltip when no target reloads live.
 pub const LIVE_NEEDS_TARGET: &str = "Try it live needs COSMIC, COSMIC Terminal or cava";
 
+/// The try-live toggle's tooltip while another Irida window is open.
+pub const LIVE_IN_OTHER_WINDOW: &str = "Irida is open in another window: use Try it live there";
+
 /// Undo during a live session.
 pub const LIVE_BLOCKS_UNDO: &str = "Turn off Try it live first: Keep or Revert, then undo.";
 
@@ -1104,13 +1109,25 @@ pub struct State {
     live: Option<Live>,
     /// A target that reloads live is installed and usable.
     live_targets: bool,
+    /// The app's lock, held while the window is open.
+    _app_lock: Option<File>,
+    /// Another Irida window holds the app's lock: the live marker may be its
+    /// open session, so this window neither offers it back nor starts one.
+    other_window: bool,
 }
 
 /// Toasts kept in `State::toasts`.
 const TOASTS_KEPT: usize = 50;
 
 impl State {
-    pub fn new(ctx: Ctx, wallpaper_system: PathBuf) -> (State, Vec<Effect>) {
+    /// `app_lock` is what `live::lock_app` gave. A lock that could not be
+    /// taken for an error counts as no other window.
+    pub fn new(
+        ctx: Ctx,
+        wallpaper_system: PathBuf,
+        app_lock: io::Result<Option<File>>,
+    ) -> (State, Vec<Effect>) {
+        let other_window = matches!(app_lock, Ok(None));
         let state = State {
             ctx,
             wallpaper_system,
@@ -1132,6 +1149,8 @@ impl State {
             compare_version: None,
             live: None,
             live_targets: false,
+            _app_lock: app_lock.ok().flatten(),
+            other_window,
         };
         (state, vec![Effect::SeedStarters, Effect::LoadStore])
     }
@@ -1259,7 +1278,9 @@ impl State {
             }
             HeaderItem::Pair if self.unsaved_draft() => Some("Save it first (Ctrl+S)"),
             HeaderItem::TryLive if self.live.is_none() => {
-                if self.unsaved_draft() {
+                if self.other_window {
+                    Some(LIVE_IN_OTHER_WINDOW)
+                } else if self.unsaved_draft() {
                     Some(LIVE_NEEDS_SAVE)
                 } else if self.editable() && !self.live_targets {
                     Some(LIVE_NEEDS_TARGET)
@@ -1420,7 +1441,7 @@ impl State {
             // On, it can always be turned off (unless it is ending).
             HeaderItem::TryLive => match &self.live {
                 Some(live) => live.end.is_none(),
-                None => self.stored_palette().is_some() && self.live_targets,
+                None => self.stored_palette().is_some() && self.live_targets && !self.other_window,
             },
             // Pairing works on the stored palette, which a draft is not yet.
             HeaderItem::Pair => self.stored_palette().is_some(),
@@ -1820,7 +1841,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     )));
                 }
             }
-            effects.push(Effect::FindPendingLive);
+            // Another window's open session is not one left by a crash.
+            if !state.other_window {
+                effects.push(Effect::FindPendingLive);
+            }
             effects.push(Effect::LoadLiveTargets(state.settings.clone()));
             if let Some(slug) = state.start_slug() {
                 effects.push(Effect::OpenPalette(slug));
@@ -3037,9 +3061,12 @@ mod tests {
         store
     }
 
-    /// A started app on the store in `tmp`, with every start effect run.
+    /// A started app on the store in `tmp`, with every start effect run. It
+    /// takes the app's lock, so a second one while it is open is another
+    /// window.
     fn start(tmp: &TempDir) -> State {
-        let (mut state, effects) = State::new(ctx(tmp), tmp.path().join("system"));
+        let lock = irida_core::live::lock_app(&Dirs::under(tmp.path()));
+        let (mut state, effects) = State::new(ctx(tmp), tmp.path().join("system"), lock);
         drive_effects(&mut state, effects);
         state
     }
@@ -5523,6 +5550,7 @@ mod tests {
         assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
         assert!(!state.live_on());
         assert!(!live_marker(&tmp).exists());
+        drop(state);
         let state = start(&tmp);
         assert!(state.dialog.is_none(), "{:?}", state.dialog);
         assert!(!state.live_on());
@@ -5652,6 +5680,65 @@ mod tests {
         assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
         let ui = drive(&mut state, Msg::UnsavedDiscard);
         assert!(matches!(ui.as_slice(), [Effect::Exit]), "{ui:?}");
+    }
+
+    #[test]
+    fn second_window_leaves_the_first_windows_session() {
+        let tmp = TempDir::new().unwrap();
+        let (first, config) = live_on(&tmp);
+        let marker = fs::read(live_marker(&tmp)).unwrap();
+        let applied = fs::read(&config).unwrap();
+
+        let (mut second, effects) = State::new(
+            ctx(&tmp),
+            tmp.path().join("system"),
+            irida_core::live::lock_app(&Dirs::under(tmp.path())),
+        );
+        let mut queue: Vec<Msg> = effects
+            .into_iter()
+            .flat_map(|e| perform(e, &second.ctx))
+            .collect();
+        let mut asked = Vec::new();
+        for msg in queue.drain(..) {
+            asked.extend(update(&mut second, msg));
+        }
+        assert!(
+            !asked.iter().any(|e| matches!(e, Effect::FindPendingLive)),
+            "{asked:?}"
+        );
+        drive_effects(&mut second, asked);
+
+        assert_eq!(open_slug(&second), Some("ember"));
+        assert!(second.dialog.is_none(), "{:?}", second.dialog);
+        assert!(!second.live_on());
+        assert!(!second.header_enabled(HeaderItem::TryLive));
+        assert_eq!(
+            second.header_tooltip(HeaderItem::TryLive),
+            Some(LIVE_IN_OTHER_WINDOW)
+        );
+        assert!(drive(&mut second, Msg::LiveToggle(true)).is_empty());
+        assert!(!second.live_on());
+        // The first window's session is untouched, and it still works.
+        assert_eq!(fs::read(live_marker(&tmp)).unwrap(), marker);
+        assert_eq!(fs::read(&config).unwrap(), applied);
+        assert!(first.live_on());
+        // Editing and saving still work here.
+        drive(&mut second, Msg::SetRole(Role::Accent, red()));
+        drive(&mut second, Msg::Save);
+        assert!(!second.dirty());
+
+        // Once the first window has gone, a new start finds the session.
+        drop(first);
+        drop(second);
+        let state = start(&tmp);
+        assert!(
+            matches!(
+                state.dialog,
+                Some(Dialog::KeepOrRevert { pending: true, .. })
+            ),
+            "{:?}",
+            state.dialog
+        );
     }
 
     #[test]
