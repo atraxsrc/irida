@@ -283,15 +283,22 @@ fn pin_scheme(p: &mut Palette, scheme: &ColorScheme) {
             if let Some(c) = scheme.slot(slot)
                 && derived.slot(slot) != Some(c)
             {
-                p.pins.set(slot, PinValue::Color(c));
+                p.pins
+                    .set(slot, PinValue::Color(c))
+                    .expect("colour pins are always allowed");
             }
         }
     }
     let derived = derive(p);
     match scheme.slot(Slot::Background) {
-        None => p.pins.set(Slot::Background, PinValue::None),
+        None => p
+            .pins
+            .set(Slot::Background, PinValue::None)
+            .expect("background can be none"),
         Some(c) if derived.slot(Slot::Background) != Some(c) => {
-            p.pins.set(Slot::Background, PinValue::Color(c));
+            p.pins
+                .set(Slot::Background, PinValue::Color(c))
+                .expect("colour pins are always allowed");
         }
         Some(_) => {}
     }
@@ -432,11 +439,14 @@ pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
     let neutral_10 = from_srgba(inner.neutral_10);
     if derived.neutral_10 != neutral_10 {
         p.pins
-            .set(Slot::CosmicNeutral10, PinValue::Color(neutral_10));
+            .set(Slot::CosmicNeutral10, PinValue::Color(neutral_10))
+            .expect("colour pins are always allowed");
     }
     let gray_2 = from_srgba(inner.gray_2);
     if derived.gray_2 != gray_2 {
-        p.pins.set(Slot::CosmicGray2, PinValue::Color(gray_2));
+        p.pins
+            .set(Slot::CosmicGray2, PinValue::Color(gray_2))
+            .expect("colour pins are always allowed");
     }
     Ok(p)
 }

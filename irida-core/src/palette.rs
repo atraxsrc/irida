@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::Rgb;
 use crate::role::Role;
-use crate::slot::{PinValue, Pins};
+use crate::slot::{PinValue, Pins, Slot};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -32,6 +32,8 @@ pub enum PaletteError {
     UnknownRole(String),
     BadSlug(String),
     BadName(String),
+    BadPair(String),
+    EmptyRoleName(Role),
     BadColor { key: String, value: String },
 }
 
@@ -45,6 +47,14 @@ impl fmt::Display for PaletteError {
             PaletteError::BadName(s) => write!(
                 f,
                 "invalid name {s:?}: use ASCII letters and digits in words separated by single spaces"
+            ),
+            PaletteError::BadPair(s) => write!(
+                f,
+                "invalid pair {s:?}: use the slug of another palette, lowercase letters only"
+            ),
+            PaletteError::EmptyRoleName(r) => write!(
+                f,
+                "empty display name for names.{r}: give it a name or remove it"
             ),
             PaletteError::BadColor { key, value } => {
                 write!(f, "invalid colour for {key}: {value:?}")
@@ -130,6 +140,15 @@ pub fn validate_name(s: &str) -> Result<(), PaletteError> {
     }
 }
 
+/// A slug made from a name: its ASCII letters, lowercased, everything else
+/// dropped. `"Ember Day"` gives `"emberday"`; a name without letters gives `""`.
+pub fn slug_from_name(name: &str) -> String {
+    name.chars()
+        .filter(char::is_ascii_alphabetic)
+        .map(|c| c.to_ascii_lowercase())
+        .collect()
+}
+
 fn quote(s: &str) -> String {
     toml::Value::String(s.to_string()).to_string()
 }
@@ -177,6 +196,34 @@ impl Palette {
             names,
             pins,
         })
+    }
+
+    /// Check everything that must hold for `to_toml` to give a file that
+    /// `from_toml` reads back: the name and slug rules, `pair` (when set) a
+    /// valid slug other than this palette's, no empty `[names]` value, and
+    /// `none` pinned only on `background`.
+    pub fn validate(&self) -> Result<(), PaletteError> {
+        validate_name(&self.name)?;
+        validate_slug(&self.slug)?;
+        if let Some(pair) = &self.pair
+            && (validate_slug(pair).is_err() || *pair == self.slug)
+        {
+            return Err(PaletteError::BadPair(pair.clone()));
+        }
+        if let Some((role, _)) = self.names.iter().find(|(_, n)| n.trim().is_empty()) {
+            return Err(PaletteError::EmptyRoleName(*role));
+        }
+        if let Some((slot, _)) = self
+            .pins
+            .iter()
+            .find(|(s, v)| *v == PinValue::None && *s != Slot::Background)
+        {
+            return Err(PaletteError::BadColor {
+                key: format!("pins.{slot}"),
+                value: "none".to_string(),
+            });
+        }
+        Ok(())
     }
 
     pub fn to_toml(&self) -> String {

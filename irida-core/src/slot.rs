@@ -131,6 +131,25 @@ pub enum PinValue {
     None,
 }
 
+/// Why a pin was refused.
+#[derive(Copy, Clone, Debug, PartialEq, Eq)]
+pub enum PinError {
+    /// Only `background` can be pinned to `none`.
+    NoneNotAllowed(Slot),
+}
+
+impl fmt::Display for PinError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PinError::NoneNotAllowed(slot) => {
+                write!(f, "{slot} cannot be none; only background can")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PinError {}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Pins(BTreeMap<Slot, PinValue>);
 
@@ -139,8 +158,14 @@ impl Pins {
         self.0.get(&slot).copied()
     }
 
-    pub fn set(&mut self, slot: Slot, value: PinValue) {
+    /// Pin a slot. `PinValue::None` is accepted only for `Slot::Background`;
+    /// any other slot is refused and the pins stay as they were.
+    pub fn set(&mut self, slot: Slot, value: PinValue) -> Result<(), PinError> {
+        if value == PinValue::None && slot != Slot::Background {
+            return Err(PinError::NoneNotAllowed(slot));
+        }
         self.0.insert(slot, value);
+        Ok(())
     }
 
     pub fn remove(&mut self, slot: Slot) {
@@ -170,14 +195,11 @@ impl Pins {
             let bad = || (format!("pins.{key}"), value.clone());
             let slot: Slot = key.parse().map_err(|_| bad())?;
             let pv = if value == "none" {
-                if slot != Slot::Background {
-                    return Err(bad());
-                }
                 PinValue::None
             } else {
                 PinValue::Color(Rgb::from_hex(value).map_err(|_| bad())?)
             };
-            pins.set(slot, pv);
+            pins.set(slot, pv).map_err(|_| bad())?;
         }
         Ok(pins)
     }

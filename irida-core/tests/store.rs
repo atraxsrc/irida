@@ -115,6 +115,28 @@ fn save_rejects_bad_slug() {
 }
 
 #[test]
+fn save_refuses_invalid() {
+    let env = TestEnv::new();
+    let store = Store::new(env.dirs.clone());
+    store.save(&palette("ember")).unwrap();
+    let dir = env.dirs.data.join("irida/palettes/ember");
+    let path = dir.join("palette.toml");
+    let before = std::fs::read(&path).unwrap();
+
+    let mut p = palette("ember");
+    p.name = "Bad-Name".into();
+    let err = store.save(&p).unwrap_err();
+    assert!(matches!(err, StoreError::Invalid(_)), "{err:?}");
+    assert!(err.to_string().contains("Bad-Name"), "{err}");
+    assert!(matches!(
+        store.save_version(&p),
+        Err(StoreError::Invalid(_))
+    ));
+    assert_eq!(std::fs::read(&path).unwrap(), before);
+    assert!(!dir.join("versions").exists());
+}
+
+#[test]
 fn dirs_from_vars() {
     use std::ffi::OsString;
     let o = |s: &str| Some(OsString::from(s));
