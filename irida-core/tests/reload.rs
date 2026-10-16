@@ -270,7 +270,7 @@ fn background_child_is_not_given_a_pipe() {
     let seen = dir.path().join("seen");
     let bg = Reload {
         command: Some(format!(
-            "(sleep 0.3; if [ -p /dev/stdout ] || [ -p /dev/stderr ]; then echo pipe; else echo file; fi > '{}') &",
+            "(sleep 0.3; p=file; [ -p /dev/stdout ] && p=pipe; [ -p /dev/stderr ] && p=pipe; echo $p > '{}') &",
             seen.display()
         )),
         ..Reload::default()

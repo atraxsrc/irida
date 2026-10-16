@@ -335,6 +335,48 @@ fn refreshed_names_the_markers_record() {
 }
 
 #[test]
+fn unfinished_first_apply_is_dropped() {
+    let env = TestEnv::new();
+    let cava = put_cava(&env);
+    let ember = palette("ember");
+    // A first apply that made its record, then stopped before its first
+    // write: the marker names a folder without record.toml.
+    let unfinished = |s: &LiveSession| {
+        let id = record_ids(&env).last().copied().unwrap_or(0) + 1;
+        fs::create_dir_all(applies_dir(&env).join(id.to_string())).unwrap();
+        put_marker(&env, &format!("palette = \"ember\"\nrecord = {id}\n"));
+        (id, s.clone().refreshed(&env.dirs))
+    };
+
+    // The next apply starts again and the folder goes.
+    let s = LiveSession::start(&ctx(&env), "ember").unwrap();
+    let (id, mut s) = unfinished(&s);
+    assert_eq!(s.record_id(), None);
+    session_apply(&mut s, &env, &ember);
+    assert!(!applies_dir(&env).join(id.to_string()).exists());
+    assert_eq!(record_ids(&env), vec![s.record_id().unwrap()]);
+    s.revert(&ctx(&env)).unwrap();
+    assert_eq!(read(&cava), "x\n");
+
+    // Revert and Keep of a session that never wrote drop it too.
+    for keep in [false, true] {
+        let s = LiveSession::start(&ctx(&env), "ember").unwrap();
+        let (id, s) = unfinished(&s);
+        if keep {
+            s.keep(&ctx(&env)).unwrap();
+        } else {
+            assert!(s.revert(&ctx(&env)).unwrap().is_none());
+        }
+        assert!(
+            !applies_dir(&env).join(id.to_string()).exists(),
+            "keep {keep}"
+        );
+        assert!(!marker(&env).exists());
+    }
+    assert!(record_ids(&env).is_empty());
+}
+
+#[test]
 fn prune_spares_open_session() {
     let env = TestEnv::new();
     put_cava(&env);
