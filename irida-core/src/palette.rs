@@ -31,6 +31,7 @@ pub enum PaletteError {
     MissingRole(Role),
     UnknownRole(String),
     BadSlug(String),
+    BadName(String),
     BadColor { key: String, value: String },
 }
 
@@ -41,6 +42,10 @@ impl fmt::Display for PaletteError {
             PaletteError::MissingRole(r) => write!(f, "missing role: {r}"),
             PaletteError::UnknownRole(s) => write!(f, "unknown role: {s}"),
             PaletteError::BadSlug(s) => write!(f, "invalid slug {s:?}: use lowercase letters only"),
+            PaletteError::BadName(s) => write!(
+                f,
+                "invalid name {s:?}: use ASCII letters and digits in words separated by single spaces"
+            ),
             PaletteError::BadColor { key, value } => {
                 write!(f, "invalid colour for {key}: {value:?}")
             }
@@ -54,6 +59,11 @@ impl std::error::Error for PaletteError {}
 pub struct Roles([Rgb; 13]);
 
 impl Roles {
+    /// Build from 13 colours in `Role::ALL` order.
+    pub fn new(colors: [Rgb; 13]) -> Roles {
+        Roles(colors)
+    }
+
     fn index(role: Role) -> usize {
         Role::ALL
             .iter()
@@ -108,6 +118,18 @@ pub fn validate_slug(s: &str) -> Result<(), PaletteError> {
     }
 }
 
+/// Names are ASCII letters and digits in words separated by single spaces.
+pub fn validate_name(s: &str) -> Result<(), PaletteError> {
+    let ok = !s.is_empty()
+        && s.split(' ')
+            .all(|w| !w.is_empty() && w.bytes().all(|b| b.is_ascii_alphanumeric()));
+    if ok {
+        Ok(())
+    } else {
+        Err(PaletteError::BadName(s.to_string()))
+    }
+}
+
 fn quote(s: &str) -> String {
     toml::Value::String(s.to_string()).to_string()
 }
@@ -116,6 +138,7 @@ impl Palette {
     pub fn from_toml(s: &str) -> Result<Palette, PaletteError> {
         let raw: Raw = toml::from_str(s).map_err(|e| PaletteError::Toml(e.to_string()))?;
         validate_slug(&raw.slug)?;
+        validate_name(&raw.name)?;
 
         let mut values: BTreeMap<Role, Rgb> = BTreeMap::new();
         for (key, value) in &raw.roles {
@@ -136,7 +159,9 @@ impl Palette {
         let mut names = BTreeMap::new();
         for (key, value) in raw.names {
             let role: Role = key.parse().map_err(|_| PaletteError::UnknownRole(key))?;
-            names.insert(role, value);
+            if !value.trim().is_empty() {
+                names.insert(role, value);
+            }
         }
 
         let pins = Pins::from_raw(&raw.pins)

@@ -1,6 +1,6 @@
 mod common;
 
-use irida_core::palette::{Mode, Palette, PaletteError, validate_slug};
+use irida_core::palette::{Mode, Palette, PaletteError, Roles, validate_name, validate_slug};
 use irida_core::role::Role;
 
 use common::{fixture_text, palette};
@@ -73,4 +73,39 @@ fn minimums_and_display() {
     assert_eq!(Role::Comment.min_contrast(), None);
     assert_eq!(Role::Pane.min_contrast(), None);
     assert_eq!(format!("{:<8}|", Role::Error), "error   |");
+}
+
+#[test]
+fn name_rules() {
+    for good in ["Ember", "Ember Day", "Noir 2"] {
+        assert!(validate_name(good).is_ok(), "{good}");
+    }
+    for bad in [
+        "",
+        " Ember",
+        "Ember ",
+        "Ember  Day",
+        "Ember-Day",
+        "Ember\"s",
+        "\u{c9}mber",
+        "a\nb",
+    ] {
+        assert!(
+            matches!(validate_name(bad), Err(PaletteError::BadName(_))),
+            "{bad:?}"
+        );
+    }
+    let text =
+        fixture_text("palettes/ember.toml").replace("name = \"Ember\"", "name = \"Ember-Day\"");
+    assert!(matches!(
+        Palette::from_toml(&text),
+        Err(PaletteError::BadName(_))
+    ));
+}
+
+#[test]
+fn roles_new() {
+    let p = palette("ember");
+    let colors = Role::ALL.map(|r| p.roles.get(r));
+    assert_eq!(Roles::new(colors), p.roles);
 }
