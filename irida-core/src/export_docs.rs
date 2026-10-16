@@ -16,7 +16,7 @@ pub const SHOWCASE_END: &str = "<!-- <<< irida contrast <<< -->";
 const RICES: &str =
     "darkgold whitegold tokyonight tokyoday ember emberday monochrome noir dossier harbordark";
 
-fn capitalised(role: Role) -> String {
+pub(crate) fn capitalised(role: Role) -> String {
     let s = role.as_str();
     let mut chars = s.chars();
     match chars.next() {

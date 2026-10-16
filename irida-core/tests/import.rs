@@ -46,7 +46,11 @@ fn copy_repo(env: &TestEnv, slug: &str) -> PathBuf {
 fn imports_all_four() {
     for (slug, _) in RICES {
         let got = import_rice(&repo(slug)).unwrap_or_else(|e| panic!("{e}"));
-        let want = palette(slug);
+        let mut want = palette(slug);
+        // A name that is the role's own, such as Pane, is the default.
+        for role in [Role::Pane, Role::Muted, Role::Comment] {
+            want.names.remove(&role);
+        }
         assert_eq!(got.name, want.name, "{slug}");
         assert_eq!(got.slug, want.slug, "{slug}");
         assert_eq!(got.mode, want.mode, "{slug}");
@@ -222,8 +226,39 @@ fn export_into_rice_with_contrast_py_imports_back() {
         "{script}"
     );
 
+    let mut want = ember.names.clone();
+    for role in [Role::Pane, Role::Muted, Role::Comment] {
+        want.remove(&role);
+    }
     let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(got.roles, ember.roles);
+    assert_eq!(got.names, want);
+}
+
+#[test]
+fn partial_names_round_trip_through_contrast_py() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let mut ember = palette("ember");
+    ember.names.clear();
+    ember.names.insert(Role::Text, "Ink".into());
+    ember.names.insert(Role::Container, "Soot / Ash".into());
+    export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &ember,
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let script = fs::read_to_string(copy.join("scripts/contrast.py")).unwrap();
+    assert!(
+        script.contains(r##"("Accent", "Accent", "#E8713A", True),"##),
+        "{script}"
+    );
+
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
     assert_eq!(got.names, ember.names);
 }
 
