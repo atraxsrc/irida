@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use common::TestEnv;
 use irida_core::target::{
-    LoadedTarget, NativeKind, Source, TargetError, WriteKind, is_detected, load_targets, Detect,
-    TargetDef,
+    Detect, LoadedTarget, NativeKind, Source, TargetDef, TargetError, WriteKind, is_detected,
+    load_targets,
 };
 
 const CAVA: &str = r##"name = "cava"
@@ -66,10 +66,16 @@ fn broken_target_is_reported_not_fatal() {
 fn validation_errors() {
     let env = TestEnv::new();
     let file = |extra: &str, write: &str| {
-        format!("name = \"NAME\"\n[[file]]\npath = \"~/a\"\nwrite = \"{write}\"\ntemplate = \"a.tmpl\"\n{extra}\n")
+        format!(
+            "name = \"NAME\"\n[[file]]\npath = \"~/a\"\nwrite = \"{write}\"\ntemplate = \"a.tmpl\"\n{extra}\n"
+        )
     };
     let cases: Vec<(&str, String, bool)> = vec![
-        ("nocomment", file("", "block").replace("NAME", "nocomment"), true),
+        (
+            "nocomment",
+            file("", "block").replace("NAME", "nocomment"),
+            true,
+        ),
         ("nokey", file("", "key").replace("NAME", "nokey"), true),
         ("notmpl", file("", "file").replace("NAME", "notmpl"), false),
         (
@@ -80,7 +86,12 @@ fn validation_errors() {
         ("folder", file("", "file").replace("NAME", "other"), true),
     ];
     for (folder, toml, with_tmpl) in &cases {
-        put(&env, folder, toml, if *with_tmpl { &["a.tmpl"] } else { &[] });
+        put(
+            &env,
+            folder,
+            toml,
+            if *with_tmpl { &["a.tmpl"] } else { &[] },
+        );
     }
     let all = load_targets(&env.dirs);
     for (folder, _, _) in &cases {
@@ -96,7 +107,10 @@ fn validation_errors() {
 fn builtin_cosmic_term_and_user_override() {
     let env = TestEnv::new();
     let all = load_targets(&env.dirs);
-    let t = find(&all, "cosmic-term").result.as_ref().expect("built-in loads");
+    let t = find(&all, "cosmic-term")
+        .result
+        .as_ref()
+        .expect("built-in loads");
     assert_eq!(t.source, Source::Builtin);
     assert_eq!(t.def.native, Some(NativeKind::CosmicTerm));
     assert!(t.def.live);
@@ -104,7 +118,10 @@ fn builtin_cosmic_term_and_user_override() {
     let user = "name = \"cosmic-term\"\n\n[[file]]\npath = \"~/.config/x\"\nwrite = \"file\"\ntemplate = \"a.tmpl\"\n";
     put(&env, "cosmic-term", user, &["a.tmpl"]);
     let all = load_targets(&env.dirs);
-    let t = find(&all, "cosmic-term").result.as_ref().expect("user target loads");
+    let t = find(&all, "cosmic-term")
+        .result
+        .as_ref()
+        .expect("user target loads");
     assert!(matches!(t.source, Source::User(_)));
     assert_eq!(t.def.native, None);
     assert_eq!(t.def.files.len(), 1);
@@ -123,20 +140,44 @@ fn detection() {
     }
     let path: Vec<PathBuf> = vec![bin];
 
-    let by_bin = TargetDef { detect: Detect { binary: Some("mytool".into()), ..Default::default() }, ..def() };
+    let by_bin = TargetDef {
+        detect: Detect {
+            binary: Some("mytool".into()),
+            ..Default::default()
+        },
+        ..def()
+    };
     assert!(is_detected(&by_bin, &env.dirs, &path));
 
-    let by_cfg = TargetDef { detect: Detect { config: Some("~/.config/nothere".into()), ..Default::default() }, ..def() };
+    let by_cfg = TargetDef {
+        detect: Detect {
+            config: Some("~/.config/nothere".into()),
+            ..Default::default()
+        },
+        ..def()
+    };
     assert!(!is_detected(&by_cfg, &env.dirs, &[]));
     std::fs::create_dir_all(env.dirs.config.join("nothere")).unwrap();
     assert!(is_detected(&by_cfg, &env.dirs, &[]));
 
-    let by_flat = TargetDef { detect: Detect { flatpak: Some("io.github.x".into()), ..Default::default() }, ..def() };
+    let by_flat = TargetDef {
+        detect: Detect {
+            flatpak: Some("io.github.x".into()),
+            ..Default::default()
+        },
+        ..def()
+    };
     assert!(!is_detected(&by_flat, &env.dirs, &[]));
     std::fs::create_dir_all(env.dirs.home.join(".var/app/io.github.x/config")).unwrap();
     assert!(is_detected(&by_flat, &env.dirs, &[]));
 
-    let none = TargetDef { detect: Detect { binary: Some("absent".into()), ..Default::default() }, ..def() };
+    let none = TargetDef {
+        detect: Detect {
+            binary: Some("absent".into()),
+            ..Default::default()
+        },
+        ..def()
+    };
     assert!(!is_detected(&none, &env.dirs, &path));
     assert!(is_detected(&def(), &env.dirs, &[]));
 }
@@ -175,7 +216,13 @@ fn reload_typos_and_unknown_signals_are_rejected() {
         &[],
     );
     let all = load_targets(&env.dirs);
-    assert!(matches!(find(&all, "typo").result, Err(TargetError::Parse(_))));
-    assert!(matches!(find(&all, "kill").result, Err(TargetError::Invalid(_))));
+    assert!(matches!(
+        find(&all, "typo").result,
+        Err(TargetError::Parse(_))
+    ));
+    assert!(matches!(
+        find(&all, "kill").result,
+        Err(TargetError::Invalid(_))
+    ));
     assert!(find(&all, "fine").result.is_ok());
 }

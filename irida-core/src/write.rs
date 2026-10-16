@@ -29,7 +29,11 @@ pub fn resolve_write_path(path: &Path) -> io::Result<PathBuf> {
             None => target,
         };
     }
-    if current.exists() { fs::canonicalize(&current) } else { Ok(current) }
+    if current.exists() {
+        fs::canonicalize(&current)
+    } else {
+        Ok(current)
+    }
 }
 
 /// Write via a temporary sibling and rename, keeping symlinks and modes.
@@ -100,8 +104,12 @@ pub struct BlockEdit {
 fn find_block(lines: &[&str], comment: &str) -> Result<Option<(usize, usize)>, BlockError> {
     let begin = begin_marker(comment);
     let end = end_marker(comment);
-    let begins: Vec<usize> = (0..lines.len()).filter(|&i| lines[i].trim_end() == begin).collect();
-    let ends: Vec<usize> = (0..lines.len()).filter(|&i| lines[i].trim_end() == end).collect();
+    let begins: Vec<usize> = (0..lines.len())
+        .filter(|&i| lines[i].trim_end() == begin)
+        .collect();
+    let ends: Vec<usize> = (0..lines.len())
+        .filter(|&i| lines[i].trim_end() == end)
+        .collect();
     match (begins.as_slice(), ends.as_slice()) {
         ([], []) => Ok(None),
         ([b], [e]) if b < e => Ok(Some((*b, *e))),
@@ -110,7 +118,11 @@ fn find_block(lines: &[&str], comment: &str) -> Result<Option<(usize, usize)>, B
 }
 
 fn with_newline(body: &str) -> String {
-    if body.ends_with('\n') { body.to_string() } else { format!("{body}\n") }
+    if body.ends_with('\n') {
+        body.to_string()
+    } else {
+        format!("{body}\n")
+    }
 }
 
 pub fn set_block(
@@ -133,13 +145,20 @@ pub fn set_block(
                 begin_marker(comment),
                 end_marker(comment)
             ));
-            Ok(BlockEdit { contents, before: None, appended_newline })
+            Ok(BlockEdit {
+                contents,
+                before: None,
+                appended_newline,
+            })
         }
         Some((b, e)) => {
             let before: String = lines[b + 1..e].concat();
-            let contents =
-                format!("{}{body}{}", lines[..=b].concat(), lines[e..].concat());
-            Ok(BlockEdit { contents, before: Some(before), appended_newline: false })
+            let contents = format!("{}{body}{}", lines[..=b].concat(), lines[e..].concat());
+            Ok(BlockEdit {
+                contents,
+                before: Some(before),
+                appended_newline: false,
+            })
         }
     }
 }
@@ -198,8 +217,16 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str) -> KeyEdit {
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     if let Some(i) = lines.iter().position(|l| is_key_line(l, key)) {
         let (old, eol) = strip_eol(lines[i]);
-        let contents = format!("{}{new_line}{eol}{}", lines[..i].concat(), lines[i + 1..].concat());
-        return KeyEdit { contents, before: Some(old.to_string()), appended_newline: false };
+        let contents = format!(
+            "{}{new_line}{eol}{}",
+            lines[..i].concat(),
+            lines[i + 1..].concat()
+        );
+        return KeyEdit {
+            contents,
+            before: Some(old.to_string()),
+            appended_newline: false,
+        };
     }
     let mut contents = text.to_string();
     let appended_newline = !contents.is_empty() && !contents.ends_with('\n');
@@ -208,7 +235,11 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str) -> KeyEdit {
     }
     contents.push_str(&new_line);
     contents.push('\n');
-    KeyEdit { contents, before: None, appended_newline }
+    KeyEdit {
+        contents,
+        before: None,
+        appended_newline,
+    }
 }
 
 pub fn restore_key(
@@ -224,7 +255,11 @@ pub fn restore_key(
     match before {
         Some(old) => {
             let (_, eol) = strip_eol(lines[i]);
-            format!("{}{old}{eol}{}", lines[..i].concat(), lines[i + 1..].concat())
+            format!(
+                "{}{old}{eol}{}",
+                lines[..i].concat(),
+                lines[i + 1..].concat()
+            )
         }
         None => {
             let mut head = lines[..i].concat();

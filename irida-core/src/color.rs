@@ -18,7 +18,11 @@ pub struct Rgb {
     pub b: u8,
 }
 
-pub const WHITE: Rgb = Rgb { r: 255, g: 255, b: 255 };
+pub const WHITE: Rgb = Rgb {
+    r: 255,
+    g: 255,
+    b: 255,
+};
 pub const BLACK: Rgb = Rgb { r: 0, g: 0, b: 0 };
 
 impl Rgb {
@@ -30,7 +34,11 @@ impl Rgb {
             return Err(err());
         }
         let ch = |i: usize| u8::from_str_radix(&digits[i..i + 2], 16).map_err(|_| err());
-        Ok(Rgb { r: ch(0)?, g: ch(2)?, b: ch(4)? })
+        Ok(Rgb {
+            r: ch(0)?,
+            g: ch(2)?,
+            b: ch(4)?,
+        })
     }
 
     /// Uppercase `#RRGGBB`.
@@ -73,5 +81,9 @@ pub fn mix(a: Rgb, b: Rgb, t: f64) -> Rgb {
             .round_ties_even()
             .clamp(0.0, 255.0) as u8
     };
-    Rgb { r: ch(a.r, b.r), g: ch(a.g, b.g), b: ch(a.b, b.b) }
+    Rgb {
+        r: ch(a.r, b.r),
+        g: ch(a.g, b.g),
+        b: ch(a.b, b.b),
+    }
 }

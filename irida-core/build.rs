@@ -1,1 +1,3 @@
-fn main() { println!("cargo:rerun-if-changed=targets"); }
+fn main() {
+    println!("cargo:rerun-if-changed=targets");
+}

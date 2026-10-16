@@ -80,8 +80,15 @@ impl ApplyReport {
 #[derive(Debug)]
 pub enum ApplyError {
     UnknownTarget(String),
-    Render { target: String, message: String },
-    Write { path: PathBuf, source: io::Error, rolled_back: bool },
+    Render {
+        target: String,
+        message: String,
+    },
+    Write {
+        path: PathBuf,
+        source: io::Error,
+        rolled_back: bool,
+    },
     NothingToApply(Vec<TargetResult>),
     Record(io::Error),
 }
@@ -93,19 +100,30 @@ impl fmt::Display for ApplyError {
             ApplyError::Render { target, message } => {
                 write!(f, "{target}: {message}; nothing was written")
             }
-            ApplyError::Write { path, source, rolled_back: true } => write!(
+            ApplyError::Write {
+                path,
+                source,
+                rolled_back: true,
+            } => write!(
                 f,
                 "cannot write {}: {source}; every change was rolled back",
                 path.display()
             ),
-            ApplyError::Write { path, source, rolled_back: false } => write!(
+            ApplyError::Write {
+                path,
+                source,
+                rolled_back: false,
+            } => write!(
                 f,
                 "cannot write {}: {source}; rolling back failed, so the apply record was kept \
                  and `irida undo` can retry",
                 path.display()
             ),
             ApplyError::NothingToApply(_) => {
-                write!(f, "nothing to apply: no installed, enabled target has a file to write")
+                write!(
+                    f,
+                    "nothing to apply: no installed, enabled target has a file to write"
+                )
             }
             ApplyError::Record(e) => {
                 write!(f, "cannot save the apply record: {e}; nothing was written")
@@ -159,8 +177,16 @@ impl std::error::Error for UndoError {
 /// How a planned write changes its file, with what undo needs to reverse it.
 enum Edit {
     File,
-    Block { comment: String, before: Option<String>, appended_newline: bool },
-    Key { key: String, before: Option<String>, appended_newline: bool },
+    Block {
+        comment: String,
+        before: Option<String>,
+        appended_newline: bool,
+    },
+    Key {
+        key: String,
+        before: Option<String>,
+        appended_newline: bool,
+    },
 }
 
 /// The full new contents of one file.
@@ -175,14 +201,22 @@ impl PlannedWrite {
         let path = self.path.clone();
         match &self.edit {
             Edit::File => Entry::File { path, blob },
-            Edit::Block { comment, before, appended_newline } => Entry::Block {
+            Edit::Block {
+                comment,
+                before,
+                appended_newline,
+            } => Entry::Block {
                 path,
                 blob,
                 comment: comment.clone(),
                 before: before.clone(),
                 appended_newline: *appended_newline,
             },
-            Edit::Key { key, before, appended_newline } => Entry::Key {
+            Edit::Key {
+                key,
+                before,
+                appended_newline,
+            } => Entry::Key {
                 path,
                 blob,
                 key: key.clone(),
@@ -203,11 +237,20 @@ struct TargetPlan<'t> {
 
 impl TargetPlan<'_> {
     fn skipped(name: &str, reason: SkipReason, warnings: Vec<String>) -> Self {
-        TargetPlan { name: name.to_string(), outcome: Err(reason), writes: Vec::new(), warnings }
+        TargetPlan {
+            name: name.to_string(),
+            outcome: Err(reason),
+            writes: Vec::new(),
+            warnings,
+        }
     }
 
     fn into_result(self, status: TargetStatus) -> TargetResult {
-        TargetResult { name: self.name, status, warnings: self.warnings }
+        TargetResult {
+            name: self.name,
+            status,
+            warnings: self.warnings,
+        }
     }
 }
 
@@ -222,7 +265,10 @@ fn select<'t>(
     if settings.disabled.contains(&lt.name) && !named {
         return Err(SkipReason::Disabled);
     }
-    let target = lt.result.as_ref().map_err(|e| SkipReason::Broken(e.to_string()))?;
+    let target = lt
+        .result
+        .as_ref()
+        .map_err(|e| SkipReason::Broken(e.to_string()))?;
     if !is_detected(&target.def, &ctx.dirs, &ctx.path) {
         return Err(SkipReason::NotInstalled);
     }
@@ -238,7 +284,12 @@ fn select<'t>(
 fn read_existing(path: &Path) -> io::Result<Option<String>> {
     match fs::read_to_string(path) {
         Ok(text) => Ok(Some(text)),
-        Err(e) if matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory) => {
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
             Ok(None)
         }
         Err(e) => Err(e),
@@ -248,13 +299,20 @@ fn read_existing(path: &Path) -> io::Result<Option<String>> {
 /// Plan one `[[file]]`. `Err` is a warning: the file is left alone.
 fn plan_file(f: &FileEntry, path: PathBuf, rendered: String) -> Result<PlannedWrite, String> {
     if f.write == WriteKind::File {
-        return Ok(PlannedWrite { path, contents: rendered, edit: Edit::File });
+        return Ok(PlannedWrite {
+            path,
+            contents: rendered,
+            edit: Edit::File,
+        });
     }
     let skip = |why: &dyn fmt::Display| format!("{}: {why}; skipped", path.display());
     let existing = read_existing(&path).map_err(|e| skip(&e))?;
     match f.write {
         WriteKind::Block => {
-            let comment = f.comment.clone().ok_or_else(|| skip(&"block needs comment"))?;
+            let comment = f
+                .comment
+                .clone()
+                .ok_or_else(|| skip(&"block needs comment"))?;
             let edit = set_block(existing.as_deref(), &comment, &rendered)
                 .map_err(|_| skip(&"irida markers are broken"))?;
             Ok(PlannedWrite {
@@ -274,7 +332,11 @@ fn plan_file(f: &FileEntry, path: PathBuf, rendered: String) -> Result<PlannedWr
             Ok(PlannedWrite {
                 path,
                 contents: edit.contents,
-                edit: Edit::Key { key, before: edit.before, appended_newline: edit.appended_newline },
+                edit: Edit::Key {
+                    key,
+                    before: edit.before,
+                    appended_newline: edit.appended_newline,
+                },
             })
         }
     }
@@ -292,13 +354,17 @@ fn plan_target<'t>(
     let mut writes = Vec::new();
     let mut warnings = Vec::new();
     for f in &target.def.files {
-        let render_error = |message: String| ApplyError::Render { target: name.clone(), message };
+        let render_error = |message: String| ApplyError::Render {
+            target: name.clone(),
+            message,
+        };
         let source = target
             .templates
             .get(&f.template)
             .ok_or_else(|| render_error(format!("missing template {}", f.template)))?;
-        let rendered =
-            renderer.render(&f.template, source).map_err(|e| render_error(e.to_string()))?;
+        let rendered = renderer
+            .render(&f.template, source)
+            .map_err(|e| render_error(e.to_string()))?;
         match plan_file(f, dirs.expand(&f.path), rendered) {
             Ok(w) => writes.push(w),
             Err(warning) => warnings.push(warning),
@@ -316,7 +382,11 @@ fn plan_target<'t>(
                 warnings.extend(plan.warnings);
             }
             Err(e) => {
-                return Ok(TargetPlan::skipped(name, SkipReason::Broken(e.to_string()), warnings));
+                return Ok(TargetPlan::skipped(
+                    name,
+                    SkipReason::Broken(e.to_string()),
+                    warnings,
+                ));
             }
         }
     }
@@ -326,9 +396,18 @@ fn plan_target<'t>(
         } else {
             warnings.remove(0)
         };
-        return Ok(TargetPlan::skipped(name, SkipReason::Broken(reason), warnings));
+        return Ok(TargetPlan::skipped(
+            name,
+            SkipReason::Broken(reason),
+            warnings,
+        ));
     }
-    Ok(TargetPlan { name: name.clone(), outcome: Ok(target), writes, warnings })
+    Ok(TargetPlan {
+        name: name.clone(),
+        outcome: Ok(target),
+        writes,
+        warnings,
+    })
 }
 
 /// Capture every file before it is written. On failure the unfinished record
@@ -353,7 +432,11 @@ fn record_writes(dirs: &Dirs, slug: &str, writes: &[&PlannedWrite]) -> Result<Re
     })
 }
 
-pub fn apply(ctx: &Ctx, settings: &Settings, req: &ApplyRequest) -> Result<ApplyReport, ApplyError> {
+pub fn apply(
+    ctx: &Ctx,
+    settings: &Settings,
+    req: &ApplyRequest,
+) -> Result<ApplyReport, ApplyError> {
     let loaded = load_targets(&ctx.dirs);
     if let Some(only) = &req.only
         && let Some(unknown) = only.iter().find(|n| !loaded.iter().any(|t| &t.name == *n))
@@ -375,8 +458,11 @@ pub fn apply(ctx: &Ctx, settings: &Settings, req: &ApplyRequest) -> Result<Apply
         });
     }
 
-    let writes: Vec<&PlannedWrite> =
-        plans.iter().filter(|p| p.outcome.is_ok()).flat_map(|p| &p.writes).collect();
+    let writes: Vec<&PlannedWrite> = plans
+        .iter()
+        .filter(|p| p.outcome.is_ok())
+        .flat_map(|p| &p.writes)
+        .collect();
     if writes.is_empty() {
         let results = plans
             .into_iter()
@@ -406,7 +492,11 @@ pub fn apply(ctx: &Ctx, settings: &Settings, req: &ApplyRequest) -> Result<Apply
             if rolled_back {
                 let _ = record::delete(&ctx.dirs, record.id);
             }
-            return Err(ApplyError::Write { path: w.path.clone(), source, rolled_back });
+            return Err(ApplyError::Write {
+                path: w.path.clone(),
+                source,
+                rolled_back,
+            });
         }
     }
 
@@ -423,7 +513,10 @@ pub fn apply(ctx: &Ctx, settings: &Settings, req: &ApplyRequest) -> Result<Apply
         })
         .collect();
     let _ = record::prune(&ctx.dirs, KEEP_RECORDS);
-    Ok(ApplyReport { record_id: record.id, targets })
+    Ok(ApplyReport {
+        record_id: record.id,
+        targets,
+    })
 }
 
 /// Undo the newest apply, keeping the user's own edits to block and key files.
@@ -435,5 +528,9 @@ pub fn undo(ctx: &Ctx) -> Result<UndoReport, UndoError> {
     if failures.is_empty() {
         record::delete(&ctx.dirs, record.id).map_err(UndoError::Io)?;
     }
-    Ok(UndoReport { record_id: record.id, palette: record.palette, failures })
+    Ok(UndoReport {
+        record_id: record.id,
+        palette: record.palette,
+        failures,
+    })
 }

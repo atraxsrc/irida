@@ -11,13 +11,21 @@ pub enum RampError {
 }
 
 fn to_oklab(c: Rgb) -> Oklab {
-    Oklab::from_color(Srgb::new(c.r as f32 / 255.0, c.g as f32 / 255.0, c.b as f32 / 255.0))
+    Oklab::from_color(Srgb::new(
+        c.r as f32 / 255.0,
+        c.g as f32 / 255.0,
+        c.b as f32 / 255.0,
+    ))
 }
 
 fn to_rgb(lab: Oklab) -> Rgb {
     let s = Srgb::from_color(lab);
     let ch = |c: f32| (c.clamp(0.0, 1.0) * 255.0).round_ties_even() as u8;
-    Rgb { r: ch(s.red), g: ch(s.green), b: ch(s.blue) }
+    Rgb {
+        r: ch(s.red),
+        g: ch(s.green),
+        b: ch(s.blue),
+    }
 }
 
 /// `steps` colours from `from` to `to`, interpolated linearly in OKLab.

@@ -144,7 +144,9 @@ fn apply_then_undo() {
         .args(["apply", "ember"])
         .assert()
         .code(0)
-        .stdout(predicate::str::contains("btop: applied, restart btop to see it"))
+        .stdout(predicate::str::contains(
+            "btop: applied, restart btop to see it",
+        ))
         .stdout(predicate::str::contains("cosmic-term: applied"))
         .stdout(predicate::str::contains("Undo with: irida undo"));
     let config = tmp.path().join("home/.config");
@@ -213,5 +215,8 @@ fn apply_reports_even_when_settings_cannot_be_saved() {
     assert_eq!(out.status.code(), Some(0), "{stderr}");
     assert!(stdout.contains("btop: applied"), "{stdout}");
     assert!(stdout.contains("Undo with: irida undo"), "{stdout}");
-    assert!(stderr.contains("irida: warning: could not save settings:"), "{stderr}");
+    assert!(
+        stderr.contains("irida: warning: could not save settings:"),
+        "{stderr}"
+    );
 }

@@ -19,7 +19,12 @@ fn endpoints_and_length() {
 
 #[test]
 fn black_to_white_is_monotonic_in_lightness() {
-    let r = ramp(Rgb::from_hex("#000000").unwrap(), Rgb::from_hex("#FFFFFF").unwrap(), 5).unwrap();
+    let r = ramp(
+        Rgb::from_hex("#000000").unwrap(),
+        Rgb::from_hex("#FFFFFF").unwrap(),
+        5,
+    )
+    .unwrap();
     let ls: Vec<f32> = r.iter().map(|c| lightness(*c)).collect();
     assert!(ls.windows(2).all(|w| w[0] < w[1]), "{ls:?}");
 }
@@ -34,6 +39,11 @@ fn step_count_is_bounded() {
 
 #[test]
 fn out_of_gamut_midpoints_do_not_panic() {
-    let r = ramp(Rgb::from_hex("#FF0000").unwrap(), Rgb::from_hex("#00FFFF").unwrap(), 16).unwrap();
+    let r = ramp(
+        Rgb::from_hex("#FF0000").unwrap(),
+        Rgb::from_hex("#00FFFF").unwrap(),
+        16,
+    )
+    .unwrap();
     assert_eq!(r.len(), 16);
 }

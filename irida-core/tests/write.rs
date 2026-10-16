@@ -10,7 +10,10 @@ use irida_core::write::{
 #[test]
 fn block_append_then_replace_then_restore() {
     let first = set_block(Some("a\nb"), "#", "x\n").unwrap();
-    assert_eq!(first.contents, "a\nb\n# >>> irida >>>\nx\n# <<< irida <<<\n");
+    assert_eq!(
+        first.contents,
+        "a\nb\n# >>> irida >>>\nx\n# <<< irida <<<\n"
+    );
     assert!(first.appended_newline);
     assert_eq!(first.before, None);
 
@@ -43,7 +46,10 @@ fn broken_markers() {
         "# <<< irida <<<\n# >>> irida >>>\n",
         "# >>> irida >>>\n# >>> irida >>>\n# <<< irida <<<\n",
     ] {
-        assert_eq!(set_block(Some(text), "#", "x\n").unwrap_err(), BlockError::Broken);
+        assert_eq!(
+            set_block(Some(text), "#", "x\n").unwrap_err(),
+            BlockError::Broken
+        );
     }
 }
 
@@ -61,7 +67,12 @@ fn key_replace_append_create_restore() {
     assert_eq!(e.contents, "a = 1\ncolor_theme = \"irida\"\nb = 2\n");
     assert_eq!(e.before.as_deref(), Some("color_theme = \"Default\""));
     assert_eq!(
-        restore_key(&e.contents, "color_theme", e.before.as_deref(), e.appended_newline),
+        restore_key(
+            &e.contents,
+            "color_theme",
+            e.before.as_deref(),
+            e.appended_newline
+        ),
         src
     );
 
@@ -81,7 +92,12 @@ fn atomic_write_through_symlink() {
     fs::write(&real, "old").unwrap();
     symlink(&real, &link).unwrap();
     atomic_write(&link, b"new").unwrap();
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(fs::read_to_string(&real).unwrap(), "new");
 }
 
@@ -91,8 +107,16 @@ fn atomic_write_through_dangling_symlink() {
     let link = tmp.path().join("link.conf");
     symlink("dotfiles/real.conf", &link).unwrap();
     atomic_write(&link, b"new").unwrap();
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
-    assert_eq!(fs::read_to_string(tmp.path().join("dotfiles/real.conf")).unwrap(), "new");
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read_to_string(tmp.path().join("dotfiles/real.conf")).unwrap(),
+        "new"
+    );
 }
 
 #[test]
@@ -110,10 +134,16 @@ fn atomic_write_keeps_mode_and_cleans_up() {
     let tmp = tempfile::TempDir::new().unwrap();
     let f = tmp.path().join("sub/f.conf");
     atomic_write(&f, b"one").unwrap();
-    assert_eq!(fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o644);
+    assert_eq!(
+        fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+        0o644
+    );
     fs::set_permissions(&f, fs::Permissions::from_mode(0o600)).unwrap();
     atomic_write(&f, b"two").unwrap();
-    assert_eq!(fs::metadata(&f).unwrap().permissions().mode() & 0o777, 0o600);
+    assert_eq!(
+        fs::metadata(&f).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
     assert_eq!(fs::read_to_string(&f).unwrap(), "two");
 
     let leftovers: Vec<_> = fs::read_dir(f.parent().unwrap())
