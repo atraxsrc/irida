@@ -1641,6 +1641,15 @@ impl State {
             *waiting = Some(then);
             return Vec::new();
         }
+        // The start-up prompt stays, without Cancel; `then` follows it.
+        if let Some(Dialog::KeepOrRevert {
+            then: waiting,
+            pending: true,
+        }) = &mut self.dialog
+        {
+            *waiting = Some(then);
+            return Vec::new();
+        }
         self.dialog = Some(Dialog::KeepOrRevert {
             then: Some(then),
             pending: false,
@@ -5063,10 +5072,20 @@ mod tests {
         assert_eq!(state.dialog, asked);
         let effects = update(&mut state, Msg::SetRole(Role::Accent, red()));
         assert!(live_applies(&effects).is_empty(), "{effects:?}");
+        // Closing the window keeps the prompt, and closes after it.
+        assert!(drive(&mut state, Msg::CloseRequested).is_empty());
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::KeepOrRevert {
+                then: Some(LiveThen::Leave(Leave::Exit)),
+                pending: true,
+            })
+        );
 
         drive(&mut state, Msg::LiveRevert);
         assert_eq!(fs::read(&config).unwrap(), b"x\n");
-        assert!(state.dialog.is_none());
+        // The edit made meanwhile is asked about next.
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
         assert!(!state.live_on());
         assert!(!live_marker(&tmp).exists());
         let state = start(&tmp);
