@@ -47,19 +47,21 @@ pub enum NativeKind {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct SignalReload {
     pub process: String,
     pub signal: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct MinVersion {
     pub command: String,
     pub version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default, Deserialize)]
-#[serde(default)]
+#[serde(default, deny_unknown_fields)]
 pub struct Reload {
     pub signal: Option<SignalReload>,
     pub command: Option<String>,
@@ -159,6 +161,11 @@ fn build(
         if !templates.contains_key(&f.template) {
             return invalid(format!("{}: missing template {}", f.path, f.template));
         }
+    }
+    if let Some(sig) = def.reload.as_ref().and_then(|r| r.signal.as_ref())
+        && !crate::reload::SIGNAL_NAMES.contains(&sig.signal.as_str())
+    {
+        return invalid(format!("unknown reload signal {:?}", sig.signal));
     }
     for r in &def.rice {
         if let Some(t) = &r.template

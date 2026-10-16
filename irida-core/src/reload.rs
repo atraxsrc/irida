@@ -68,6 +68,9 @@ pub fn find_processes(name: &str) -> Vec<i32> {
     pids
 }
 
+/// Signal names a target may ask for.
+pub const SIGNAL_NAMES: [&str; 4] = ["USR1", "USR2", "HUP", "TERM"];
+
 fn signal_by_name(name: &str) -> Option<Signal> {
     match name {
         "USR1" => Some(Signal::SIGUSR1),
