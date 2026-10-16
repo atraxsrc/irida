@@ -10,3 +10,4 @@ pub mod store;
 pub mod target;
 pub mod template;
 pub mod term;
+pub mod write;

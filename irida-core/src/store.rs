@@ -10,6 +10,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::dirs::Dirs;
 use crate::palette::{Palette, validate_slug};
+use crate::write::atomic_write;
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -61,15 +62,8 @@ fn read_palette(path: &Path) -> Result<Palette, StoreError> {
     })
 }
 
-/// Write via a temporary sibling and rename, creating parent folders.
 fn write_file(path: &Path, contents: &str) -> Result<(), StoreError> {
-    let parent = path.parent().expect("store paths have a parent");
-    fs::create_dir_all(parent).map_err(|e| io_err(parent, e))?;
-    let mut tmp = path.as_os_str().to_owned();
-    tmp.push(".tmp");
-    let tmp = PathBuf::from(tmp);
-    fs::write(&tmp, contents).map_err(|e| io_err(&tmp, e))?;
-    fs::rename(&tmp, path).map_err(|e| io_err(path, e))
+    atomic_write(path, contents.as_bytes()).map_err(|e| io_err(path, e))
 }
 
 impl Store {
