@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use common::{TestEnv, fixture, fixture_text, palette};
 use irida_core::derive::derive;
-use irida_core::export::{ExportRequest, export};
+use irida_core::export::{ExportRequest, ExportStatus, export};
 use irida_core::import::{import_rice, import_rice_with_notes, is_rice_folder};
 use irida_core::native::cosmic_desktop::export_ron;
 use irida_core::role::Role;
@@ -174,6 +174,76 @@ fn export_then_import_keeps_names() {
     assert_eq!(got.roles, ember.roles);
     assert!(notes.is_empty(), "{notes:?}");
     assert_eq!(import_rice(&report.repo).unwrap().names, want);
+}
+
+#[test]
+fn export_into_rice_with_contrast_py_imports_back() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let mut ember = palette("ember");
+    ember.roles.set(
+        Role::Accent,
+        irida_core::color::Rgb::from_hex("#E0602A").unwrap(),
+    );
+    ember.names.insert(Role::Text, "Ink".into());
+    ember
+        .names
+        .insert(Role::Magenta, r#"Heather "wild" \ moor"#.into());
+    let report = export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &ember,
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let line = |path: &str| {
+        report
+            .lines
+            .iter()
+            .find(|l| l.path == path)
+            .map(|l| l.status.clone())
+    };
+    assert_eq!(line("scripts/contrast.py"), Some(ExportStatus::Updated));
+    assert_eq!(
+        line("README.md"),
+        Some(ExportStatus::Skipped("no irida markers".into()))
+    );
+    let script = fs::read_to_string(copy.join("scripts/contrast.py")).unwrap();
+    assert!(script.contains("def lum(h):"), "{script}");
+    assert!(
+        script.contains(r##"("Text", "Ink", "#D6D9E0", True),"##),
+        "{script}"
+    );
+
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(got.roles, ember.roles);
+    assert_eq!(got.names, ember.names);
+}
+
+#[test]
+fn contrast_py_of_another_shape_is_flagged() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let script = copy.join("scripts/contrast.py");
+    fs::write(&script, "print('mine')\n").unwrap();
+    let report = export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &palette("ember"),
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let line = report
+        .lines
+        .iter()
+        .find(|l| l.path == "scripts/contrast.py")
+        .map(|l| l.status.clone());
+    assert_eq!(line, Some(ExportStatus::Stale));
+    assert_eq!(fs::read_to_string(&script).unwrap(), "print('mine')\n");
 }
 
 #[test]
