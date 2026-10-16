@@ -153,6 +153,16 @@ impl RecordWriter {
         self.record.entries.push(e);
     }
 
+    /// The number of the folder this writer created.
+    pub fn id(&self) -> u32 {
+        self.record.id
+    }
+
+    /// Give up on an unfinished record: delete exactly the folder this writer created.
+    pub fn abort(self) -> io::Result<()> {
+        fs::remove_dir_all(&self.dir)
+    }
+
     /// Write `record.toml` and return the record.
     pub fn finish(self) -> io::Result<Record> {
         let text = toml::to_string(&self.record).map_err(io::Error::other)?;

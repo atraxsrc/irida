@@ -331,34 +331,26 @@ fn plan_target<'t>(
     Ok(TargetPlan { name: name.clone(), outcome: Ok(target), writes, warnings })
 }
 
-/// The id `RecordWriter::create` just took: the highest numbered record folder.
-fn newest_record_id(dirs: &Dirs) -> Option<u32> {
-    fs::read_dir(dirs.state.join("irida/applies"))
-        .ok()?
-        .filter_map(Result::ok)
-        .filter_map(|e| e.file_name().to_str()?.parse().ok())
-        .max()
-}
-
 /// Capture every file before it is written. On failure the unfinished record
-/// folder, which holds private copies, is deleted.
+/// folder, which holds private copies, is deleted; the capture or finish error
+/// is returned even when that cleanup fails.
 fn record_writes(dirs: &Dirs, slug: &str, writes: &[&PlannedWrite]) -> Result<Record, ApplyError> {
     let mut writer = RecordWriter::create(dirs, slug).map_err(ApplyError::Record)?;
-    let id = newest_record_id(dirs);
-    writes
-        .iter()
-        .try_for_each(|w| {
-            let blob = writer.capture(&w.path)?;
-            writer.push(w.entry(blob));
-            Ok(())
-        })
-        .and_then(|()| writer.finish())
-        .map_err(|e| {
-            if let Some(id) = id {
-                let _ = record::delete(dirs, id);
+    for w in writes {
+        match writer.capture(&w.path) {
+            Ok(blob) => writer.push(w.entry(blob)),
+            Err(e) => {
+                let _ = writer.abort();
+                return Err(ApplyError::Record(e));
             }
-            ApplyError::Record(e)
-        })
+        }
+    }
+    // `finish` consumes the writer, so its own id names the folder to clean up.
+    let id = writer.id();
+    writer.finish().map_err(|e| {
+        let _ = record::delete(dirs, id);
+        ApplyError::Record(e)
+    })
 }
 
 pub fn apply(ctx: &Ctx, settings: &Settings, req: &ApplyRequest) -> Result<ApplyReport, ApplyError> {

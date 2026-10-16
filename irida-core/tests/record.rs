@@ -279,3 +279,28 @@ fn dangling_symlink_round_trip() {
         assert!(!real.exists());
     }
 }
+
+#[test]
+fn abort_removes_only_its_folder() {
+    let env = TestEnv::new();
+    let file = env.write("a.conf", "old a\n");
+    let applies = env.dirs.state.join("irida/applies");
+
+    let mut first = RecordWriter::create(&env.dirs, "ember").unwrap();
+    let blob = first.capture(&file).unwrap();
+    first.push(Entry::File { path: file.clone(), blob: blob.clone() });
+    let rec = first.finish().unwrap();
+    assert_eq!(rec.id, 1);
+
+    let mut second = RecordWriter::create(&env.dirs, "noir").unwrap();
+    assert_eq!(second.id(), 2);
+    assert!(second.capture(&file).unwrap().is_some());
+    assert!(applies.join("2/files").is_dir());
+    second.abort().unwrap();
+
+    assert_eq!(record_ids(&env.dirs), [1]);
+    assert!(!applies.join("2").exists());
+    assert_eq!(record::latest(&env.dirs).unwrap(), Some(rec));
+    let blob = applies.join("1").join(blob.unwrap());
+    assert_eq!(fs::read_to_string(blob).unwrap(), "old a\n");
+}
