@@ -626,3 +626,227 @@ fn undo_with_nothing() {
     let env = TestEnv::new();
     assert!(matches!(undo(&ctx(&env)), Err(UndoError::NothingToUndo)));
 }
+
+fn warnings<'a>(report: &'a ApplyReport, name: &str) -> &'a [String] {
+    &report
+        .get(name)
+        .unwrap_or_else(|| panic!("{name} in report"))
+        .warnings
+}
+
+fn broken(status: &TargetStatus) -> &str {
+    match status {
+        TargetStatus::Skipped(SkipReason::Broken(msg)) => msg,
+        other => panic!("expected Broken, got {other:?}"),
+    }
+}
+
+#[test]
+fn signal_needs_binary_on_path() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_target(
+        &env,
+        "f",
+        r#"name = "f"
+detect = { binary = "iridafake", config = "~/.config/f" }
+
+[[file]]
+path = "~/.config/f/f.conf"
+write = "file"
+template = "t.tmpl"
+
+[reload]
+signal = { process = "iridafake", signal = "TERM" }
+"#,
+        &[("t.tmpl", "x\n")],
+    );
+    fs::create_dir_all(home(&env, ".config/f")).unwrap();
+    let report = run(&env, &ember).unwrap();
+    assert_eq!(
+        status(&report, "f"),
+        &TargetStatus::Applied(ReloadStatus::NotRunning)
+    );
+}
+
+fn block_target(name: &str, comment: &str) -> String {
+    format!(
+        "name = \"{name}\"\ndetect = {{}}\n\n[[file]]\npath = \"~/.zshrc\"\nwrite = \"block\"\ntemplate = \"t.tmpl\"\ncomment = \"{comment}\"\n"
+    )
+}
+
+#[test]
+fn same_path_second_target_skipped() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_target(&env, "a", &block_target("a", "#"), &[("t.tmpl", "a\n")]);
+    put_target(&env, "b", &block_target("b", "##"), &[("t.tmpl", "b\n")]);
+    let zshrc = env.write(".zshrc", "export X=1\n");
+
+    let report = run(&env, &ember).unwrap();
+    applied(&report, "a");
+    let msg = broken(status(&report, "b"));
+    assert!(msg.contains("already written by a"), "{msg}");
+    assert_eq!(
+        read(&zshrc),
+        "export X=1\n# >>> irida >>>\na\n# <<< irida <<<\n"
+    );
+
+    undo(&ctx(&env)).unwrap();
+    assert_eq!(read(&zshrc), "export X=1\n");
+}
+
+#[test]
+fn same_path_within_one_target() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_target(
+        &env,
+        "x",
+        r##"name = "x"
+detect = {}
+
+[[file]]
+path = "~/.config/x/app.conf"
+write = "key"
+key = "theme"
+template = "k.tmpl"
+
+[[file]]
+path = "~/.config/x/app.conf"
+write = "block"
+comment = "#"
+template = "b.tmpl"
+"##,
+        &[("k.tmpl", "irida\n"), ("b.tmpl", "colour = 1\n")],
+    );
+
+    let report = run(&env, &ember).unwrap();
+    applied(&report, "x");
+    assert_eq!(read(&home(&env, ".config/x/app.conf")), "theme = irida\n");
+    let w = warnings(&report, "x");
+    assert_eq!(w.len(), 1, "{w:?}");
+    assert!(w[0].contains("already written by x"), "{}", w[0]);
+}
+
+const CO_TOML: &str = r#"name = "co"
+detect = {}
+
+[[file]]
+path = "~/.config/c/conf.yaml"
+write = "file"
+template = "t.tmpl"
+create_only = true
+"#;
+const CO_TMPL: &str = "color:\n  theme: custom\n";
+
+#[test]
+fn create_only_cases() {
+    let ember = palette("ember");
+    let setup = |existing: Option<&str>| {
+        let env = TestEnv::new();
+        put_a(&env);
+        put_target(&env, "co", CO_TOML, &[("t.tmpl", CO_TMPL)]);
+        let path = home(&env, ".config/c/conf.yaml");
+        if let Some(text) = existing {
+            env.write(".config/c/conf.yaml", text);
+        }
+        (env, path)
+    };
+
+    let (env, path) = setup(None);
+    let report = run(&env, &ember).unwrap();
+    applied(&report, "co");
+    assert_eq!(read(&path), CO_TMPL);
+    undo(&ctx(&env)).unwrap();
+    assert!(!path.exists());
+
+    let (env, path) = setup(Some("color:\n  when: auto\n"));
+    let report = run(&env, &ember).unwrap();
+    let msg = broken(status(&report, "co"));
+    assert!(msg.ends_with("add `theme: custom` under `color:`"), "{msg}");
+    assert_eq!(read(&path), "color:\n  when: auto\n");
+
+    let (env, _) = setup(Some("color:\n  theme: custom\n"));
+    let report = run(&env, &ember).unwrap();
+    assert_eq!(broken(status(&report, "co")), "nothing to write");
+
+    let (env, path) = setup(Some("color:\n  when: auto\n"));
+    put_target(
+        &env,
+        "co2",
+        &format!(
+            "{}\n[[file]]\npath = \"~/.config/c/other.conf\"\nwrite = \"file\"\ntemplate = \"t.tmpl\"\n",
+            CO_TOML.replace("name = \"co\"", "name = \"co2\"")
+        ),
+        &[("t.tmpl", CO_TMPL)],
+    );
+    let report = run_with(
+        &env,
+        &Settings::default(),
+        &ember,
+        None,
+        Some(&["a", "co2"]),
+    )
+    .unwrap();
+    applied(&report, "co2");
+    assert!(
+        warnings(&report, "co2")
+            .iter()
+            .any(|w| w.ends_with("add `theme: custom` under `color:`")),
+        "{:?}",
+        warnings(&report, "co2")
+    );
+    assert_eq!(read(&path), "color:\n  when: auto\n");
+    assert_eq!(read(&home(&env, ".config/c/other.conf")), CO_TMPL);
+}
+
+#[test]
+fn replaced_file_note() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_target(
+        &env,
+        "r",
+        &file_target("r", "~/.config/r/r.conf"),
+        &[("t.tmpl", "irida\n")],
+    );
+    env.write(".config/r/r.conf", "mine");
+
+    let report = run(&env, &ember).unwrap();
+    applied(&report, "r");
+    assert!(
+        warnings(&report, "r")
+            .iter()
+            .any(|w| w.contains("replaced your file")),
+        "{:?}",
+        warnings(&report, "r")
+    );
+    fs::write(home(&env, ".config/r/r.conf"), "changed by hand\n").unwrap();
+    let report = run(&env, &ember).unwrap();
+    assert!(
+        warnings(&report, "r").is_empty(),
+        "{:?}",
+        warnings(&report, "r")
+    );
+}
+
+#[test]
+fn hint_reaches_report() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_target(
+        &env,
+        "h",
+        &format!(
+            "{}\n[reload]\nhint = \"x\"\n",
+            file_target("h", "~/.config/h/h.conf")
+        ),
+        &[("t.tmpl", "x\n")],
+    );
+    let report = run(&env, &ember).unwrap();
+    assert_eq!(
+        status(&report, "h"),
+        &TargetStatus::Applied(ReloadStatus::Restart("x".into()))
+    );
+}

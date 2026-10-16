@@ -267,7 +267,8 @@ pub fn load_targets(dirs: &Dirs) -> Vec<LoadedTarget> {
     merge(builtin, user)
 }
 
-fn is_executable(p: &Path) -> bool {
+/// Whether `p` is a file with an execute bit.
+pub fn is_executable(p: &Path) -> bool {
     std::fs::metadata(p)
         .map(|m| m.is_file() && m.permissions().mode() & 0o111 != 0)
         .unwrap_or(false)
