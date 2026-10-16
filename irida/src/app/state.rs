@@ -948,6 +948,8 @@ pub enum Msg {
     LivePending(Option<LiveSession>),
     /// Whether a target that reloads live is installed and usable.
     LiveTargets(bool),
+    /// An effect with no failure Msg of its own failed.
+    Failed(String),
 }
 
 #[derive(Debug, Clone)]
@@ -2860,6 +2862,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             state.live_targets = any;
             Vec::new()
         }
+        Msg::Failed(e) => vec![state.toast(e)],
     }
 }
 
@@ -2923,7 +2926,7 @@ mod tests {
     use irida_core::slot::{Ansi, PinValue, Slot, Tone};
 
     use super::*;
-    use crate::app::effects::{drive, drive_effects, perform};
+    use crate::app::effects::{drive, drive_effects, panicked, perform};
 
     fn ctx(tmp: &TempDir) -> Ctx {
         Ctx {
@@ -5272,6 +5275,60 @@ mod tests {
         assert!(!state.header_enabled(HeaderItem::TryLive));
         drive(&mut state, Msg::LiveToggle(true));
         assert!(!state.live_on());
+        assert!(!live_marker(&tmp).exists());
+    }
+    #[test]
+    fn failed_save_can_be_saved_again() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        let effects = update(&mut state, Msg::Save);
+        let [effect @ Effect::SaveVersion { .. }] = effects.as_slice() else {
+            panic!("{effects:?}");
+        };
+        let msg = panicked(effect.clone(), &state.ctx, "boom".to_string());
+        let ui = drive(&mut state, msg);
+        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text.contains("boom")));
+        assert!(state.dirty());
+        assert_eq!(store.versions("ember").unwrap().len(), 1);
+
+        // Not left saving: Ctrl+S saves.
+        drive(&mut state, Msg::Save);
+        assert!(!state.dirty());
+        assert_eq!(store.versions("ember").unwrap().len(), 2);
+    }
+
+    #[test]
+    fn failed_live_apply_still_reverts() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let config = put_cava(&tmp);
+        let mut state = start(&tmp);
+        let effects = update(&mut state, Msg::LiveToggle(true));
+        let [start_live @ Effect::StartLive(_)] = effects.as_slice() else {
+            panic!("{effects:?}");
+        };
+        let started = perform(start_live.clone(), &state.ctx);
+        let effects: Vec<Effect> = started
+            .into_iter()
+            .flat_map(|m| update(&mut state, m))
+            .collect();
+        let [apply @ Effect::LiveApply { .. }] = effects.as_slice() else {
+            panic!("{effects:?}");
+        };
+        // The first apply writes, then its Msg is lost to a panic.
+        perform(apply.clone(), &state.ctx);
+        assert_ne!(fs::read_to_string(&config).unwrap(), "x\n");
+        let msg = panicked(apply.clone(), &state.ctx, "boom".to_string());
+        let ui = drive(&mut state, msg);
+        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text.contains("boom")));
+
+        // Not left busy, and Revert knows the record the apply made.
+        drive(&mut state, Msg::LiveToggle(false));
+        drive(&mut state, Msg::LiveRevert);
+        assert!(!state.live_on());
+        assert_eq!(fs::read_to_string(&config).unwrap(), "x\n");
         assert!(!live_marker(&tmp).exists());
     }
 }

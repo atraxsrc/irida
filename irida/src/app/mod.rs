@@ -25,7 +25,7 @@ use cosmic::widget::{self, ToastId, Toasts, text};
 use cosmic::{Application, ApplicationExt, Element};
 use irida_core::apply::Ctx;
 
-use effects::perform;
+use effects::perform_caught;
 use io_queue::IoQueue;
 use state::{Current, Effect, FolderFor, Msg, State, ToastItem, update};
 
@@ -107,15 +107,15 @@ impl App {
         Task::batch(tasks)
     }
 
-    /// Run one batch of IO effects; `Message::Results` reports it finished,
-    /// even when a panic lost its Msgs.
+    /// Run one batch of IO effects; `Message::Results` reports it finished.
+    /// An effect that panics gives its own failure Msg.
     fn start_io(&self, batch: Vec<Effect>) -> Task<Message> {
         let ctx = self.state.ctx.clone();
         cosmic::task::future(async move {
             let msgs = tokio::task::spawn_blocking(move || {
                 batch
                     .into_iter()
-                    .flat_map(|e| perform(e, &ctx))
+                    .flat_map(|e| perform_caught(e, &ctx))
                     .collect::<Vec<_>>()
             })
             .await
