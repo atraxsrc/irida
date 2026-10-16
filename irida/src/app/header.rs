@@ -162,6 +162,11 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
                     "Replace saves the import as a new version of {0}. Keep both saves it under a new name, like {0} Two.",
                     palette.name
                 )
+            } else if state.draft_is(&palette.slug) {
+                format!(
+                    "The open draft is called {}, so it cannot be replaced. Keep both saves the import under a new name.",
+                    palette.name
+                )
             } else {
                 format!(
                     "The palette saved as {} cannot be read, so it cannot be replaced. Keep both saves the import under a new name.",
