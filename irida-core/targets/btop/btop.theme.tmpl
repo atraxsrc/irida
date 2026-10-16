@@ -1,0 +1,63 @@
+# Main background, empty so it follows the terminal pane ({{ term.background }})
+theme[main_bg]=""
+
+# Main text color
+theme[main_fg]="{{ text }}"
+
+# Title color for boxes
+theme[title]="{{ text }}"
+
+# Highlight color for keyboard shortcuts
+theme[hi_fg]="{{ accent }}"
+
+# Background color of selected item in processes box
+theme[selected_bg]="{{ accent }}"
+
+# Foreground color of selected item in processes box
+theme[selected_fg]="{{ term.background }}"
+
+# Color of inactive/disabled text
+theme[inactive_fg]="{{ comment }}"
+
+# Misc colors for processes box including mini cpu graphs, details memory graph and details status text
+theme[proc_misc]="{{ accent }}"
+
+# Box outline and divider line color
+theme[cpu_box]="{{ text }}"
+theme[mem_box]="{{ text }}"
+theme[net_box]="{{ text }}"
+theme[proc_box]="{{ text }}"
+theme[div_line]="{{ muted }}"
+
+# Gradient for all meters and graphs: {{ names.success|lower }} -> {{ names.accent|lower }} -> {{ names.error|lower }}
+theme[temp_start]="{{ success }}"
+theme[temp_mid]="{{ accent }}"
+theme[temp_end]="{{ error }}"
+
+theme[cpu_start]="{{ success }}"
+theme[cpu_mid]="{{ accent }}"
+theme[cpu_end]="{{ error }}"
+
+theme[free_start]="{{ success }}"
+theme[free_mid]="{{ accent }}"
+theme[free_end]="{{ error }}"
+
+theme[cached_start]="{{ warning }}"
+theme[cached_mid]="{{ warning }}"
+theme[cached_end]="{{ warning }}"
+
+theme[available_start]="{{ cyan }}"
+theme[available_mid]="{{ cyan }}"
+theme[available_end]="{{ cyan }}"
+
+theme[used_start]="{{ error }}"
+theme[used_mid]="{{ error }}"
+theme[used_end]="{{ error }}"
+
+theme[download_start]="{{ success }}"
+theme[download_mid]="{{ accent }}"
+theme[download_end]="{{ error }}"
+
+theme[upload_start]="{{ success }}"
+theme[upload_mid]="{{ accent }}"
+theme[upload_end]="{{ error }}"

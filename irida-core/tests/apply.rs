@@ -355,7 +355,7 @@ fn nothing_to_apply_lists_every_target() {
     match run(&env, &ember) {
         Err(ApplyError::NothingToApply(results)) => {
             let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-            assert_eq!(names, ["b", "cosmic-term"]);
+            assert_eq!(names, ["b", "btop", "cosmic-term"]);
         }
         other => panic!("expected NothingToApply, got {other:?}"),
     }
