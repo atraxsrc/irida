@@ -168,3 +168,23 @@ fn command_reload() {
 fn none_is_not_needed() {
     assert_eq!(reload(None, "x", &[]), ReloadStatus::NotNeeded);
 }
+
+#[test]
+fn hint_only_is_restart() {
+    let hint = Reload {
+        hint: Some("open a new shell".into()),
+        ..Reload::default()
+    };
+    assert_eq!(
+        reload(Some(&hint), "x", &[]),
+        ReloadStatus::Restart("open a new shell".into())
+    );
+    let with_command = Reload {
+        command: Some("true".into()),
+        ..hint
+    };
+    assert_eq!(
+        reload(Some(&with_command), "x", &[]),
+        ReloadStatus::Reloaded
+    );
+}
