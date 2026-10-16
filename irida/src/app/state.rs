@@ -1266,7 +1266,7 @@ impl State {
         self.entries
             .iter()
             .filter_map(|e| match &e.palette {
-                Ok((name, m)) if *m != mode => Some(PairChoice {
+                Ok((name, m)) if *m != mode && !self.open_is(&e.slug) => Some(PairChoice {
                     slug: e.slug.clone(),
                     name: name.clone(),
                     paired_with: e.pair.as_deref().map(|p| self.entry_label(p)),
@@ -1501,6 +1501,8 @@ impl State {
             return self.ask_live(LiveThen::Leave(leave));
         }
         if self.dirty() {
+            // A new question replaces any answer still waiting on a save.
+            self.after_save = None;
             self.dialog = Some(Dialog::Unsaved(leave));
             Vec::new()
         } else {
@@ -1852,8 +1854,13 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                             state.versions.insert(0, VersionInfo { n, snapshot: None });
                         }
                     }
-                    if !state.entries.iter().any(|e| e.slug == p.slug) {
-                        effects.push(Effect::ListEntries);
+                    // The list shows the saved name and mode.
+                    match state.entries.iter_mut().find(|e| e.slug == p.slug) {
+                        Some(e) => {
+                            e.palette = Ok((p.name.clone(), p.mode));
+                            e.pair = p.pair.clone();
+                        }
+                        None => effects.push(Effect::ListEntries),
                     }
                     // A draft's first save makes it the last palette.
                     effects.extend(state.remember(p.slug.clone()));
@@ -1864,7 +1871,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     }
                     effects
                 }
-                Err(e) => vec![state.toast(format!("Not saved: {e}"))],
+                Err(e) => {
+                    // Asked from the unsaved-changes question: ask it again,
+                    // so a draft is not lost.
+                    if let Some(leave) = leave {
+                        state.dialog = Some(Dialog::Unsaved(leave));
+                    }
+                    vec![state.toast(format!("Not saved: {e}"))]
+                }
             }
         }
         Msg::Created(Ok(p)) => {
@@ -2174,7 +2188,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     state.after_save = Some(leave);
                     vec![effect]
                 }
-                Some(toast) => vec![toast],
+                Some(toast) => {
+                    state.dialog = Some(Dialog::Unsaved(leave));
+                    vec![toast]
+                }
                 None => state.go(leave),
             },
             other => {
@@ -2183,7 +2200,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             }
         },
         Msg::UnsavedDiscard => match state.dialog.take() {
-            Some(Dialog::Unsaved(leave)) => state.go(leave),
+            Some(Dialog::Unsaved(leave)) => {
+                state.after_save = None;
+                state.go(leave)
+            }
             other => {
                 state.dialog = other;
                 Vec::new()
@@ -2199,6 +2219,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::CloseDialog => {
+            // Cancel on the unsaved-changes question drops an earlier answer.
+            if matches!(state.dialog, Some(Dialog::Unsaved(_))) {
+                state.after_save = None;
+            }
             state.dialog = None;
             state.menu_open = false;
             Vec::new()
@@ -3497,6 +3521,41 @@ mod tests {
         assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
     }
 
+    #[test]
+    fn newest_unsaved_answer_decides() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember", "noir"]);
+        let mut state = start(&tmp);
+
+        // Save on Exit, then Discard on a switch asked while that save runs.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        update(&mut state, Msg::CloseRequested);
+        let running = update(&mut state, Msg::UnsavedSave);
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("noir".to_string()));
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::Unsaved(Leave::Open("noir".to_string())))
+        );
+        drive(&mut state, Msg::UnsavedDiscard);
+        assert_eq!(open_slug(&state), Some("noir"));
+        let ui = drive_effects(&mut state, running);
+        assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+        assert_eq!(open_slug(&state), Some("noir"));
+
+        // Save on Exit, then Cancel on a switch asked while that save runs.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        update(&mut state, Msg::CloseRequested);
+        let running = update(&mut state, Msg::UnsavedSave);
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("ember".to_string()));
+        drive(&mut state, Msg::CloseDialog);
+        let ui = drive_effects(&mut state, running);
+        assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+        assert_eq!(open_slug(&state), Some("noir"));
+        assert!(state.dialog.is_none());
+    }
+
     fn derived(state: &State, slot: Slot) -> Option<Rgb> {
         derive(working(state)).slot(slot)
     }
@@ -4538,6 +4597,38 @@ mod tests {
     }
 
     #[test]
+    fn failed_save_keeps_the_draft_question() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        drive(&mut state, Msg::CloseDialog);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::ShowWallpaper);
+        drive(&mut state, Msg::WallpaperCreate);
+        let asked = state.dialog.clone();
+        assert!(matches!(asked, Some(Dialog::Unsaved(Leave::Draft(_)))));
+
+        // The store refuses the save: the question comes back with the draft.
+        let running = update(&mut state, Msg::UnsavedSave);
+        assert!(matches!(running.as_slice(), [Effect::SaveVersion { .. }]));
+        drive(&mut state, Msg::Saved(Err("disk full".to_string())));
+        assert_eq!(last_toast(&state), "Not saved: disk full");
+        assert_eq!(state.dialog, asked);
+        assert_eq!(open_slug(&state), Some("ember"));
+
+        // So does an edit that cannot be saved.
+        if let Some(Current::Editable { working, .. }) = &mut state.current {
+            working.name = "Bad-Name".to_string();
+        }
+        let ui = drive(&mut state, Msg::UnsavedSave);
+        assert!(matches!(ui.as_slice(), [Effect::Toast(_)]), "{ui:?}");
+        assert_eq!(state.dialog, asked);
+
+        // Discard still opens the draft.
+        drive(&mut state, Msg::UnsavedDiscard);
+        assert_eq!(open_slug(&state), Some("twotone"));
+    }
+
+    #[test]
     fn open_draft_name_is_taken() {
         let tmp = TempDir::new().unwrap();
         let (mut state, _) = two_tone_dialog(&tmp);
@@ -4733,6 +4824,26 @@ mod tests {
             labels,
             ["Dossier, paired with Noir", "Ember Day, paired with Ember"]
         );
+    }
+
+    #[test]
+    fn saved_mode_shows_in_the_list() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember", "emberday", "noir"]);
+        let mut state = start(&tmp);
+        new_named(&mut state, "Moss", Mode::Dark);
+        drive(&mut state, Msg::SetMode(Mode::Light));
+        drive(&mut state, Msg::Save);
+        let moss = state.entries.iter().find(|e| e.slug == "moss").unwrap();
+        assert_eq!(moss.palette, Ok(("Moss".to_string(), Mode::Light)));
+
+        // Pair with... offers the dark palettes, not Moss itself.
+        drive(&mut state, Msg::PairChip);
+        let Some(Dialog::PairWith { choices, .. }) = &state.dialog else {
+            panic!("{:?}", state.dialog);
+        };
+        let slugs: Vec<&str> = choices.iter().map(|c| c.slug.as_str()).collect();
+        assert_eq!(slugs, ["ember", "noir"]);
     }
 
     #[test]
