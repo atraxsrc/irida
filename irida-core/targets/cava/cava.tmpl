@@ -1,0 +1,7 @@
+{% set g = ramp("success", "accent", 4) + ramp("accent", "error", 5)[1:] -%}
+[color]
+gradient = 1
+gradient_count = {{ g|length }}
+{% for c in g -%}
+gradient_color_{{ loop.index }} = '{{ c }}'
+{% endfor -%}
