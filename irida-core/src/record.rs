@@ -208,8 +208,9 @@ fn put_back(dir: &Path, path: &Path, blob: Option<&str>) -> io::Result<()> {
     }
 }
 
+/// Delete the file `path` names, through symlinks, so a link itself is kept.
 fn remove(path: &Path) -> io::Result<()> {
-    match fs::remove_file(path) {
+    match fs::remove_file(resolve_write_path(path)?) {
         Err(e) if !is_absent(&e) => Err(e),
         _ => Ok(()),
     }

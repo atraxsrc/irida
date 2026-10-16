@@ -244,3 +244,38 @@ fn records_are_private() {
     assert_eq!(mode(&dir.join(&blob)), 0o600);
     assert_eq!(mode(&dir.join("record.toml")), 0o600);
 }
+
+#[test]
+fn dangling_symlink_round_trip() {
+    let env = TestEnv::new();
+    let link = env.dirs.home.join(".zshrc");
+    let real = env.dirs.home.join("dotfiles/zshrc");
+    fs::create_dir_all(&env.dirs.home).unwrap();
+    symlink("dotfiles/zshrc", &link).unwrap();
+
+    for (mode, as_file) in [
+        (RestoreMode::Undo, false),
+        (RestoreMode::Rollback, false),
+        (RestoreMode::Undo, true),
+        (RestoreMode::Rollback, true),
+    ] {
+        let mut w = RecordWriter::create(&env.dirs, "ember").unwrap();
+        if as_file {
+            let blob = w.capture(&link).unwrap();
+            assert_eq!(blob, None);
+            w.push(Entry::File { path: link.clone(), blob });
+            atomic_write(&link, b"written\n").unwrap();
+        } else {
+            apply_block(&mut w, &link, "export IRIDA=1\n");
+        }
+        let rec = w.finish().unwrap();
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(real.is_file());
+
+        let failures = record::restore(&env.dirs, &rec, mode);
+        assert!(failures.is_empty(), "{failures:?}");
+        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert_eq!(fs::read_link(&link).unwrap(), Path::new("dotfiles/zshrc"));
+        assert!(!real.exists());
+    }
+}
