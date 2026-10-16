@@ -11,11 +11,12 @@ use include_dir::{Dir, DirEntry, include_dir};
 
 use crate::contrast::{self, ContrastReport};
 use crate::dirs::Dirs;
+use crate::export_docs;
 use crate::native;
 use crate::palette::Palette;
 use crate::target::{LoadedTarget, Source, Target, load_targets};
 use crate::template::{Renderer, check_syntax};
-use crate::write::{atomic_write, resolve_write_path};
+use crate::write::{atomic_write, replace_marked, resolve_write_path};
 
 static RICE: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/rice");
 
@@ -138,6 +139,12 @@ impl Plan {
         }
         self.owners.insert(file.path.clone(), source.to_string());
         self.files.push(file);
+    }
+
+    /// Skip `path` and keep later sources from writing it.
+    fn reserve(&mut self, path: &str, reason: &str) {
+        self.owners.insert(path.to_string(), IRIDA.to_string());
+        self.skip(path, reason);
     }
 
     pub(crate) fn has(&self, path: &str) -> bool {
@@ -378,7 +385,7 @@ fn generated_files(repo: &Path) -> Vec<String> {
 }
 
 /// Plan every file of the repo before anything is written.
-fn plan_export(dirs: &Dirs, req: &ExportRequest) -> Result<Plan, ExportError> {
+fn plan_export(dirs: &Dirs, repo: &Path, req: &ExportRequest) -> Result<Plan, ExportError> {
     let p = req.palette;
     let renderer = Renderer::for_export(p);
     let loaded = load_targets(dirs);
@@ -418,7 +425,7 @@ fn plan_export(dirs: &Dirs, req: &ExportRequest) -> Result<Plan, ExportError> {
         )?;
     }
     plan_assets(&mut plan, &renderer)?;
-    plan_docs(&mut plan, req, &renderer)?;
+    plan_docs(&mut plan, repo, req, &renderer)?;
     for lt in &loaded {
         if let Ok(target) = &lt.result
             && target.source != Source::Builtin
@@ -429,19 +436,113 @@ fn plan_export(dirs: &Dirs, req: &ExportRequest) -> Result<Plan, ExportError> {
     Ok(plan)
 }
 
-/// The README, showcase and switch.sh slot; filled in by `export_docs`.
-fn plan_docs(
-    _plan: &mut Plan,
-    _req: &ExportRequest,
-    _renderer: &Renderer,
+/// The text of `rel` in the repo, `None` when it does not exist yet.
+fn read_existing(repo: &Path, rel: &str) -> Result<Option<String>, ExportError> {
+    let Ok(canonical_repo) = repo.canonicalize() else {
+        return Ok(None);
+    };
+    let Some(real) = inside(repo, &canonical_repo, rel) else {
+        return Ok(None);
+    };
+    match fs::read_to_string(&real) {
+        Ok(text) => Ok(Some(text)),
+        Err(e) if matches!(e.kind(), io::ErrorKind::NotFound) => Ok(None),
+        Err(e) => Err(io_error(&real)(e)),
+    }
+}
+
+/// Plan a marked Markdown file: the skeleton when absent, else only the block replaced.
+fn plan_marked(
+    plan: &mut Plan,
+    repo: &Path,
+    rel: &str,
+    (begin, end): (&str, &str),
+    block: &str,
+    skeleton: impl FnOnce() -> String,
 ) -> Result<(), ExportError> {
+    let contents = match read_existing(repo, rel)? {
+        None => skeleton(),
+        Some(text) => match replace_marked(&text, begin, end, &export_docs::marked_body(block)) {
+            Ok(Some(updated)) => updated,
+            Ok(None) => {
+                plan.reserve(rel, "no irida markers");
+                return Ok(());
+            }
+            Err(_) => {
+                plan.reserve(rel, "irida markers are broken");
+                return Ok(());
+            }
+        },
+    };
+    plan.add(
+        IRIDA,
+        Planned {
+            path: rel.into(),
+            contents,
+            executable: false,
+            create_only: false,
+        },
+    );
+    Ok(())
+}
+
+/// The README, showcase and `scripts/switch.sh`.
+fn plan_docs(
+    plan: &mut Plan,
+    repo: &Path,
+    req: &ExportRequest,
+    renderer: &Renderer,
+) -> Result<(), ExportError> {
+    let p = req.palette;
+    let readme = export_docs::readme_block(p, req.pair);
+    plan_marked(
+        plan,
+        repo,
+        "README.md",
+        (export_docs::README_BEGIN, export_docs::README_END),
+        &readme,
+        || export_docs::readme_skeleton(p, &readme),
+    )?;
+    let showcase = export_docs::showcase_block(p);
+    plan_marked(
+        plan,
+        repo,
+        "docs/showcase.md",
+        (export_docs::SHOWCASE_BEGIN, export_docs::SHOWCASE_END),
+        &showcase,
+        || export_docs::showcase_skeleton(p, req.pair, &showcase),
+    )?;
+
+    let template = "scripts/switch.sh.tmpl";
+    let contents = renderer
+        .render_with(
+            template,
+            rice_asset(template),
+            &[
+                ("settings", export_docs::switch_settings(p)),
+                ("rices", export_docs::rices_list(&p.slug)),
+            ],
+        )
+        .map_err(|e| ExportError::Render {
+            target: IRIDA.into(),
+            message: e.to_string(),
+        })?;
+    plan.add(
+        IRIDA,
+        Planned {
+            path: "scripts/switch.sh".into(),
+            contents,
+            executable: true,
+            create_only: false,
+        },
+    );
     Ok(())
 }
 
 pub fn export(dirs: &Dirs, req: &ExportRequest) -> Result<ExportReport, ExportError> {
     let p = req.palette;
     let repo = repo_folder(req)?;
-    let plan = plan_export(dirs, req)?;
+    let plan = plan_export(dirs, &repo, req)?;
 
     fs::create_dir_all(&repo).map_err(io_error(&repo))?;
     let canonical_repo = repo.canonicalize().map_err(io_error(&repo))?;
