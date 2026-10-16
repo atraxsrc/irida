@@ -84,6 +84,7 @@ pub fn apply_only(
             palette: p,
             pair: None,
             only: Some(vec![target.to_string()]),
+            live_only: false,
         },
     )
 }

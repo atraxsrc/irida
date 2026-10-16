@@ -58,6 +58,7 @@ fn request(p: &irida_core::palette::Palette) -> ApplyRequest<'_> {
         palette: p,
         pair: None,
         only: Some(vec!["zsh".into()]),
+        live_only: false,
     }
 }
 

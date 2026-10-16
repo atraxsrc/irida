@@ -93,6 +93,7 @@ fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<E
         palette: &p,
         pair: pair.as_ref(),
         only,
+        live_only: false,
     };
     match apply::apply(&ctx, &settings, &req) {
         Ok(report) => {

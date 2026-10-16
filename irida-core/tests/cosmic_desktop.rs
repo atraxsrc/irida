@@ -232,6 +232,7 @@ fn apply_and_undo() {
             palette: &ember,
             pair: None,
             only: Some(vec!["cosmic-desktop".into()]),
+            live_only: false,
         },
     )
     .unwrap();

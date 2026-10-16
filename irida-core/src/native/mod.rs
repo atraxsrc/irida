@@ -77,6 +77,16 @@ pub fn export(kind: NativeKind, p: &Palette) -> Vec<ExportFile> {
     }
 }
 
+/// The config-shape error a native target would hit when planned, found by
+/// reading its keys; nothing is planned or written. COSMIC desktop reads bad
+/// keys as defaults with a warning, so it has none.
+pub fn check(kind: NativeKind, dirs: &Dirs) -> Result<(), TargetError> {
+    match kind {
+        NativeKind::CosmicTerm => cosmic_term::check(dirs),
+        NativeKind::CosmicDesktop => Ok(()),
+    }
+}
+
 /// Plan the writes for one palette, or both halves of a pair.
 pub fn plan(
     kind: NativeKind,

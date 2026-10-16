@@ -13,7 +13,7 @@ use crate::record::{self, Entry, Record, RecordWriter, RestoreMode};
 use crate::reload::{ReloadStatus, reload};
 use crate::store::Settings;
 use crate::target::{
-    FileEntry, LoadedTarget, Target, WriteKind, is_detected, is_executable, load_targets,
+    FileEntry, LoadedTarget, Source, Target, WriteKind, is_detected, is_executable, load_targets,
 };
 use crate::template::{Renderer, check_syntax};
 use crate::write::{atomic_write, resolve_write_path, set_block, set_key};
@@ -36,6 +36,34 @@ impl Ctx {
             .unwrap_or_default();
         Ok(Ctx { dirs, path })
     }
+
+    /// `from_env` with its path passed through `app_path`, for the app, which
+    /// a dock can start with a short `$PATH`.
+    pub fn for_app() -> Result<Ctx, DirsError> {
+        let Ctx { dirs, path } = Ctx::from_env()?;
+        let path = app_path(&dirs, path);
+        Ok(Ctx { dirs, path })
+    }
+}
+
+/// `path` with the standard binary folders appended where missing:
+/// `/usr/local/bin`, `/usr/bin`, `/bin`, `~/.local/bin` and `~/.cargo/bin`.
+/// Order is kept and each folder appears once, at its first place.
+pub fn app_path(dirs: &Dirs, path: Vec<PathBuf>) -> Vec<PathBuf> {
+    let standard = [
+        PathBuf::from("/usr/local/bin"),
+        PathBuf::from("/usr/bin"),
+        PathBuf::from("/bin"),
+        dirs.home.join(".local/bin"),
+        dirs.home.join(".cargo/bin"),
+    ];
+    let mut out: Vec<PathBuf> = Vec::new();
+    for p in path.into_iter().chain(standard) {
+        if !out.contains(&p) {
+            out.push(p);
+        }
+    }
+    out
 }
 
 #[derive(Debug, Clone)]
@@ -45,6 +73,24 @@ pub struct ApplyRequest<'a> {
     pub pair: Option<&'a Palette>,
     /// Apply only these targets, even when turned off in settings.
     pub only: Option<Vec<String>>,
+    /// Apply only targets that reload live; the others are left out of the report.
+    pub live_only: bool,
+}
+
+/// What the Apply sheet shows for one target. Nothing is planned or written to find it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TargetInfo {
+    pub name: String,
+    /// Built into Irida, not a user target folder.
+    pub builtin: bool,
+    /// Reloads live, so try it live applies it.
+    pub live: bool,
+    pub detected: bool,
+    /// Not turned off in settings.
+    pub enabled: bool,
+    /// Why the target cannot be applied: its load error, a template syntax
+    /// error, or a native target's config-shape error.
+    pub broken: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -314,12 +360,61 @@ fn select<'t>(
     if !is_detected(&target.def, &ctx.dirs, &ctx.path) {
         return Err(SkipReason::NotInstalled);
     }
+    check_templates(target).map_err(SkipReason::Broken)?;
+    Ok(target)
+}
+
+/// The first template syntax error of a target's files.
+fn check_templates(target: &Target) -> Result<(), String> {
     for f in &target.def.files {
         if let Some(source) = target.templates.get(&f.template) {
-            check_syntax(&f.template, source).map_err(|e| SkipReason::Broken(e.to_string()))?;
+            check_syntax(&f.template, source).map_err(|e| e.to_string())?;
         }
     }
-    Ok(target)
+    Ok(())
+}
+
+/// Every target, sorted by name, with whether it is installed, turned on and
+/// broken. Reads target folders and native config keys; writes nothing.
+pub fn target_status(ctx: &Ctx, settings: &Settings) -> Vec<TargetInfo> {
+    let user_dir = ctx.dirs.config.join("irida/targets");
+    let mut out: Vec<TargetInfo> = load_targets(&ctx.dirs)
+        .into_iter()
+        .map(|lt| {
+            let enabled = !settings.disabled.contains(&lt.name);
+            match &lt.result {
+                Ok(target) => {
+                    let broken = check_templates(target).err().or_else(|| {
+                        target
+                            .def
+                            .native
+                            .and_then(|kind| native::check(kind, &ctx.dirs).err())
+                            .map(|e| e.to_string())
+                    });
+                    TargetInfo {
+                        builtin: target.source == Source::Builtin,
+                        live: target.def.live,
+                        detected: is_detected(&target.def, &ctx.dirs, &ctx.path),
+                        enabled,
+                        broken,
+                        name: lt.name,
+                    }
+                }
+                // A target that does not load has no detect rules; it is
+                // shown as detected so its error is seen, not folded away.
+                Err(e) => TargetInfo {
+                    builtin: !user_dir.join(&lt.name).exists(),
+                    live: false,
+                    detected: true,
+                    enabled,
+                    broken: Some(e.to_string()),
+                    name: lt.name,
+                },
+            }
+        })
+        .collect();
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    out
 }
 
 /// The current text of `path`; `None` when it does not exist.
@@ -609,6 +704,9 @@ pub fn apply(
             Some(_) => true,
             None => false,
         };
+        if req.live_only && !lt.result.as_ref().is_ok_and(|t| t.def.live) {
+            continue;
+        }
         plans.push(match select(lt, ctx, settings, named) {
             Ok(target) => {
                 plan_target(target, &renderer, req, &ctx.dirs, &recorded)?.guard_paths(&mut seen)
