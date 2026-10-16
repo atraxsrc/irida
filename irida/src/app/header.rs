@@ -155,6 +155,7 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
         Dialog::ImportCollision {
             palette,
             replace_ok,
+            draft,
             ..
         } => {
             let body = if *replace_ok {
@@ -162,10 +163,9 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
                     "Replace saves the import as a new version of {0}. Keep both saves it under a new name, like {0} Two.",
                     palette.name
                 )
-            } else if state.draft_is(&palette.slug) {
+            } else if let Some(draft) = draft {
                 format!(
-                    "A palette called {} is open and not saved yet, so it cannot be replaced. Keep both saves the import under a new name.",
-                    palette.name
+                    "A palette called {draft} is open and not saved yet, so it cannot be replaced. Keep both saves the import under a new name."
                 )
             } else {
                 format!(

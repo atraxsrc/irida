@@ -147,11 +147,13 @@ pub enum Dialog {
     Apply(ApplySheet),
     /// An imported palette whose slug is taken: Replace or Keep both.
     /// `replace_ok` is false when the palette there cannot be read, or an
-    /// open unsaved draft has the slug.
+    /// open unsaved draft has the slug; `draft` is then that draft's name,
+    /// as it was when the import came in.
     ImportCollision {
         palette: Palette,
         notes: Vec<String>,
         replace_ok: bool,
+        draft: Option<String>,
     },
     /// What an export wrote.
     Exported(ExportSummary),
@@ -2425,13 +2427,18 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         Msg::Imported(Ok((palette, notes))) => {
             // An open draft's slug is taken too, and Replace never writes
             // over a draft.
-            let draft = state.draft_is(&palette.slug);
+            let draft = state
+                .draft_is(&palette.slug)
+                .then(|| state.current.as_ref().and_then(Current::working))
+                .flatten()
+                .map(|w| w.name.clone());
             let entry = state.entries.iter().find(|e| e.slug == palette.slug);
-            if entry.is_some() || draft {
+            if entry.is_some() || draft.is_some() {
                 state.dialog = Some(Dialog::ImportCollision {
-                    replace_ok: !draft && entry.is_some_and(|e| e.readable()),
+                    replace_ok: draft.is_none() && entry.is_some_and(|e| e.readable()),
                     palette,
                     notes,
+                    draft,
                 });
                 Vec::new()
             } else {
@@ -2450,6 +2457,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 palette,
                 notes,
                 replace_ok: true,
+                ..
             }) if state.open_is(&palette.slug) => state.leave(Leave::Import {
                 palette: Box::new(palette),
                 notes,
@@ -2458,6 +2466,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 palette,
                 notes,
                 replace_ok: true,
+                ..
             }) => vec![Effect::SaveImport {
                 palette,
                 notes,
@@ -4441,6 +4450,27 @@ mod tests {
         assert_eq!(slugs(&store), ["ember", "embertwo", "noir"]);
         assert_eq!(open_slug(&state), Some("ember"));
         assert!(!state.dirty());
+    }
+
+    #[test]
+    fn import_collision_names_the_draft_as_it_was() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["noir"]);
+        let mut state = start(&tmp);
+        // The draft's slug is the import's, under another name.
+        open_draft(&mut state, "Em Ber");
+        import(&mut state);
+        let draft_of = |state: &State| match &state.dialog {
+            Some(Dialog::ImportCollision { draft, .. }) => draft.clone(),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(draft_of(&state).as_deref(), Some("Em Ber"));
+
+        // Ctrl+S under the dialog saves the draft; the dialog still says why
+        // Replace is off.
+        drive(&mut state, Msg::Save);
+        assert!(!state.dirty());
+        assert_eq!(draft_of(&state).as_deref(), Some("Em Ber"));
     }
 
     #[test]
