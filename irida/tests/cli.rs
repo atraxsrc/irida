@@ -192,3 +192,26 @@ fn undo_nothing() {
         .code(2)
         .stderr(predicate::str::starts_with("irida: "));
 }
+
+#[test]
+fn apply_reports_even_when_settings_cannot_be_saved() {
+    let tmp = TempDir::new().unwrap();
+    let _ = apply_env(&tmp);
+    let irida_cfg = tmp.path().join("home/.config/irida");
+    fs::create_dir_all(&irida_cfg).unwrap();
+    fs::set_permissions(&irida_cfg, fs::Permissions::from_mode(0o555)).unwrap();
+    let probe = irida_cfg.join("probe");
+    let writable = fs::write(&probe, b"").is_ok();
+
+    let out = (!writable).then(|| apply_env(&tmp).args(["apply", "ember"]).output().unwrap());
+    fs::set_permissions(&irida_cfg, fs::Permissions::from_mode(0o755)).unwrap();
+    let Some(out) = out else {
+        return;
+    };
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert_eq!(out.status.code(), Some(0), "{stderr}");
+    assert!(stdout.contains("btop: applied"), "{stdout}");
+    assert!(stdout.contains("Undo with: irida undo"), "{stdout}");
+    assert!(stderr.contains("irida: warning: could not save settings:"), "{stderr}");
+}
