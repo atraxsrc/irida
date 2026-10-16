@@ -18,5 +18,4 @@ min_version = { command = "btop --version", version = "1.3.2" }
 
 [[rice]]
 path = "btop/{{ stem }}.theme"
-install = "file"
 template = "btop.theme.tmpl"
