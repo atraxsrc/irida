@@ -9,7 +9,7 @@ use irida_core::contrast;
 use irida_core::dirs::Dirs;
 use irida_core::export::{ExportRequest, export};
 use irida_core::palette::Palette;
-use irida_core::store::Store;
+use irida_core::store::{PairLookup, Store, is_saved_slug};
 
 #[derive(Parser)]
 #[command(name = "irida", version, about = "Colour palettes for COSMIC")]
@@ -51,28 +51,21 @@ enum Command {
 /// Otherwise a warning goes to stderr and the palette is used alone;
 /// `doing` names what for ("applying", "exporting").
 fn load_pair(store: &Store, p: &Palette, doing: &str) -> Option<Palette> {
-    let slug = p.pair.as_deref()?;
-    match store.load(slug) {
-        Ok(pair) if pair.mode != p.mode => Some(pair),
-        Ok(_) => {
+    match store.pair_of(p) {
+        PairLookup::Found(pair) => Some(pair),
+        PairLookup::None => None,
+        PairLookup::SameMode(slug) => {
             eprintln!(
                 "irida: warning: pair {slug} has the same mode as {}; {doing} alone",
                 p.slug
             );
             None
         }
-        Err(e) => {
-            eprintln!("irida: warning: pair {slug} not available ({e}); {doing} alone");
+        PairLookup::Missing { slug, reason } => {
+            eprintln!("irida: warning: pair {slug} not available ({reason}); {doing} alone");
             None
         }
     }
-}
-
-/// Whether `arg` names a saved palette by slug rather than a file or folder,
-/// the same test `Store::resolve` makes.
-fn is_saved_slug(arg: &str) -> bool {
-    let path = Path::new(arg);
-    !path.is_file() && !path.is_dir()
 }
 
 fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<ExitCode, String> {
