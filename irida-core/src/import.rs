@@ -11,7 +11,7 @@ use regex::{Captures, NoExpand, Regex};
 
 use crate::color::Rgb;
 use crate::derive::derive;
-use crate::export_docs::{name_of, opacity, readme_names};
+use crate::export_docs::{capitalised, name_of, opacity, readme_names};
 use crate::palette::{Mode, Palette, Roles, validate_name, validate_slug};
 use crate::role::Role;
 use crate::slot::{Ansi, PinValue, Pins, Slot, Tone};
@@ -160,6 +160,8 @@ fn py_escape_half(s: &str) -> String {
 
 /// Path 1: the roles and names in `scripts/contrast.py`, when it has exactly
 /// one of each. `None` when the file is absent or does not have that shape.
+/// A name that is the capitalised role name is the default, so it is left
+/// out, as in the README.
 fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role, String>)> {
     let one = |re: Regex| -> Option<Rgb> {
         let found: Vec<_> = re.captures_iter(text).collect();
@@ -170,6 +172,11 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
     };
     let mut roles = BTreeMap::new();
     let mut names = BTreeMap::new();
+    let mut keep = |role: Role, name: String| {
+        if name != capitalised(role) {
+            names.insert(role, name);
+        }
+    };
     roles.insert(Role::Background, one(constant_line("WINDOW"))?);
     roles.insert(Role::Pane, one(constant_line("PANE"))?);
     roles.insert(
@@ -189,7 +196,7 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
         if roles.insert(role, hex(&c[4])).is_some() {
             return None;
         }
-        names.insert(role, py_unescape(&c[3]));
+        keep(role, py_unescape(&c[3]));
     }
 
     let found: Vec<_> = surface_line().captures_iter(text).collect();
@@ -204,13 +211,13 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
         }
         match label.as_str() {
             "Background" => {
-                names.insert(Role::Background, py_unescape(&c[3]));
+                keep(Role::Background, py_unescape(&c[3]));
             }
             "Containers" => {
                 // Split before unescaping: a `/` in a name is written `\/`.
                 let (container, pane) = c[3].split_once(" / ")?;
-                names.insert(Role::Container, py_unescape(container));
-                names.insert(Role::Pane, py_unescape(pane));
+                keep(Role::Container, py_unescape(container));
+                keep(Role::Pane, py_unescape(pane));
             }
             _ => {}
         }
