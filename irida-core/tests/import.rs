@@ -186,6 +186,7 @@ fn export_into_rice_with_contrast_py_imports_back() {
         irida_core::color::Rgb::from_hex("#E0602A").unwrap(),
     );
     ember.names.insert(Role::Text, "Ink".into());
+    ember.names.insert(Role::Container, "Soot / Ash".into());
     ember
         .names
         .insert(Role::Magenta, r#"Heather "wild" \ moor"#.into());
@@ -214,6 +215,10 @@ fn export_into_rice_with_contrast_py_imports_back() {
     assert!(script.contains("def lum(h):"), "{script}");
     assert!(
         script.contains(r##"("Text", "Ink", "#D6D9E0", True),"##),
+        "{script}"
+    );
+    assert!(
+        script.contains(r##"("Containers", "Soot \/ Ash / Pane", ["#22262E", "#1B1E24"]),"##),
         "{script}"
     );
 

@@ -152,6 +152,12 @@ fn py_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('"', r#"\""#)
 }
 
+/// [`py_escape`] with `/` escaped too, so the ` / ` between the container
+/// and pane names of `Containers` stays the only unescaped one.
+fn py_escape_half(s: &str) -> String {
+    py_escape(s).replace('/', r"\/")
+}
+
 /// Path 1: the roles and names in `scripts/contrast.py`, when it has exactly
 /// one of each. `None` when the file is absent or does not have that shape.
 fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role, String>)> {
@@ -196,15 +202,15 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
         if seen.contains(&label) {
             return None;
         }
-        let name = py_unescape(&c[3]);
         match label.as_str() {
             "Background" => {
-                names.insert(Role::Background, name);
+                names.insert(Role::Background, py_unescape(&c[3]));
             }
             "Containers" => {
-                let (container, pane) = name.split_once(" / ")?;
-                names.insert(Role::Container, container.to_string());
-                names.insert(Role::Pane, pane.to_string());
+                // Split before unescaping: a `/` in a name is written `\/`.
+                let (container, pane) = c[3].split_once(" / ")?;
+                names.insert(Role::Container, py_unescape(container));
+                names.insert(Role::Pane, py_unescape(pane));
             }
             _ => {}
         }
@@ -231,7 +237,11 @@ pub(crate) fn refresh_contrast(text: &str, p: &Palette) -> Option<String> {
         let (label, colors) = match &c[2] {
             "Background" => (name(Role::Background), vec![hex(Role::Background)]),
             "Containers" => (
-                format!("{} / {}", name(Role::Container), name(Role::Pane)),
+                format!(
+                    "{} / {}",
+                    py_escape_half(&name_of(p, Role::Container)),
+                    py_escape_half(&name_of(p, Role::Pane))
+                ),
                 vec![hex(Role::Container), hex(Role::Pane)],
             ),
             _ => (
