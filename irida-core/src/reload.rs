@@ -2,12 +2,11 @@
 
 use std::ffi::OsString;
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Seek, SeekFrom};
 use std::os::unix::fs::MetadataExt;
 use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
 use std::process::{Command, Output, Stdio};
-use std::sync::mpsc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -90,25 +89,23 @@ fn signal_by_name(name: &str) -> Option<Signal> {
 /// so a hung program never holds up the apply that asked for it.
 pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
 
-/// How long output is still read once the shell has exited, for a child it
-/// left running that keeps the output open.
-const OUTPUT_GRACE: Duration = Duration::from_millis(300);
-
 /// Run `command` with `sh -c`, killing it and its children after
-/// `COMMAND_TIMEOUT` with a `TimedOut` error.
+/// `COMMAND_TIMEOUT` with a `TimedOut` error. Output goes to unlinked temp
+/// files, not pipes: a program the command starts in the background keeps
+/// writing there after Irida exits, where a pipe would kill it with SIGPIPE.
 fn run_shell(command: &str, path: &[PathBuf]) -> io::Result<Output> {
     let joined: OsString = std::env::join_paths(path).unwrap_or_default();
+    let mut stdout = tempfile::tempfile()?;
+    let mut stderr = tempfile::tempfile()?;
     let mut child = Command::new("/bin/sh")
         .arg("-c")
         .arg(command)
         .env("PATH", joined)
         .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stdout(stdout.try_clone()?)
+        .stderr(stderr.try_clone()?)
         .process_group(0)
         .spawn()?;
-    let stdout = read_in_background(child.stdout.take());
-    let stderr = read_in_background(child.stderr.take());
     let deadline = Instant::now() + COMMAND_TIMEOUT;
     let status = loop {
         if let Some(status) = child.try_wait()? {
@@ -125,32 +122,25 @@ fn run_shell(command: &str, path: &[PathBuf]) -> io::Result<Output> {
         }
         thread::sleep(Duration::from_millis(10));
     };
-    let until = deadline.min(Instant::now() + OUTPUT_GRACE);
     Ok(Output {
         status,
-        stdout: collect(stdout, until),
-        stderr: collect(stderr, until),
+        stdout: read_from_start(&mut stdout),
+        stderr: read_from_start(&mut stderr),
     })
 }
 
-/// Read a pipe to its end on another thread.
-fn read_in_background(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
-    let (tx, rx) = mpsc::channel();
-    if let Some(mut pipe) = pipe {
-        thread::spawn(move || {
-            let mut buf = Vec::new();
-            let _ = pipe.read_to_end(&mut buf);
-            let _ = tx.send(buf);
-        });
+/// What has been written to `file` so far, at most `OUTPUT_LIMIT` bytes.
+fn read_from_start(file: &mut fs::File) -> Vec<u8> {
+    let mut buf = Vec::new();
+    if file.seek(SeekFrom::Start(0)).is_ok() {
+        let _ = file.take(OUTPUT_LIMIT).read_to_end(&mut buf);
     }
-    rx
+    buf
 }
 
-/// What a pipe gave by `until`; empty when it is still held open then.
-fn collect(rx: mpsc::Receiver<Vec<u8>>, until: Instant) -> Vec<u8> {
-    rx.recv_timeout(until.saturating_duration_since(Instant::now()))
-        .unwrap_or_default()
-}
+/// The most output read back from a command: enough for a version or an
+/// error message.
+const OUTPUT_LIMIT: u64 = 64 * 1024;
 
 fn version_ok(command: &str, minimum: &str, path: &[PathBuf]) -> bool {
     let Some(min) = parse_version(minimum) else {

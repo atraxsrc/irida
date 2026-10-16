@@ -260,3 +260,27 @@ fn background_child_does_not_hold_the_reload() {
         start.elapsed()
     );
 }
+
+#[test]
+fn background_child_is_not_given_a_pipe() {
+    // A program the command starts in the background goes on writing once
+    // the reload is over, even after Irida exits: a pipe would then kill it
+    // with SIGPIPE, so its output must not be one.
+    let dir = tempfile::TempDir::new().unwrap();
+    let seen = dir.path().join("seen");
+    let bg = Reload {
+        command: Some(format!(
+            "(sleep 0.3; if [ -p /dev/stdout ] || [ -p /dev/stderr ]; then echo pipe; else echo file; fi > '{}') &",
+            seen.display()
+        )),
+        ..Reload::default()
+    };
+    let path = [PathBuf::from("/bin"), PathBuf::from("/usr/bin")];
+    assert_eq!(reload(Some(&bg), "x", &path), ReloadStatus::Reloaded);
+    let start = Instant::now();
+    while fs::read_to_string(&seen).map_or(true, |s| s.is_empty()) {
+        assert!(start.elapsed() < Duration::from_secs(5), "never ran");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(fs::read_to_string(&seen).unwrap(), "file\n");
+}
