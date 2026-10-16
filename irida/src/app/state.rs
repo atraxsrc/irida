@@ -1121,7 +1121,8 @@ pub struct State {
     /// The app's lock, held while the window is open.
     _app_lock: Option<Arc<File>>,
     /// Another Irida window holds the app's lock: the live marker may be its
-    /// open session, so this window neither offers it back nor starts one.
+    /// open session, so this window neither offers it back nor starts one
+    /// until it takes the lock itself.
     other_window: bool,
 }
 
@@ -1708,9 +1709,10 @@ impl State {
     }
 
     /// As a second window, try the app's lock again: the other window may
-    /// have closed or crashed since.
+    /// have closed or crashed since. Not under a dialog, which the session's
+    /// Keep or Revert would replace.
     fn retry_lock(&self) -> Option<Effect> {
-        self.other_window.then_some(Effect::RetryAppLock)
+        (self.other_window && self.dialog.is_none()).then_some(Effect::RetryAppLock)
     }
 
     /// Ask Keep or Revert, then do `then`.
@@ -6036,6 +6038,11 @@ mod tests {
             Some(LIVE_IN_OTHER_WINDOW)
         );
         assert!(first.live_on());
+        // Not under a dialog.
+        drive(&mut second, Msg::ShowNew);
+        assert!(second.dialog.is_some());
+        assert!(update(&mut second, Msg::Focused).is_empty());
+        drive(&mut second, Msg::CloseDialog);
         // The first window does not try.
         let mut first = first;
         assert!(update(&mut first, Msg::Focused).is_empty());
