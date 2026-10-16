@@ -101,18 +101,28 @@ fn record_ids(dirs: &Dirs) -> io::Result<Vec<u32>> {
 
 /// Create a folder (and missing parents) readable only by the user.
 fn private_dir(path: &Path, recursive: bool) -> io::Result<()> {
-    fs::DirBuilder::new().recursive(recursive).mode(0o700).create(path)
+    fs::DirBuilder::new()
+        .recursive(recursive)
+        .mode(0o700)
+        .create(path)
 }
 
 /// Write a new file readable only by the user; fails when it already exists.
 fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
-    let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    let mut f = fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .mode(0o600)
+        .open(path)?;
     f.write_all(contents)?;
     f.sync_all()
 }
 
 fn is_absent(e: &io::Error) -> bool {
-    matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory)
+    matches!(
+        e.kind(),
+        io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+    )
 }
 
 pub struct RecordWriter {
@@ -130,7 +140,11 @@ impl RecordWriter {
         private_dir(&dir, false)?;
         Ok(RecordWriter {
             dir,
-            record: Record { id, palette: palette_slug.to_string(), entries: Vec::new() },
+            record: Record {
+                id,
+                palette: palette_slug.to_string(),
+                entries: Vec::new(),
+            },
             blobs: 0,
         })
     }
@@ -187,7 +201,10 @@ pub fn latest(dirs: &Dirs) -> io::Result<Option<Record>> {
             Err(e) => return Err(e),
         };
         let rec = toml::from_str(&text).map_err(|e| {
-            io::Error::new(io::ErrorKind::InvalidData, format!("{}: {e}", path.display()))
+            io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("{}: {e}", path.display()),
+            )
         })?;
         return Ok(Some(rec));
     }
@@ -235,13 +252,19 @@ fn undo_edit(e: &Entry) -> io::Result<()> {
         Err(err) => return Err(err),
     };
     let restored = match e {
-        Entry::Block { comment, before, appended_newline, .. } => {
-            restore_block(&current, comment, before.as_deref(), *appended_newline)
-                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?
-        }
-        Entry::Key { key, before, appended_newline, .. } => {
-            restore_key(&current, key, before.as_deref(), *appended_newline)
-        }
+        Entry::Block {
+            comment,
+            before,
+            appended_newline,
+            ..
+        } => restore_block(&current, comment, before.as_deref(), *appended_newline)
+            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?,
+        Entry::Key {
+            key,
+            before,
+            appended_newline,
+            ..
+        } => restore_key(&current, key, before.as_deref(), *appended_newline),
         Entry::File { .. } => return Ok(()),
     };
     if e.blob().is_none() && restored.is_empty() {

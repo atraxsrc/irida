@@ -55,7 +55,10 @@ pub struct Roles([Rgb; 13]);
 
 impl Roles {
     fn index(role: Role) -> usize {
-        Role::ALL.iter().position(|r| *r == role).expect("role in ALL")
+        Role::ALL
+            .iter()
+            .position(|r| *r == role)
+            .expect("role in ALL")
     }
 
     pub fn get(&self, role: Role) -> Rgb {

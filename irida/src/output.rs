@@ -90,7 +90,10 @@ pub fn format_apply(r: &ApplyReport) -> String {
 pub fn format_undo(r: &UndoReport) -> String {
     let mut out = format!("Restored apply {} ({})\n", r.record_id, r.palette);
     for (path, error) in &r.failures {
-        out.push_str(&format!("  could not restore {}: {error}\n", path.display()));
+        out.push_str(&format!(
+            "  could not restore {}: {error}\n",
+            path.display()
+        ));
     }
     out
 }

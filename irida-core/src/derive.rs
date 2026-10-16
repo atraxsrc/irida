@@ -70,7 +70,10 @@ fn pinned(pins: &Pins, slot: Slot, derived: Rgb) -> Rgb {
 fn tone_set(pins: &Pins, tone: Tone, base: [Rgb; 8]) -> AnsiSet {
     let mut set = AnsiSet(base);
     for a in Ansi::ALL {
-        set.set(a, pinned(pins, Slot::Ansi(tone, a), base[AnsiSet::index(a)]));
+        set.set(
+            a,
+            pinned(pins, Slot::Ansi(tone, a), base[AnsiSet::index(a)]),
+        );
     }
     set
 }
@@ -82,7 +85,11 @@ pub fn derive(p: &Palette) -> Derived {
     let (text, muted, pane) = (r(Role::Text), r(Role::Muted), r(Role::Pane));
 
     let normal_base = [
-        if dark { mix(r(Role::Container), text, 0.05) } else { text },
+        if dark {
+            mix(r(Role::Container), text, 0.05)
+        } else {
+            text
+        },
         r(Role::Error),
         r(Role::Success),
         r(Role::Warning),

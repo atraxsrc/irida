@@ -83,7 +83,11 @@ fn signal_by_name(name: &str) -> Option<Signal> {
 
 fn run_shell(command: &str, path: &[PathBuf]) -> std::io::Result<std::process::Output> {
     let joined: OsString = std::env::join_paths(path).unwrap_or_default();
-    Command::new("/bin/sh").arg("-c").arg(command).env("PATH", joined).output()
+    Command::new("/bin/sh")
+        .arg("-c")
+        .arg(command)
+        .env("PATH", joined)
+        .output()
 }
 
 fn version_ok(command: &str, minimum: &str, path: &[PathBuf]) -> bool {

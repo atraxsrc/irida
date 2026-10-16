@@ -49,7 +49,14 @@ fn append(path: &Path, extra: &str) {
 fn record_ids(dirs: &Dirs) -> Vec<u32> {
     let mut ids: Vec<u32> = fs::read_dir(dirs.state.join("irida/applies"))
         .unwrap()
-        .map(|e| e.unwrap().file_name().into_string().unwrap().parse().unwrap())
+        .map(|e| {
+            e.unwrap()
+                .file_name()
+                .into_string()
+                .unwrap()
+                .parse()
+                .unwrap()
+        })
         .collect();
     ids.sort();
     ids
@@ -66,8 +73,14 @@ fn file_round_trip() {
     let blob_b = w.capture(&made).unwrap();
     assert!(blob_a.is_some());
     assert_eq!(blob_b, None);
-    w.push(Entry::File { path: kept.clone(), blob: blob_a });
-    w.push(Entry::File { path: made.clone(), blob: blob_b });
+    w.push(Entry::File {
+        path: kept.clone(),
+        blob: blob_a,
+    });
+    w.push(Entry::File {
+        path: made.clone(),
+        blob: blob_b,
+    });
     atomic_write(&kept, b"new a\n").unwrap();
     atomic_write(&made, b"new b\n").unwrap();
     let rec = w.finish().unwrap();
@@ -101,7 +114,10 @@ fn capture_under_a_file_is_absent() {
 fn block_and_key_undo_keep_user_edits() {
     let env = TestEnv::new();
     let zshrc = env.write(".zshrc", "export A=1\n");
-    let btop = env.write(".config/btop/btop.conf", "color_theme = \"Default\"\nrounded = True\n");
+    let btop = env.write(
+        ".config/btop/btop.conf",
+        "color_theme = \"Default\"\nrounded = True\n",
+    );
 
     let mut w = RecordWriter::create(&env.dirs, "ember").unwrap();
     apply_block(&mut w, &zshrc, "export IRIDA=1\n");
@@ -167,19 +183,32 @@ fn restore_through_symlink() {
 
     let failures = record::restore(&env.dirs, &rec, RestoreMode::Undo);
     assert!(failures.is_empty(), "{failures:?}");
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(fs::read_to_string(&real).unwrap(), "export A=1\n");
 
     let mut w = RecordWriter::create(&env.dirs, "ember").unwrap();
     let blob = w.capture(&link).unwrap();
-    w.push(Entry::File { path: link.clone(), blob });
+    w.push(Entry::File {
+        path: link.clone(),
+        blob,
+    });
     atomic_write(&link, b"replaced\n").unwrap();
     let rec = w.finish().unwrap();
     assert_eq!(fs::read_to_string(&real).unwrap(), "replaced\n");
 
     let failures = record::restore(&env.dirs, &rec, RestoreMode::Rollback);
     assert!(failures.is_empty(), "{failures:?}");
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(fs::read_to_string(&real).unwrap(), "export A=1\n");
 }
 
@@ -188,7 +217,10 @@ fn numbering_latest_prune() {
     let env = TestEnv::new();
     assert_eq!(record::latest(&env.dirs).unwrap(), None);
     for n in 1..=12u32 {
-        let rec = RecordWriter::create(&env.dirs, "ember").unwrap().finish().unwrap();
+        let rec = RecordWriter::create(&env.dirs, "ember")
+            .unwrap()
+            .finish()
+            .unwrap();
         assert_eq!(rec.id, n);
     }
     assert_eq!(record::latest(&env.dirs).unwrap().unwrap().id, 12);
@@ -209,8 +241,14 @@ fn record_toml_round_trips() {
 
     let mut w = RecordWriter::create(&env.dirs, "noir").unwrap();
     let blob = w.capture(&a).unwrap();
-    w.push(Entry::File { path: a.clone(), blob });
-    w.push(Entry::File { path: PathBuf::from("/nowhere/x"), blob: None });
+    w.push(Entry::File {
+        path: a.clone(),
+        blob,
+    });
+    w.push(Entry::File {
+        path: PathBuf::from("/nowhere/x"),
+        blob: None,
+    });
     apply_block(&mut w, &zshrc, "x\n");
     apply_block(&mut w, &zshrc, "y\n");
     apply_key(&mut w, &btop, "color_theme", "\"irida\"");
@@ -233,7 +271,10 @@ fn records_are_private() {
 
     let mut w = RecordWriter::create(&env.dirs, "ember").unwrap();
     let blob = w.capture(&a).unwrap().unwrap();
-    w.push(Entry::File { path: a, blob: Some(blob.clone()) });
+    w.push(Entry::File {
+        path: a,
+        blob: Some(blob.clone()),
+    });
     let rec = w.finish().unwrap();
 
     let applies = env.dirs.state.join("irida/applies");
@@ -263,18 +304,31 @@ fn dangling_symlink_round_trip() {
         if as_file {
             let blob = w.capture(&link).unwrap();
             assert_eq!(blob, None);
-            w.push(Entry::File { path: link.clone(), blob });
+            w.push(Entry::File {
+                path: link.clone(),
+                blob,
+            });
             atomic_write(&link, b"written\n").unwrap();
         } else {
             apply_block(&mut w, &link, "export IRIDA=1\n");
         }
         let rec = w.finish().unwrap();
-        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert!(real.is_file());
 
         let failures = record::restore(&env.dirs, &rec, mode);
         assert!(failures.is_empty(), "{failures:?}");
-        assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
         assert_eq!(fs::read_link(&link).unwrap(), Path::new("dotfiles/zshrc"));
         assert!(!real.exists());
     }
@@ -288,7 +342,10 @@ fn abort_removes_only_its_folder() {
 
     let mut first = RecordWriter::create(&env.dirs, "ember").unwrap();
     let blob = first.capture(&file).unwrap();
-    first.push(Entry::File { path: file.clone(), blob: blob.clone() });
+    first.push(Entry::File {
+        path: file.clone(),
+        blob: blob.clone(),
+    });
     let rec = first.finish().unwrap();
     assert_eq!(rec.id, 1);
 

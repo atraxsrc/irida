@@ -143,7 +143,10 @@ fn build(
         toml::from_str(toml_text).map_err(|e| TargetError::Parse(e.to_string()))?;
     let invalid = |m: String| Err(TargetError::Invalid(m));
     if def.name != folder {
-        return invalid(format!("folder {folder:?} does not match name {:?}", def.name));
+        return invalid(format!(
+            "folder {folder:?} does not match name {:?}",
+            def.name
+        ));
     }
     if def.native.is_some() && source != Source::Builtin {
         return invalid("native is only allowed in built-in targets".into());
@@ -174,7 +177,11 @@ fn build(
             return invalid(format!("{}: missing template {t}", r.path));
         }
     }
-    Ok(Target { def, templates, source })
+    Ok(Target {
+        def,
+        templates,
+        source,
+    })
 }
 
 fn load_builtin(dir: &Dir<'_>) -> LoadedTarget {
@@ -186,8 +193,13 @@ fn load_builtin(dir: &Dir<'_>) -> LoadedTarget {
     let mut toml_text = None;
     let mut templates = BTreeMap::new();
     for file in dir.files() {
-        let fname = file.path().file_name().map(|n| n.to_string_lossy().into_owned());
-        let (Some(fname), Some(text)) = (fname, file.contents_utf8()) else { continue };
+        let fname = file
+            .path()
+            .file_name()
+            .map(|n| n.to_string_lossy().into_owned());
+        let (Some(fname), Some(text)) = (fname, file.contents_utf8()) else {
+            continue;
+        };
         if fname == "target.toml" {
             toml_text = Some(text.to_string());
         } else {
@@ -219,7 +231,12 @@ fn load_user_folder(path: &Path) -> LoadedTarget {
             let text = std::fs::read_to_string(entry.path()).map_err(io)?;
             templates.insert(fname, text);
         }
-        build(&name, &toml_text, templates, Source::User(path.to_path_buf()))
+        build(
+            &name,
+            &toml_text,
+            templates,
+            Source::User(path.to_path_buf()),
+        )
     })();
     LoadedTarget { name, result }
 }

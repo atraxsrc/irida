@@ -82,7 +82,10 @@ fn file_target(name: &str, path: &str) -> String {
 }
 
 fn ctx(env: &TestEnv) -> Ctx {
-    Ctx { dirs: env.dirs.clone(), path: vec![] }
+    Ctx {
+        dirs: env.dirs.clone(),
+        path: vec![],
+    }
 }
 
 fn run(env: &TestEnv, p: &Palette) -> Result<ApplyReport, ApplyError> {
@@ -105,7 +108,10 @@ fn run_with(
 }
 
 fn status<'a>(report: &'a ApplyReport, name: &str) -> &'a TargetStatus {
-    &report.get(name).unwrap_or_else(|| panic!("{name} in report")).status
+    &report
+        .get(name)
+        .unwrap_or_else(|| panic!("{name} in report"))
+        .status
 }
 
 fn applied(report: &ApplyReport, name: &str) {
@@ -127,7 +133,14 @@ fn applies_dir(env: &TestEnv) -> PathBuf {
 fn record_ids(env: &TestEnv) -> Vec<u32> {
     let mut ids: Vec<u32> = match fs::read_dir(applies_dir(env)) {
         Ok(rd) => rd
-            .map(|e| e.unwrap().file_name().into_string().unwrap().parse().unwrap())
+            .map(|e| {
+                e.unwrap()
+                    .file_name()
+                    .into_string()
+                    .unwrap()
+                    .parse()
+                    .unwrap()
+            })
             .collect(),
         Err(_) => Vec::new(),
     };
@@ -163,7 +176,10 @@ fn applies_file_block_and_key() {
         &TargetStatus::Skipped(SkipReason::NotInstalled)
     );
 
-    assert_eq!(read(&home(&env, ".config/a/a.conf")), render(&ember, A_TMPL));
+    assert_eq!(
+        read(&home(&env, ".config/a/a.conf")),
+        render(&ember, A_TMPL)
+    );
     assert_eq!(
         read(&home(&env, ".zshrc")),
         format!(
@@ -171,7 +187,10 @@ fn applies_file_block_and_key() {
             render(&ember, B_TMPL)
         )
     );
-    assert_eq!(read(&home(&env, ".config/c/c.conf")), "a = 1\ntheme = ember\n");
+    assert_eq!(
+        read(&home(&env, ".config/c/c.conf")),
+        "a = 1\ntheme = ember\n"
+    );
     assert_eq!(record_ids(&env), [1]);
 }
 
@@ -213,11 +232,21 @@ fn symlink_apply_and_undo() {
 
     let report = run(&env, &ember).unwrap();
     applied(&report, "b");
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert!(read(&real).starts_with("export X=1\n# >>> irida >>>\n"));
 
     undo(&ctx(&env)).unwrap();
-    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert!(
+        fs::symlink_metadata(&link)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
     assert_eq!(read(&real), "export X=1\n");
 }
 
@@ -257,7 +286,10 @@ fn syntax_error_skips_one_target() {
     let report = run(&env, &ember).unwrap();
     applied(&report, "a");
     assert!(
-        matches!(status(&report, "s"), TargetStatus::Skipped(SkipReason::Broken(_))),
+        matches!(
+            status(&report, "s"),
+            TargetStatus::Skipped(SkipReason::Broken(_))
+        ),
         "{:?}",
         status(&report, "s")
     );
@@ -297,7 +329,11 @@ template = "t.tmpl"
     env.write(".config/blocker", "not a folder");
 
     match run(&env, &ember) {
-        Err(e @ ApplyError::Write { rolled_back: true, .. }) => {
+        Err(
+            e @ ApplyError::Write {
+                rolled_back: true, ..
+            },
+        ) => {
             assert!(e.to_string().contains("blocker/b.conf"), "{e}");
         }
         other => panic!("expected rolled back Write, got {other:?}"),
@@ -350,7 +386,11 @@ fn rollback_skips_unattempted_writes() {
     }
 
     match run(&env, &ember) {
-        Err(e @ ApplyError::Write { rolled_back: true, .. }) => {
+        Err(
+            e @ ApplyError::Write {
+                rolled_back: true, ..
+            },
+        ) => {
             assert!(e.to_string().contains("blocker/b.conf"), "{e}");
         }
         other => panic!("expected rolled back Write, got {other:?}"),
@@ -420,7 +460,12 @@ fn selection_rules() {
     let env = TestEnv::new();
     let ember = palette("ember");
     put_a(&env);
-    put_target(&env, "d", &file_target("d", "~/.config/d/d.conf"), &[("t.tmpl", "d\n")]);
+    put_target(
+        &env,
+        "d",
+        &file_target("d", "~/.config/d/d.conf"),
+        &[("t.tmpl", "d\n")],
+    );
     put_target(
         &env,
         "u",
@@ -428,14 +473,26 @@ fn selection_rules() {
         &[("t.tmpl", "u\n")],
     );
     put_target(&env, "x", "name = \"x\"\nbogus = 1\n", &[]);
-    let settings = Settings { disabled: ["d".to_string()].into(), last_palette: None };
+    let settings = Settings {
+        disabled: ["d".to_string()].into(),
+        last_palette: None,
+    };
 
     let report = run_with(&env, &settings, &ember, None, None).unwrap();
     applied(&report, "a");
-    assert_eq!(status(&report, "u"), &TargetStatus::Skipped(SkipReason::NotInstalled));
-    assert_eq!(status(&report, "d"), &TargetStatus::Skipped(SkipReason::Disabled));
+    assert_eq!(
+        status(&report, "u"),
+        &TargetStatus::Skipped(SkipReason::NotInstalled)
+    );
+    assert_eq!(
+        status(&report, "d"),
+        &TargetStatus::Skipped(SkipReason::Disabled)
+    );
     assert!(
-        matches!(status(&report, "x"), TargetStatus::Skipped(SkipReason::Broken(_))),
+        matches!(
+            status(&report, "x"),
+            TargetStatus::Skipped(SkipReason::Broken(_))
+        ),
         "{:?}",
         status(&report, "x")
     );
@@ -513,8 +570,10 @@ fn cosmic_term_bad_config_skips_only_that_target() {
     let env = TestEnv::new();
     let ember = palette("ember");
     put_a(&env);
-    let text = ron_text(&Schemes::from([(0, gruvbox())]))
-        .replace("name: \"Gruvbox\",", "name: \"Gruvbox\",\n        extra: 1,");
+    let text = ron_text(&Schemes::from([(0, gruvbox())])).replace(
+        "name: \"Gruvbox\",",
+        "name: \"Gruvbox\",\n        extra: 1,",
+    );
     assert!(text.contains("extra: 1"));
     let dark = put_term_key(&env, "color_schemes_dark", &text);
 

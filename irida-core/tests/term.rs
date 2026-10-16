@@ -30,7 +30,11 @@ fn noir_has_no_background() {
 #[test]
 fn unknown_field_is_rejected() {
     let text = fixture_text("rices/Ember-term.ron");
-    let bad = text.replacen("    name: \"Ember\",\n", "    name: \"Ember\",\n    italic: \"#FFFFFF\",\n", 1);
+    let bad = text.replacen(
+        "    name: \"Ember\",\n",
+        "    name: \"Ember\",\n    italic: \"#FFFFFF\",\n",
+        1,
+    );
     assert_ne!(bad, text);
     assert!(ColorScheme::from_ron(&bad).is_err());
 }

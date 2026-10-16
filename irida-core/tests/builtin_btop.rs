@@ -21,7 +21,11 @@ fn matches_rice_files() {
         let rendered = Renderer::new(&palette(slug))
             .render("btop.theme.tmpl", &source)
             .unwrap();
-        assert_eq!(rendered, fixture_text(&format!("rices/{rice}.theme")), "{rice}");
+        assert_eq!(
+            rendered,
+            fixture_text(&format!("rices/{rice}.theme")),
+            "{rice}"
+        );
     }
 }
 
@@ -38,17 +42,27 @@ fn apply_sets_theme_and_key() {
         "color_theme = \"Default\"\nshown_boxes = \"cpu\"\n",
     );
 
-    let ctx = Ctx { dirs: env.dirs.clone(), path: vec![bin] };
+    let ctx = Ctx {
+        dirs: env.dirs.clone(),
+        path: vec![bin],
+    };
     let p = palette("ember");
     let report = apply(
         &ctx,
         &Settings::default(),
-        &ApplyRequest { palette: &p, pair: None, only: Some(vec!["btop".into()]) },
+        &ApplyRequest {
+            palette: &p,
+            pair: None,
+            only: Some(vec!["btop".into()]),
+        },
     )
     .unwrap();
 
     let theme = env.dirs.config.join("btop/themes/irida.theme");
-    assert_eq!(fs::read_to_string(theme).unwrap(), fixture_text("rices/Ember.theme"));
+    assert_eq!(
+        fs::read_to_string(theme).unwrap(),
+        fixture_text("rices/Ember.theme")
+    );
     assert_eq!(
         fs::read_to_string(conf).unwrap(),
         "color_theme = \"irida\"\nshown_boxes = \"cpu\"\n"

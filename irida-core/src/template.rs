@@ -44,7 +44,10 @@ fn to_error(template: &str, e: Error) -> TemplateError {
         message.push_str(&format!(": {s}"));
         source = s.source();
     }
-    TemplateError { template: template.to_string(), message }
+    TemplateError {
+        template: template.to_string(),
+        message,
+    }
 }
 
 /// Compile a template without rendering it.
@@ -68,11 +71,17 @@ impl Resolver {
         }
         if let Ok(slot) = Slot::from_str(s) {
             return self.derived.slot(slot).ok_or_else(|| {
-                Error::new(ErrorKind::InvalidOperation, format!("slot {s} has no colour"))
+                Error::new(
+                    ErrorKind::InvalidOperation,
+                    format!("slot {s} has no colour"),
+                )
             });
         }
         Rgb::from_hex(s).map_err(|_| {
-            Error::new(ErrorKind::InvalidOperation, format!("unknown colour: {s:?}"))
+            Error::new(
+                ErrorKind::InvalidOperation,
+                format!("unknown colour: {s:?}"),
+            )
         })
     }
 }
@@ -87,14 +96,19 @@ pub struct Renderer {
 }
 
 fn ansi_map(get: impl Fn(Ansi) -> Rgb) -> BTreeMap<&'static str, String> {
-    Ansi::ALL.iter().map(|a| (a.as_str(), get(*a).to_hex())).collect()
+    Ansi::ALL
+        .iter()
+        .map(|a| (a.as_str(), get(*a).to_hex()))
+        .collect()
 }
 
 impl Renderer {
     pub fn new(p: &Palette) -> Renderer {
         let derived = derive(p);
-        let roles: BTreeMap<String, Rgb> =
-            Role::ALL.iter().map(|r| (r.as_str().to_string(), p.roles.get(*r))).collect();
+        let roles: BTreeMap<String, Rgb> = Role::ALL
+            .iter()
+            .map(|r| (r.as_str().to_string(), p.roles.get(*r)))
+            .collect();
 
         let mut ctx: BTreeMap<String, Value> = BTreeMap::new();
         for (name, c) in &roles {
@@ -104,10 +118,21 @@ impl Renderer {
         ctx.insert("slug".into(), Value::from(p.slug.clone()));
         ctx.insert("stem".into(), Value::from(p.stem()));
         ctx.insert("mode".into(), Value::from(p.mode.to_string()));
-        ctx.insert("notes".into(), Value::from(p.notes.clone().unwrap_or_default()));
+        ctx.insert(
+            "notes".into(),
+            Value::from(p.notes.clone().unwrap_or_default()),
+        );
         let names: BTreeMap<&str, String> = Role::ALL
             .iter()
-            .map(|r| (r.as_str(), p.names.get(r).cloned().unwrap_or_else(|| r.as_str().to_string())))
+            .map(|r| {
+                (
+                    r.as_str(),
+                    p.names
+                        .get(r)
+                        .cloned()
+                        .unwrap_or_else(|| r.as_str().to_string()),
+                )
+            })
             .collect();
         ctx.insert("names".into(), Value::from_serialize(&names));
 
@@ -119,10 +144,19 @@ impl Renderer {
             Value::from(t.background.map(|c| c.to_hex()).unwrap_or_default()),
         );
         term.insert("cursor", Value::from(t.cursor.to_hex()));
-        term.insert("bright_foreground", Value::from(t.bright_foreground.to_hex()));
+        term.insert(
+            "bright_foreground",
+            Value::from(t.bright_foreground.to_hex()),
+        );
         term.insert("dim_foreground", Value::from(t.dim_foreground.to_hex()));
-        term.insert("normal", Value::from_serialize(ansi_map(|a| t.normal.get(a))));
-        term.insert("bright", Value::from_serialize(ansi_map(|a| t.bright.get(a))));
+        term.insert(
+            "normal",
+            Value::from_serialize(ansi_map(|a| t.normal.get(a))),
+        );
+        term.insert(
+            "bright",
+            Value::from_serialize(ansi_map(|a| t.bright.get(a))),
+        );
         term.insert("dim", Value::from_serialize(ansi_map(|a| t.dim.get(a))));
         ctx.insert("term".into(), Value::from_serialize(&term));
 
@@ -159,7 +193,10 @@ impl Renderer {
             Ok(colours.iter().map(Rgb::to_hex).collect::<Vec<_>>())
         });
 
-        Renderer { env, ctx: Value::from_serialize(&ctx) }
+        Renderer {
+            env,
+            ctx: Value::from_serialize(&ctx),
+        }
     }
 
     pub fn render(&self, template_name: &str, source: &str) -> Result<String, TemplateError> {

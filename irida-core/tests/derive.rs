@@ -66,21 +66,28 @@ fn emberday_is_exact() {
 #[test]
 fn pins_propagate() {
     let mut p = palette("ember");
-    p.pins.set(slot("normal.red"), PinValue::Color(hex("#FF0000")));
+    p.pins
+        .set(slot("normal.red"), PinValue::Color(hex("#FF0000")));
     let d = derive(&p);
     assert_eq!(d.slot(slot("dim.red")).unwrap(), hex("#A40C0E"));
     assert_eq!(d.slot(slot("bright.red")).unwrap(), hex("#FF1F1F"));
 
     let mut p = palette("ember");
-    p.pins.set(slot("bright.white"), PinValue::Color(hex("#FFFFFF")));
+    p.pins
+        .set(slot("bright.white"), PinValue::Color(hex("#FFFFFF")));
     assert_eq!(derive(&p).term.bright_foreground, hex("#FFFFFF"));
 
     let mut p = palette("ember");
-    p.pins.set(slot("normal.white"), PinValue::Color(hex("#FFFFFF")));
-    assert_eq!(derive(&p).slot(slot("bright.white")).unwrap(), hex("#E2E4E9"));
+    p.pins
+        .set(slot("normal.white"), PinValue::Color(hex("#FFFFFF")));
+    assert_eq!(
+        derive(&p).slot(slot("bright.white")).unwrap(),
+        hex("#E2E4E9")
+    );
 
     let mut p = palette("emberday");
-    p.pins.set(slot("bright.black"), PinValue::Color(hex("#000000")));
+    p.pins
+        .set(slot("bright.black"), PinValue::Color(hex("#000000")));
     assert_eq!(derive(&p).term.bright_foreground, hex("#000000"));
 }
 
@@ -110,11 +117,17 @@ fn pins_toml_round_trip() {
     assert_eq!(Palette::from_toml(&p.to_toml()).unwrap(), p);
 
     let base = fixture_text("palettes/ember.toml");
-    for bad in [r##""dim.blue" = "none""##, r##""bright.orange" = "#FFFFFF""##] {
+    for bad in [
+        r##""dim.blue" = "none""##,
+        r##""bright.orange" = "#FFFFFF""##,
+    ] {
         let text = base.replace(r##""normal.black" = "#2A2F38""##, bad);
-        assert!(matches!(
-            Palette::from_toml(&text),
-            Err(PaletteError::BadColor { .. })
-        ), "{bad}");
+        assert!(
+            matches!(
+                Palette::from_toml(&text),
+                Err(PaletteError::BadColor { .. })
+            ),
+            "{bad}"
+        );
     }
 }

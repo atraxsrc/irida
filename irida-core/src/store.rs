@@ -53,7 +53,10 @@ pub struct Store {
 }
 
 fn io_err(path: &Path, source: io::Error) -> StoreError {
-    StoreError::Io { path: path.to_path_buf(), source }
+    StoreError::Io {
+        path: path.to_path_buf(),
+        source,
+    }
 }
 
 fn check_slug(slug: &str) -> Result<(), StoreError> {
@@ -98,7 +101,10 @@ impl Store {
             .filter_map(|e| {
                 let file = e.path().join("palette.toml");
                 let slug = e.file_name().into_string().ok()?;
-                file.is_file().then(|| StoreEntry { slug, result: read_palette(&file) })
+                file.is_file().then(|| StoreEntry {
+                    slug,
+                    result: read_palette(&file),
+                })
             })
             .collect();
         entries.sort_by(|a, b| a.slug.cmp(&b.slug));
@@ -118,7 +124,10 @@ impl Store {
 
     pub fn save(&self, p: &Palette) -> Result<(), StoreError> {
         check_slug(&p.slug)?;
-        write_file(&self.palette_dir(&p.slug).join("palette.toml"), &p.to_toml())
+        write_file(
+            &self.palette_dir(&p.slug).join("palette.toml"),
+            &p.to_toml(),
+        )
     }
 
     fn version_numbers(&self, slug: &str) -> Result<Vec<u32>, StoreError> {
@@ -139,7 +148,12 @@ impl Store {
 
     pub fn save_version(&self, p: &Palette) -> Result<u32, StoreError> {
         check_slug(&p.slug)?;
-        let n = self.version_numbers(&p.slug)?.into_iter().max().unwrap_or(0) + 1;
+        let n = self
+            .version_numbers(&p.slug)?
+            .into_iter()
+            .max()
+            .unwrap_or(0)
+            + 1;
         let text = p.to_toml();
         let dir = self.palette_dir(&p.slug);
         write_file(&dir.join("versions").join(format!("{n}.toml")), &text)?;
@@ -154,7 +168,10 @@ impl Store {
         let Some(n) = self.version_numbers(slug)?.into_iter().max() else {
             return Ok(None);
         };
-        let path = self.palette_dir(slug).join("versions").join(format!("{n}.toml"));
+        let path = self
+            .palette_dir(slug)
+            .join("versions")
+            .join(format!("{n}.toml"));
         Ok(Some((n, read_palette(&path)?)))
     }
 

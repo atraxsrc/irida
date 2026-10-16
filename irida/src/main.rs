@@ -49,7 +49,10 @@ fn load_pair(store: &Store, p: &Palette) -> Option<Palette> {
     match store.load(slug) {
         Ok(pair) if pair.mode != p.mode => Some(pair),
         Ok(_) => {
-            eprintln!("irida: warning: pair {slug} has the same mode as {}; applying alone", p.slug);
+            eprintln!(
+                "irida: warning: pair {slug} has the same mode as {}; applying alone",
+                p.slug
+            );
             None
         }
         Err(e) => {
@@ -64,7 +67,11 @@ fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<E
     let p = store.resolve(palette).map_err(|e| e.to_string())?;
     let pair = load_pair(&store, &p);
     let settings = store.settings().map_err(|e| e.to_string())?;
-    let req = ApplyRequest { palette: &p, pair: pair.as_ref(), only };
+    let req = ApplyRequest {
+        palette: &p,
+        pair: pair.as_ref(),
+        only,
+    };
     match apply::apply(&ctx, &settings, &req) {
         Ok(report) => {
             let mut settings = settings;
@@ -87,7 +94,11 @@ fn run_undo() -> Result<ExitCode, String> {
     let ctx = Ctx::from_env().map_err(|e| e.to_string())?;
     let report = apply::undo(&ctx).map_err(|e| e.to_string())?;
     print!("{}", output::format_undo(&report));
-    Ok(if report.failures.is_empty() { ExitCode::SUCCESS } else { ExitCode::from(1) })
+    Ok(if report.failures.is_empty() {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::from(1)
+    })
 }
 
 fn run(cli: Cli) -> Result<ExitCode, String> {

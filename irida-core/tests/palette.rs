@@ -33,13 +33,16 @@ fn missing_role_is_named() {
         .filter(|l| !l.starts_with("cyan ="))
         .map(|l| format!("{l}\n"))
         .collect();
-    assert_eq!(Palette::from_toml(&text), Err(PaletteError::MissingRole(Role::Cyan)));
+    assert_eq!(
+        Palette::from_toml(&text),
+        Err(PaletteError::MissingRole(Role::Cyan))
+    );
 }
 
 #[test]
 fn unknown_role_is_named() {
-    let text = fixture_text("palettes/ember.toml")
-        .replace("[roles]\n", "[roles]\norange = \"#FF8800\"\n");
+    let text =
+        fixture_text("palettes/ember.toml").replace("[roles]\n", "[roles]\norange = \"#FF8800\"\n");
     assert!(matches!(
         Palette::from_toml(&text),
         Err(PaletteError::UnknownRole(ref s)) if s == "orange"
@@ -50,10 +53,17 @@ fn unknown_role_is_named() {
 fn slug_rules() {
     assert!(validate_slug("ember").is_ok());
     for bad in ["Ember", "ember-day", "ember2", ""] {
-        assert!(matches!(validate_slug(bad), Err(PaletteError::BadSlug(_))), "{bad}");
+        assert!(
+            matches!(validate_slug(bad), Err(PaletteError::BadSlug(_))),
+            "{bad}"
+        );
     }
-    let text = fixture_text("palettes/ember.toml").replace("slug = \"ember\"", "slug = \"ember-day\"");
-    assert!(matches!(Palette::from_toml(&text), Err(PaletteError::BadSlug(_))));
+    let text =
+        fixture_text("palettes/ember.toml").replace("slug = \"ember\"", "slug = \"ember-day\"");
+    assert!(matches!(
+        Palette::from_toml(&text),
+        Err(PaletteError::BadSlug(_))
+    ));
 }
 
 #[test]

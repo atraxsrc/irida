@@ -18,7 +18,11 @@ fn ser_color<S: Serializer>(c: &Option<HexColor>, s: S) -> Result<S::Ok, S::Erro
 }
 
 fn to_rgb(c: HexColor) -> Rgb {
-    Rgb { r: c.r, g: c.g, b: c.b }
+    Rgb {
+        r: c.r,
+        g: c.g,
+        b: c.b,
+    }
 }
 
 fn to_hex(c: Rgb) -> HexColor {
@@ -30,21 +34,53 @@ macro_rules! scheme_structs {
         #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
         #[serde(default, deny_unknown_fields)]
         pub struct AnsiScheme {
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub black: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub red: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub green: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub yellow: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub blue: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub magenta: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub cyan: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub white: Option<HexColor>,
         }
 
@@ -52,15 +88,35 @@ macro_rules! scheme_structs {
         #[serde(default, deny_unknown_fields)]
         pub struct ColorScheme {
             pub name: String,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub foreground: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub background: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub cursor: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub bright_foreground: Option<HexColor>,
-            #[serde(deserialize_with = "de_color", serialize_with = "ser_color", skip_serializing_if = "Option::is_none")]
+            #[serde(
+                deserialize_with = "de_color",
+                serialize_with = "ser_color",
+                skip_serializing_if = "Option::is_none"
+            )]
             pub dim_foreground: Option<HexColor>,
             #[serde(skip_serializing_if = "AnsiScheme::is_empty")]
             pub normal: AnsiScheme,

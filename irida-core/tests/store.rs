@@ -75,7 +75,10 @@ fn resolve_forms() {
     assert_eq!(store.resolve(file.to_str().unwrap()).unwrap(), ember);
     let dir = env.dirs.data.join("irida/palettes/ember");
     assert_eq!(store.resolve(dir.to_str().unwrap()).unwrap(), ember);
-    assert!(matches!(store.resolve("nope"), Err(StoreError::NotFound(_))));
+    assert!(matches!(
+        store.resolve("nope"),
+        Err(StoreError::NotFound(_))
+    ));
     let empty = env.tmp.path().join("empty");
     std::fs::create_dir_all(&empty).unwrap();
     assert!(matches!(
@@ -102,7 +105,10 @@ fn save_rejects_bad_slug() {
     let mut p = palette("ember");
     p.slug = "../x".into();
     assert!(matches!(store.save(&p), Err(StoreError::BadSlug(_))));
-    assert!(matches!(store.save_version(&p), Err(StoreError::BadSlug(_))));
+    assert!(matches!(
+        store.save_version(&p),
+        Err(StoreError::BadSlug(_))
+    ));
     assert!(!env.dirs.data.join("irida/x").exists());
     assert!(!env.dirs.data.join("irida/palettes/../x").exists());
     assert!(!env.dirs.data.join("irida/palettes").exists());
@@ -112,9 +118,18 @@ fn save_rejects_bad_slug() {
 fn dirs_from_vars() {
     use std::ffi::OsString;
     let o = |s: &str| Some(OsString::from(s));
-    assert_eq!(Dirs::from_vars(o("rel/home"), None, None, None).unwrap_err(), DirsError::NoHome);
-    assert_eq!(Dirs::from_vars(o(""), None, None, None).unwrap_err(), DirsError::NoHome);
-    assert_eq!(Dirs::from_vars(None, None, None, None).unwrap_err(), DirsError::NoHome);
+    assert_eq!(
+        Dirs::from_vars(o("rel/home"), None, None, None).unwrap_err(),
+        DirsError::NoHome
+    );
+    assert_eq!(
+        Dirs::from_vars(o(""), None, None, None).unwrap_err(),
+        DirsError::NoHome
+    );
+    assert_eq!(
+        Dirs::from_vars(None, None, None, None).unwrap_err(),
+        DirsError::NoHome
+    );
 
     let d = Dirs::from_vars(o("/h"), o("rel/cfg"), o("rel/data"), o("rel/state")).unwrap();
     assert_eq!(d.config, PathBuf::from("/h/.config"));

@@ -25,7 +25,10 @@ impl Spawned {
         // Wait until the kernel reports the new name.
         let start = Instant::now();
         while irida_core::reload::find_processes(name).is_empty() {
-            assert!(start.elapsed() < Duration::from_secs(2), "process never appeared");
+            assert!(
+                start.elapsed() < Duration::from_secs(2),
+                "process never appeared"
+            );
             std::thread::sleep(Duration::from_millis(10));
         }
         Spawned { child, _dir: dir }
@@ -59,14 +62,21 @@ fn fake_btop(version: &str) -> (tempfile::TempDir, PathBuf) {
     let bin = tmp.path().join("bin");
     fs::create_dir_all(&bin).unwrap();
     let script = bin.join("btop");
-    fs::write(&script, format!("#!/bin/sh\necho 'btop version: {version}'\n")).unwrap();
+    fs::write(
+        &script,
+        format!("#!/bin/sh\necho 'btop version: {version}'\n"),
+    )
+    .unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     (tmp, bin)
 }
 
 fn term_reload(process: &str, min: Option<&str>) -> Reload {
     Reload {
-        signal: Some(SignalReload { process: process.into(), signal: "TERM".into() }),
+        signal: Some(SignalReload {
+            process: process.into(),
+            signal: "TERM".into(),
+        }),
         command: None,
         min_version: min.map(|v| MinVersion {
             command: "btop --version".into(),
@@ -101,7 +111,10 @@ fn old_btop_is_not_signalled() {
         ReloadStatus::Restart("restart btop to see it".into())
     );
     std::thread::sleep(Duration::from_millis(200));
-    assert!(p.child.try_wait().unwrap().is_none(), "process was signalled");
+    assert!(
+        p.child.try_wait().unwrap().is_none(),
+        "process was signalled"
+    );
 }
 
 #[test]
@@ -109,13 +122,19 @@ fn new_btop_is_signalled() {
     let (_tmp, bin) = fake_btop("1.3.2");
     let mut p = Spawned::new("iridanewproc");
     let r = term_reload("iridanewproc", Some("1.3.2"));
-    assert_eq!(reload(Some(&r), "btop", &path_of(&bin)), ReloadStatus::Reloaded);
+    assert_eq!(
+        reload(Some(&r), "btop", &path_of(&bin)),
+        ReloadStatus::Reloaded
+    );
     let start = Instant::now();
     let status = loop {
         if let Some(s) = p.child.try_wait().unwrap() {
             break s;
         }
-        assert!(start.elapsed() < Duration::from_secs(2), "process did not exit");
+        assert!(
+            start.elapsed() < Duration::from_secs(2),
+            "process did not exit"
+        );
         std::thread::sleep(Duration::from_millis(20));
     };
     assert!(status.signal().is_some());
@@ -129,9 +148,15 @@ fn not_running() {
 
 #[test]
 fn command_reload() {
-    let ok = Reload { command: Some("true".into()), ..Reload::default() };
+    let ok = Reload {
+        command: Some("true".into()),
+        ..Reload::default()
+    };
     assert_eq!(reload(Some(&ok), "x", &[]), ReloadStatus::Reloaded);
-    let bad = Reload { command: Some("echo boom >&2; exit 3".into()), ..Reload::default() };
+    let bad = Reload {
+        command: Some("echo boom >&2; exit 3".into()),
+        ..Reload::default()
+    };
     match reload(Some(&bad), "x", &[]) {
         ReloadStatus::Failed(s) => assert!(s.contains("boom"), "{s}"),
         other => panic!("unexpected {other:?}"),
