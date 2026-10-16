@@ -8,6 +8,7 @@ mod preview;
 mod roles;
 mod scene;
 mod state;
+mod wallpaper;
 
 use std::path::PathBuf;
 
@@ -71,6 +72,7 @@ impl App {
                 Effect::Toast(item) => tasks.push(self.toast(item)),
                 Effect::Copy(text) => tasks.push(cosmic::iced::clipboard::write(text)),
                 Effect::ChooseFolder(purpose) => tasks.push(choose_folder(purpose)),
+                Effect::ChooseImage => tasks.push(choose_image()),
                 Effect::Exit => tasks.push(cosmic::iced::exit()),
                 effect => {
                     debug_assert!(effect.is_io());
@@ -119,6 +121,36 @@ fn choose_folder(purpose: FolderFor) -> Task<Message> {
             Err(e) => Err(e.to_string()),
         };
         Message::Ui(Msg::Folder(purpose, result))
+    })
+}
+
+/// The images a wallpaper draft reads, as file chooser patterns (both
+/// cases, since the portal's patterns are case sensitive).
+const IMAGE_PATTERNS: [&str; 8] = [
+    "*.jpg", "*.jpeg", "*.png", "*.webp", "*.JPG", "*.JPEG", "*.PNG", "*.WEBP",
+];
+
+/// Ask for an image with the portal's file chooser; cancelling sends
+/// nothing.
+fn choose_image() -> Task<Message> {
+    cosmic::task::future(async move {
+        let filter = IMAGE_PATTERNS
+            .iter()
+            .fold(file_chooser::FileFilter::new("Images"), |f, p| f.glob(p));
+        let dialog = file_chooser::open::Dialog::new()
+            .title("Choose an image")
+            .filter(filter);
+        let result = match dialog.open_file().await {
+            Ok(response) => response
+                .0
+                .uris()
+                .first()
+                .and_then(|url| url.to_file_path().ok())
+                .ok_or_else(|| "the chosen file is not a local file".to_string()),
+            Err(file_chooser::Error::Cancelled) => return Message::Results(Vec::new()),
+            Err(e) => Err(e.to_string()),
+        };
+        Message::Ui(Msg::Image(result))
     })
 }
 

@@ -6,8 +6,8 @@ use cosmic::iced::Length;
 use cosmic::widget::{self, button, popover, text};
 use irida_core::palette::Mode;
 
-use super::apply_sheet;
 use super::state::{Dialog, ExportSummary, HeaderItem, Leave, MenuItem, Msg, NameFor, State};
+use super::{apply_sheet, wallpaper};
 
 /// The palette name with its menu.
 pub fn start(state: &State) -> Vec<Element<'_, Msg>> {
@@ -145,6 +145,7 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
                 .tertiary_action(button::standard("Keep both").on_press(Msg::ImportKeepBoth))
         }
         Dialog::Exported(summary) => exported(summary),
+        Dialog::Wallpaper(d) => wallpaper::view(state, d),
     };
     Some(d.into())
 }
