@@ -102,6 +102,14 @@ const STARTERS: [&str; 4] = [
     include_str!("../starters/dossier.toml"),
 ];
 
+/// The starter palettes (Ember, Ember Day, Noir, Dossier), in that order.
+pub fn starters() -> Vec<Palette> {
+    STARTERS
+        .iter()
+        .map(|text| Palette::from_toml(text).expect("starter palettes parse"))
+        .collect()
+}
+
 /// Whether `arg` names a saved palette by slug rather than a file or folder,
 /// the same test `Store::resolve` makes.
 pub fn is_saved_slug(arg: &str) -> bool {
@@ -529,11 +537,11 @@ impl Store {
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(io_err(&dir, e)),
         }
-        for text in STARTERS {
-            let p = Palette::from_toml(text).expect("starter palettes parse");
-            self.save_version(&p)?;
+        let starters = starters();
+        for p in &starters {
+            self.save_version(p)?;
         }
-        Ok(STARTERS.len())
+        Ok(starters.len())
     }
 
     /// The text of a palette file as stored, for showing one that cannot be

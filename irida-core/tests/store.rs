@@ -5,7 +5,9 @@ use std::path::PathBuf;
 use common::{TestEnv, fixture, palette};
 use irida_core::dirs::{Dirs, DirsError};
 use irida_core::palette::Mode;
-use irida_core::store::{PairLookup, Settings, Store, StoreError, VersionInfo, is_saved_slug};
+use irida_core::store::{
+    PairLookup, Settings, Store, StoreError, VersionInfo, is_saved_slug, starters,
+};
 
 #[test]
 fn expand_paths() {
@@ -404,6 +406,15 @@ fn link_and_unlink() {
     assert_eq!(pair("noir"), None);
     assert_eq!(pair("emberday"), None);
     store.unlink_pair("noir").unwrap();
+}
+
+#[test]
+fn starters_in_order() {
+    let slugs: Vec<String> = starters().into_iter().map(|p| p.slug).collect();
+    assert_eq!(slugs, ["ember", "emberday", "noir", "dossier"]);
+    for p in starters() {
+        assert_eq!(p, palette(&p.slug));
+    }
 }
 
 #[test]

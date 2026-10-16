@@ -1,0 +1,1246 @@
+//! The app's state machine. Every app behaviour that has logic is decided
+//! here, in `update`; IO happens in `effects::perform`, and the views only
+//! read `State` and emit `Msg`.
+
+use std::path::PathBuf;
+
+use irida_core::apply::Ctx;
+use irida_core::color::Rgb;
+use irida_core::palette::{Mode, Palette, slug_from_name, validate_name};
+use irida_core::role::Role;
+use irida_core::store::{Settings, starters};
+
+/// One stored palette as the Switch list shows it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EntrySummary {
+    pub slug: String,
+    /// The palette's name and mode, or why it cannot be read.
+    pub palette: Result<(String, Mode), String>,
+}
+
+impl EntrySummary {
+    pub fn readable(&self) -> bool {
+        self.palette.is_ok()
+    }
+
+    /// The palette's name, or its slug when it cannot be read.
+    pub fn label(&self) -> &str {
+        match &self.palette {
+            Ok((name, _)) => name,
+            Err(_) => &self.slug,
+        }
+    }
+}
+
+/// The open palette.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "one value, held in State; boxing would only add noise"
+)]
+pub enum Current {
+    /// `saved` is `None` until the first save (a wallpaper draft).
+    Editable {
+        slug: String,
+        saved: Option<Palette>,
+        working: Palette,
+    },
+    /// A palette file that cannot be read: shown with its error and text,
+    /// never written.
+    Unreadable {
+        slug: String,
+        error: String,
+        text: String,
+    },
+}
+
+impl Current {
+    pub fn slug(&self) -> &str {
+        match self {
+            Current::Editable { slug, .. } | Current::Unreadable { slug, .. } => slug,
+        }
+    }
+
+    /// Unsaved changes: the working copy differs from the last save.
+    pub fn dirty(&self) -> bool {
+        match self {
+            Current::Editable { saved, working, .. } => saved.as_ref() != Some(working),
+            Current::Unreadable { .. } => false,
+        }
+    }
+
+    pub fn working(&self) -> Option<&Palette> {
+        match self {
+            Current::Editable { working, .. } => Some(working),
+            Current::Unreadable { .. } => None,
+        }
+    }
+}
+
+/// A toast, with an optional action button that sends `Msg`.
+#[derive(Debug, Clone)]
+pub struct ToastItem {
+    pub text: String,
+    pub action: Option<(String, Msg)>,
+}
+
+/// What the name dialog is for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NameFor {
+    New,
+    Duplicate,
+}
+
+/// Something that leaves the open palette, held while the unsaved-changes
+/// question is open.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Leave {
+    Open(String),
+    Create(Palette),
+    Duplicate { from: String, name: String },
+    Exit,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Dialog {
+    /// The list of stored palettes.
+    Switch,
+    /// A name for a new palette or a copy; `mode` is used by New only.
+    Name {
+        purpose: NameFor,
+        name: String,
+        mode: Mode,
+    },
+    /// Delete the open palette, named by `label`.
+    Delete { slug: String, label: String },
+    /// Save, Discard or Cancel before `Leave` happens.
+    Unsaved(Leave),
+}
+
+/// The palette menu's items, in menu order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MenuItem {
+    Switch,
+    New,
+    NewFromWallpaper,
+    Duplicate,
+    Import,
+    Export,
+    UndoLastApply,
+    Delete,
+}
+
+impl MenuItem {
+    pub const ALL: [MenuItem; 8] = [
+        MenuItem::Switch,
+        MenuItem::New,
+        MenuItem::NewFromWallpaper,
+        MenuItem::Duplicate,
+        MenuItem::Import,
+        MenuItem::Export,
+        MenuItem::UndoLastApply,
+        MenuItem::Delete,
+    ];
+
+    pub fn label(self) -> &'static str {
+        match self {
+            MenuItem::Switch => "Switch",
+            MenuItem::New => "New",
+            MenuItem::NewFromWallpaper => "New from wallpaper",
+            MenuItem::Duplicate => "Duplicate",
+            MenuItem::Import => "Import",
+            MenuItem::Export => "Export as rice repo",
+            MenuItem::UndoLastApply => "Undo last apply",
+            MenuItem::Delete => "Delete",
+        }
+    }
+
+    pub fn msg(self) -> Msg {
+        match self {
+            MenuItem::Switch => Msg::ShowSwitch,
+            MenuItem::New => Msg::ShowNew,
+            MenuItem::Duplicate => Msg::ShowDuplicate,
+            MenuItem::Delete => Msg::ShowDelete,
+            other => Msg::NotYet(other.label()),
+        }
+    }
+}
+
+/// The header's buttons beside the palette menu.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HeaderItem {
+    Mode,
+    Pair,
+    Compare,
+    TryLive,
+    Apply,
+}
+
+/// Why a palette could not be opened: the error, and the file's text when
+/// it could be read (then it opens read-only).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenFailure {
+    pub error: String,
+    pub text: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub enum Msg {
+    // Results of effects.
+    Seeded(Result<usize, String>),
+    StoreLoaded {
+        entries: Vec<EntrySummary>,
+        settings: Result<Settings, String>,
+    },
+    Entries(Vec<EntrySummary>),
+    Opened {
+        slug: String,
+        result: Result<Palette, OpenFailure>,
+    },
+    /// The version number and the palette as saved.
+    Saved(Result<(u32, Palette), String>),
+    Created(Result<Palette, String>),
+    Deleted {
+        slug: String,
+        result: Result<(), String>,
+    },
+    SettingsSaved(Result<(), String>),
+    // Editing.
+    #[cfg_attr(not(test), allow(dead_code, reason = "sent by the role editor"))]
+    SetRole(Role, Rgb),
+    SetMode(Mode),
+    /// Ctrl+S.
+    Save,
+    // Header, menu and dialogs.
+    Menu(bool),
+    ShowSwitch,
+    Choose(String),
+    ShowNew,
+    ShowDuplicate,
+    NameInput(String),
+    NameMode(Mode),
+    NameConfirm,
+    ShowDelete,
+    ConfirmDelete,
+    UnsavedSave,
+    UnsavedDiscard,
+    CloseDialog,
+    CloseRequested,
+    /// An item a later version builds.
+    NotYet(&'static str),
+}
+
+#[derive(Debug, Clone)]
+pub enum Effect {
+    SeedStarters,
+    LoadStore,
+    ListEntries,
+    OpenPalette(String),
+    /// Save a version; `fresh` refuses a slug that already exists.
+    SaveVersion {
+        palette: Palette,
+        fresh: bool,
+    },
+    /// Save a new palette as version 1, refusing a slug that exists.
+    Create(Palette),
+    Duplicate {
+        from: String,
+        name: String,
+    },
+    Delete(String),
+    SaveSettings(Settings),
+    Toast(ToastItem),
+    Exit,
+}
+
+impl Effect {
+    /// Whether `perform` runs it (rather than the window).
+    pub fn is_io(&self) -> bool {
+        !matches!(self, Effect::Toast(_) | Effect::Exit)
+    }
+}
+
+pub struct State {
+    pub ctx: Ctx,
+    /// The system COSMIC config folder (`/usr/share/cosmic` in the app).
+    #[allow(dead_code, reason = "read by New from wallpaper")]
+    pub wallpaper_system: PathBuf,
+    pub settings: Settings,
+    /// `settings.toml` could not be read: defaults are in use and the file
+    /// is not written until the user changes a setting.
+    pub settings_unreadable: bool,
+    pub entries: Vec<EntrySummary>,
+    pub current: Option<Current>,
+    pub dialog: Option<Dialog>,
+    /// Every toast shown, newest last.
+    pub toasts: Vec<ToastItem>,
+    pub menu_open: bool,
+    /// What happens once the save asked for by the unsaved-changes question
+    /// succeeds.
+    after_save: Option<Leave>,
+    /// A save is running; another Ctrl+S waits for its result.
+    saving: bool,
+}
+
+/// Toasts kept in `State::toasts`.
+const TOASTS_KEPT: usize = 50;
+
+impl State {
+    pub fn new(ctx: Ctx, wallpaper_system: PathBuf) -> (State, Vec<Effect>) {
+        let state = State {
+            ctx,
+            wallpaper_system,
+            settings: Settings::default(),
+            settings_unreadable: false,
+            entries: Vec::new(),
+            current: None,
+            dialog: None,
+            toasts: Vec::new(),
+            menu_open: false,
+            after_save: None,
+            saving: false,
+        };
+        (state, vec![Effect::SeedStarters, Effect::LoadStore])
+    }
+
+    pub fn dirty(&self) -> bool {
+        self.current.as_ref().is_some_and(Current::dirty)
+    }
+
+    /// The header's palette name, with a dot after it for unsaved changes.
+    pub fn title(&self) -> String {
+        match &self.current {
+            Some(c @ Current::Editable { working, .. }) if c.dirty() => {
+                format!("{} \u{2022}", working.name)
+            }
+            Some(Current::Editable { working, .. }) => working.name.clone(),
+            Some(Current::Unreadable { slug, .. }) => format!("{slug} (read-only)"),
+            None => "No palette".to_string(),
+        }
+    }
+
+    fn editable(&self) -> bool {
+        matches!(self.current, Some(Current::Editable { .. }))
+    }
+
+    pub fn menu_enabled(&self, item: MenuItem) -> bool {
+        match item {
+            MenuItem::Switch => !self.entries.is_empty(),
+            MenuItem::New | MenuItem::NewFromWallpaper | MenuItem::Import => true,
+            // A read-only palette offers only what the plan lists for it.
+            MenuItem::UndoLastApply => !matches!(self.current, Some(Current::Unreadable { .. })),
+            MenuItem::Duplicate | MenuItem::Export => self.editable(),
+            MenuItem::Delete => self.current.is_some(),
+        }
+    }
+
+    pub fn header_enabled(&self, item: HeaderItem) -> bool {
+        match item {
+            HeaderItem::Mode
+            | HeaderItem::Pair
+            | HeaderItem::Compare
+            | HeaderItem::TryLive
+            | HeaderItem::Apply => self.editable(),
+        }
+    }
+
+    /// The slug a name gives, or why the name cannot be used for a new
+    /// palette. An empty name gives `Err("")` (nothing to say yet).
+    pub fn name_check(&self, name: &str) -> Result<String, String> {
+        if name.is_empty() {
+            return Err(String::new());
+        }
+        if validate_name(name).is_err() {
+            return Err("Use letters and digits, with single spaces between words".to_string());
+        }
+        let slug = slug_from_name(name);
+        if slug.is_empty() {
+            return Err("Add a letter: the file name is made from the letters".to_string());
+        }
+        if self.entries.iter().any(|e| e.slug == slug) {
+            return Err(format!("A palette called {slug} already exists"));
+        }
+        Ok(slug)
+    }
+
+    fn toast(&mut self, text: impl Into<String>) -> Effect {
+        let item = ToastItem {
+            text: text.into(),
+            action: None,
+        };
+        self.toasts.push(item.clone());
+        if self.toasts.len() > TOASTS_KEPT {
+            self.toasts.remove(0);
+        }
+        Effect::Toast(item)
+    }
+
+    /// Open `p` for editing as saved, and remember it as the last palette.
+    fn open_editable(&mut self, p: Palette) -> Vec<Effect> {
+        let slug = p.slug.clone();
+        self.current = Some(Current::Editable {
+            slug: slug.clone(),
+            saved: Some(p.clone()),
+            working: p,
+        });
+        self.remember(slug)
+    }
+
+    /// Write `slug` as `settings.last_palette`, unless it is already there or
+    /// `settings.toml` could not be read.
+    fn remember(&mut self, slug: String) -> Vec<Effect> {
+        if self.settings_unreadable || self.settings.last_palette.as_deref() == Some(&slug) {
+            return Vec::new();
+        }
+        self.settings.last_palette = Some(slug);
+        vec![Effect::SaveSettings(self.settings.clone())]
+    }
+
+    /// Do `leave`, first asking Save, Discard or Cancel when there are
+    /// unsaved changes.
+    fn leave(&mut self, leave: Leave) -> Vec<Effect> {
+        if self.dirty() {
+            self.dialog = Some(Dialog::Unsaved(leave));
+            Vec::new()
+        } else {
+            self.dialog = None;
+            self.go(leave)
+        }
+    }
+
+    fn go(&mut self, leave: Leave) -> Vec<Effect> {
+        match leave {
+            Leave::Open(slug) => vec![Effect::OpenPalette(slug)],
+            Leave::Create(p) => vec![Effect::Create(p)],
+            Leave::Duplicate { from, name } => vec![Effect::Duplicate { from, name }],
+            Leave::Exit => vec![Effect::Exit],
+        }
+    }
+
+    /// The Save effect for the working copy, or a toast when it cannot be
+    /// saved. `None` when there is nothing to save.
+    fn save(&mut self) -> Option<Effect> {
+        let Some(Current::Editable { saved, working, .. }) = &self.current else {
+            return None;
+        };
+        if self.saving || saved.as_ref() == Some(working) {
+            return None;
+        }
+        if let Err(e) = working.validate() {
+            let text = format!("Not saved: {e}");
+            return Some(self.toast(text));
+        }
+        let effect = Effect::SaveVersion {
+            palette: working.clone(),
+            fresh: saved.is_none(),
+        };
+        self.saving = true;
+        Some(effect)
+    }
+
+    /// The palette New starts from: the open palette's roles (Ember's when
+    /// none is open), with the new name and mode and no pins, pair, names
+    /// or notes.
+    fn new_palette(&self, name: &str, slug: String, mode: Mode) -> Palette {
+        let roles = match self.current.as_ref().and_then(Current::working) {
+            Some(p) => p.roles.clone(),
+            None => {
+                starters()
+                    .into_iter()
+                    .next()
+                    .expect("Ember is the first starter")
+                    .roles
+            }
+        };
+        Palette {
+            name: name.to_string(),
+            slug,
+            mode,
+            pair: None,
+            notes: None,
+            roles,
+            names: Default::default(),
+            pins: Default::default(),
+        }
+    }
+
+    /// The slug to open at start: the last palette when it is readable, else
+    /// the first readable entry, else the first entry.
+    fn start_slug(&self) -> Option<String> {
+        let last = self.settings.last_palette.as_deref();
+        self.entries
+            .iter()
+            .find(|e| Some(e.slug.as_str()) == last && e.readable())
+            .or_else(|| self.entries.iter().find(|e| e.readable()))
+            .or_else(|| self.entries.first())
+            .map(|e| e.slug.clone())
+    }
+}
+
+pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
+    match msg {
+        Msg::Seeded(Ok(_)) => Vec::new(),
+        Msg::Seeded(Err(e)) => {
+            vec![state.toast(format!("Could not add the starter palettes: {e}"))]
+        }
+        Msg::StoreLoaded { entries, settings } => {
+            state.entries = entries;
+            let mut effects = Vec::new();
+            match settings {
+                Ok(s) => {
+                    state.settings = s;
+                    state.settings_unreadable = false;
+                }
+                Err(e) => {
+                    state.settings = Settings::default();
+                    state.settings_unreadable = true;
+                    effects.push(state.toast(format!(
+                        "Could not read your settings ({e}). Using defaults; the file is kept until you change a setting."
+                    )));
+                }
+            }
+            if let Some(slug) = state.start_slug() {
+                effects.push(Effect::OpenPalette(slug));
+            }
+            effects
+        }
+        Msg::Entries(entries) => {
+            state.entries = entries;
+            Vec::new()
+        }
+        Msg::Opened { slug, result } => match result {
+            Ok(p) => state.open_editable(p),
+            Err(OpenFailure {
+                error,
+                text: Some(text),
+            }) => {
+                state.current = Some(Current::Unreadable {
+                    slug: slug.clone(),
+                    error,
+                    text,
+                });
+                state.remember(slug)
+            }
+            Err(OpenFailure { error, text: None }) => vec![
+                state.toast(format!("Could not open {slug}: {error}")),
+                Effect::ListEntries,
+            ],
+        },
+        Msg::Saved(result) => {
+            let leave = state.after_save.take();
+            state.saving = false;
+            match result {
+                Ok((n, p)) => {
+                    let mut effects = vec![state.toast(format!("Saved version {n}"))];
+                    if let Some(Current::Editable { slug, saved, .. }) = &mut state.current
+                        && *slug == p.slug
+                    {
+                        *saved = Some(p.clone());
+                    }
+                    if !state.entries.iter().any(|e| e.slug == p.slug) {
+                        effects.push(Effect::ListEntries);
+                    }
+                    if let Some(leave) = leave {
+                        effects.extend(state.go(leave));
+                    }
+                    effects
+                }
+                Err(e) => vec![state.toast(format!("Not saved: {e}"))],
+            }
+        }
+        Msg::Created(Ok(p)) => {
+            let text = format!("Created {}", p.name);
+            let mut effects = vec![state.toast(text), Effect::ListEntries];
+            effects.extend(state.open_editable(p));
+            effects
+        }
+        Msg::Created(Err(e)) => vec![state.toast(e)],
+        Msg::Deleted { slug, result } => match result {
+            Ok(()) => {
+                let label = state
+                    .entries
+                    .iter()
+                    .find(|e| e.slug == slug)
+                    .map_or_else(|| slug.clone(), |e| e.label().to_string());
+                let mut effects = vec![state.toast(format!("Deleted {label}"))];
+                if let Some(i) = state.entries.iter().position(|e| e.slug == slug) {
+                    state.entries.remove(i);
+                    if state.current.as_ref().is_some_and(|c| c.slug() == slug) {
+                        state.current = None;
+                        let next = state
+                            .entries
+                            .get(i)
+                            .or_else(|| i.checked_sub(1).and_then(|j| state.entries.get(j)));
+                        if let Some(next) = next {
+                            effects.push(Effect::OpenPalette(next.slug.clone()));
+                        }
+                    }
+                } else if state.current.as_ref().is_some_and(|c| c.slug() == slug) {
+                    state.current = None;
+                }
+                effects.push(Effect::ListEntries);
+                effects
+            }
+            Err(e) => vec![state.toast(format!("Could not delete {slug}: {e}"))],
+        },
+        Msg::SettingsSaved(Ok(())) => Vec::new(),
+        Msg::SettingsSaved(Err(e)) => {
+            vec![state.toast(format!("Could not save your settings: {e}"))]
+        }
+        Msg::SetRole(role, value) => {
+            if let Some(Current::Editable { working, .. }) = &mut state.current {
+                working.roles.set(role, value);
+            }
+            Vec::new()
+        }
+        Msg::SetMode(mode) => {
+            if let Some(Current::Editable { working, .. }) = &mut state.current {
+                working.mode = mode;
+            }
+            Vec::new()
+        }
+        Msg::Save => state.save().into_iter().collect(),
+        Msg::Menu(open) => {
+            state.menu_open = open;
+            Vec::new()
+        }
+        Msg::ShowSwitch => {
+            state.menu_open = false;
+            if state.menu_enabled(MenuItem::Switch) {
+                state.dialog = Some(Dialog::Switch);
+            }
+            Vec::new()
+        }
+        Msg::Choose(slug) => {
+            if !matches!(state.dialog, Some(Dialog::Switch)) {
+                return Vec::new();
+            }
+            if state.current.as_ref().is_some_and(|c| c.slug() == slug) {
+                state.dialog = None;
+                return Vec::new();
+            }
+            state.leave(Leave::Open(slug))
+        }
+        Msg::ShowNew => {
+            state.menu_open = false;
+            let mode = state
+                .current
+                .as_ref()
+                .and_then(Current::working)
+                .map_or(Mode::Dark, |p| p.mode);
+            state.dialog = Some(Dialog::Name {
+                purpose: NameFor::New,
+                name: String::new(),
+                mode,
+            });
+            Vec::new()
+        }
+        Msg::ShowDuplicate => {
+            state.menu_open = false;
+            if let Some(Current::Editable { working, .. }) = &state.current {
+                state.dialog = Some(Dialog::Name {
+                    purpose: NameFor::Duplicate,
+                    name: String::new(),
+                    mode: working.mode,
+                });
+            }
+            Vec::new()
+        }
+        Msg::NameInput(text) => {
+            if let Some(Dialog::Name { name, .. }) = &mut state.dialog {
+                *name = text;
+            }
+            Vec::new()
+        }
+        Msg::NameMode(m) => {
+            if let Some(Dialog::Name { mode, .. }) = &mut state.dialog {
+                *mode = m;
+            }
+            Vec::new()
+        }
+        Msg::NameConfirm => {
+            let Some(Dialog::Name {
+                purpose,
+                name,
+                mode,
+            }) = state.dialog.clone()
+            else {
+                return Vec::new();
+            };
+            let Ok(slug) = state.name_check(&name) else {
+                return Vec::new();
+            };
+            match purpose {
+                NameFor::New => {
+                    let p = state.new_palette(&name, slug, mode);
+                    state.leave(Leave::Create(p))
+                }
+                NameFor::Duplicate => {
+                    let Some(Current::Editable { slug: from, .. }) = &state.current else {
+                        state.dialog = None;
+                        return Vec::new();
+                    };
+                    let from = from.clone();
+                    state.leave(Leave::Duplicate { from, name })
+                }
+            }
+        }
+        Msg::ShowDelete => {
+            state.menu_open = false;
+            if let Some(current) = &state.current {
+                let slug = current.slug().to_string();
+                let label = match current {
+                    Current::Editable { working, .. } => working.name.clone(),
+                    Current::Unreadable { slug, .. } => slug.clone(),
+                };
+                state.dialog = Some(Dialog::Delete { slug, label });
+            }
+            Vec::new()
+        }
+        Msg::ConfirmDelete => match state.dialog.take() {
+            Some(Dialog::Delete { slug, .. }) => vec![Effect::Delete(slug)],
+            other => {
+                state.dialog = other;
+                Vec::new()
+            }
+        },
+        Msg::UnsavedSave => match state.dialog.take() {
+            // A save already running finishes first, then `leave` happens.
+            Some(Dialog::Unsaved(leave)) if state.saving => {
+                state.after_save = Some(leave);
+                Vec::new()
+            }
+            Some(Dialog::Unsaved(leave)) => match state.save() {
+                Some(effect @ Effect::SaveVersion { .. }) => {
+                    state.after_save = Some(leave);
+                    vec![effect]
+                }
+                Some(toast) => vec![toast],
+                None => state.go(leave),
+            },
+            other => {
+                state.dialog = other;
+                Vec::new()
+            }
+        },
+        Msg::UnsavedDiscard => match state.dialog.take() {
+            Some(Dialog::Unsaved(leave)) => state.go(leave),
+            other => {
+                state.dialog = other;
+                Vec::new()
+            }
+        },
+        Msg::CloseDialog => {
+            state.dialog = None;
+            state.menu_open = false;
+            Vec::new()
+        }
+        Msg::CloseRequested => state.leave(Leave::Exit),
+        Msg::NotYet(what) => {
+            state.menu_open = false;
+            vec![state.toast(format!("Coming soon: {what}"))]
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use std::fs;
+
+    use irida_core::dirs::Dirs;
+    use irida_core::store::Store;
+    use tempfile::TempDir;
+
+    use super::*;
+    use crate::app::effects::{drive, drive_effects, perform};
+
+    fn ctx(tmp: &TempDir) -> Ctx {
+        Ctx {
+            dirs: Dirs::under(tmp.path()),
+            path: vec![],
+        }
+    }
+
+    fn starter(slug: &str) -> Palette {
+        starters()
+            .into_iter()
+            .find(|p| p.slug == slug)
+            .expect("a starter")
+    }
+
+    /// A store holding these starters, each saved as version 1.
+    fn store_with(tmp: &TempDir, slugs: &[&str]) -> Store {
+        let store = Store::new(Dirs::under(tmp.path()));
+        for slug in slugs {
+            store.save_version(&starter(slug)).unwrap();
+        }
+        store
+    }
+
+    /// A started app on the store in `tmp`, with every start effect run.
+    fn start(tmp: &TempDir) -> State {
+        let (mut state, effects) = State::new(ctx(tmp), tmp.path().join("system"));
+        drive_effects(&mut state, effects);
+        state
+    }
+
+    fn open_slug(state: &State) -> Option<&str> {
+        state.current.as_ref().map(Current::slug)
+    }
+
+    fn working(state: &State) -> &Palette {
+        state
+            .current
+            .as_ref()
+            .and_then(Current::working)
+            .expect("an editable palette")
+    }
+
+    fn last_toast(state: &State) -> &str {
+        &state.toasts.last().expect("a toast").text
+    }
+
+    fn red() -> Rgb {
+        Rgb::from_hex("#FF0000").unwrap()
+    }
+
+    fn palettes_dir(tmp: &TempDir) -> PathBuf {
+        Dirs::under(tmp.path()).data.join("irida/palettes")
+    }
+
+    /// Every file under the palettes folder with its bytes, sorted by path.
+    fn snapshot(tmp: &TempDir) -> Vec<(PathBuf, Vec<u8>)> {
+        fn walk(dir: &std::path::Path, out: &mut Vec<(PathBuf, Vec<u8>)>) {
+            let Ok(rd) = fs::read_dir(dir) else { return };
+            for e in rd.flatten() {
+                let p = e.path();
+                if p.is_dir() {
+                    walk(&p, out);
+                } else {
+                    out.push((p.clone(), fs::read(&p).unwrap()));
+                }
+            }
+        }
+        let mut out = Vec::new();
+        walk(&palettes_dir(tmp), &mut out);
+        out.sort();
+        out
+    }
+
+    #[test]
+    fn starts_on_last_palette() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "noir"]);
+        store
+            .save_settings(&Settings {
+                last_palette: Some("noir".to_string()),
+                ..Settings::default()
+            })
+            .unwrap();
+        let state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("noir"));
+        assert!(!state.dirty());
+        assert_eq!(state.entries.len(), 2);
+        assert_eq!(store.list().len(), 2, "nothing seeded");
+    }
+
+    #[test]
+    fn starts_on_first_when_none() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["noir", "ember"]);
+        let state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert_eq!(
+            store.settings().unwrap().last_palette.as_deref(),
+            Some("ember"),
+            "opening writes the last palette"
+        );
+
+        // A last palette that no longer exists falls back to the first.
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["noir", "ember"]);
+        store
+            .save_settings(&Settings {
+                last_palette: Some("gone".to_string()),
+                ..Settings::default()
+            })
+            .unwrap();
+        assert_eq!(open_slug(&start(&tmp)), Some("ember"));
+
+        // An unreadable first entry is skipped for the first readable one.
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["noir"]);
+        fs::create_dir_all(palettes_dir(&tmp).join("aaa")).unwrap();
+        fs::write(palettes_dir(&tmp).join("aaa/palette.toml"), "name = 1\n").unwrap();
+        assert_eq!(open_slug(&start(&tmp)), Some("noir"));
+    }
+
+    #[test]
+    fn empty_store_is_seeded() {
+        let tmp = TempDir::new().unwrap();
+        let state = start(&tmp);
+        let slugs: Vec<&str> = state.entries.iter().map(|e| e.slug.as_str()).collect();
+        assert_eq!(slugs, ["dossier", "ember", "emberday", "noir"]);
+        assert!(state.entries.iter().all(EntrySummary::readable));
+        assert_eq!(open_slug(&state), Some("dossier"));
+        assert!(!state.dirty());
+    }
+
+    #[test]
+    fn unreadable_settings_are_kept() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let path = Dirs::under(tmp.path()).config.join("irida/settings.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "disabled = 3\n").unwrap();
+        let state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert!(state.settings_unreadable);
+        assert_eq!(state.settings, Settings::default());
+        assert!(last_toast(&state).starts_with("Could not read your settings"));
+        assert_eq!(fs::read_to_string(&path).unwrap(), "disabled = 3\n");
+    }
+
+    #[test]
+    fn edit_marks_dirty_and_save_clears() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        assert!(!state.dirty());
+        assert_eq!(state.title(), "Ember");
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        assert!(state.dirty());
+        assert_eq!(state.title(), "Ember \u{2022}");
+        assert_eq!(working(&state).roles.get(Role::Accent), red());
+
+        let ui = drive(&mut state, Msg::Save);
+        assert!(!state.dirty());
+        assert_eq!(state.title(), "Ember");
+        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Saved version 2"));
+        let versions = store.versions("ember").unwrap();
+        assert_eq!(versions.len(), 2);
+        let saved = store.load_version("ember", 2).unwrap();
+        assert_eq!(saved.roles.get(Role::Accent), red());
+        assert_eq!(store.load("ember").unwrap(), saved);
+
+        // A clean palette is not saved again.
+        assert!(update(&mut state, Msg::Save).is_empty());
+        assert_eq!(store.versions("ember").unwrap().len(), 2);
+
+        // A second Ctrl+S while a save runs waits for it.
+        drive(
+            &mut state,
+            Msg::SetRole(Role::Accent, Rgb::from_hex("#00FF00").unwrap()),
+        );
+        let first = update(&mut state, Msg::Save);
+        assert!(matches!(first.as_slice(), [Effect::SaveVersion { .. }]));
+        assert!(update(&mut state, Msg::Save).is_empty());
+        drive_effects(&mut state, first);
+        assert!(!state.dirty());
+        assert_eq!(store.versions("ember").unwrap().len(), 3);
+
+        // The mode chip edits too.
+        drive(&mut state, Msg::SetMode(Mode::Light));
+        assert!(state.dirty());
+        assert_eq!(working(&state).mode, Mode::Light);
+    }
+
+    #[test]
+    fn save_invalid_changes_nothing() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let before = snapshot(&tmp);
+        if let Some(Current::Editable { working, .. }) = &mut state.current {
+            working.name = "Bad-Name".to_string();
+        }
+        assert!(state.dirty());
+        let ui = drive(&mut state, Msg::Save);
+        assert!(matches!(ui.as_slice(), [Effect::Toast(_)]));
+        assert!(
+            last_toast(&state).contains("Bad-Name"),
+            "{}",
+            last_toast(&state)
+        );
+        assert!(state.dirty(), "the edit stays");
+        assert_eq!(snapshot(&tmp), before);
+
+        // The store refuses it too, should it get that far.
+        let p = working(&state).clone();
+        let msgs = perform(
+            Effect::SaveVersion {
+                palette: p,
+                fresh: false,
+            },
+            &state.ctx,
+        );
+        assert!(matches!(msgs.as_slice(), [Msg::Saved(Err(_))]));
+        assert_eq!(snapshot(&tmp), before);
+    }
+
+    #[test]
+    fn read_only_blocks_edits() {
+        let tmp = TempDir::new().unwrap();
+        let text = "name = \"Broken\"\nslug = \"broken\"\nmode = \"dusk\"\n";
+        fs::create_dir_all(palettes_dir(&tmp).join("broken")).unwrap();
+        fs::write(palettes_dir(&tmp).join("broken/palette.toml"), text).unwrap();
+        let mut state = start(&tmp);
+        let Some(Current::Unreadable {
+            slug,
+            error,
+            text: shown,
+        }) = &state.current
+        else {
+            panic!("opens read-only: {:?}", state.current);
+        };
+        assert_eq!(slug, "broken");
+        assert!(!error.is_empty());
+        assert_eq!(shown, text);
+        assert!(!state.dirty());
+
+        let before = snapshot(&tmp);
+        assert!(update(&mut state, Msg::SetRole(Role::Accent, red())).is_empty());
+        assert!(update(&mut state, Msg::SetMode(Mode::Light)).is_empty());
+        assert!(update(&mut state, Msg::Save).is_empty());
+        assert!(update(&mut state, Msg::ShowDuplicate).is_empty());
+        assert!(state.dialog.is_none());
+        assert_eq!(snapshot(&tmp), before);
+
+        for item in MenuItem::ALL {
+            let enabled = matches!(
+                item,
+                MenuItem::Switch
+                    | MenuItem::New
+                    | MenuItem::NewFromWallpaper
+                    | MenuItem::Import
+                    | MenuItem::Delete
+            );
+            assert_eq!(state.menu_enabled(item), enabled, "{item:?}");
+        }
+        assert!(!state.header_enabled(HeaderItem::Apply));
+        assert!(!state.header_enabled(HeaderItem::Mode));
+
+        // A file whose slug differs from its folder opens read-only too.
+        let tmp = TempDir::new().unwrap();
+        let mut p = starter("noir");
+        p.slug = "other".to_string();
+        fs::create_dir_all(palettes_dir(&tmp).join("noir")).unwrap();
+        fs::write(palettes_dir(&tmp).join("noir/palette.toml"), p.to_toml()).unwrap();
+        let state = start(&tmp);
+        assert!(
+            matches!(&state.current, Some(Current::Unreadable { slug, .. }) if slug == "noir"),
+            "{:?}",
+            state.current
+        );
+    }
+
+    #[test]
+    fn new_duplicate_delete() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "noir"]);
+        let mut state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+
+        // New "Moss", dark.
+        drive(&mut state, Msg::ShowNew);
+        assert!(matches!(
+            state.dialog,
+            Some(Dialog::Name {
+                purpose: NameFor::New,
+                ..
+            })
+        ));
+        assert_eq!(state.name_check(""), Err(String::new()));
+        assert!(state.name_check("Bad-Name").is_err());
+        assert!(state.name_check("2024").is_err());
+        assert_eq!(
+            state.name_check("Ember"),
+            Err("A palette called ember already exists".to_string())
+        );
+        drive(&mut state, Msg::NameInput("Ember".to_string()));
+        assert!(
+            drive(&mut state, Msg::NameConfirm).is_empty(),
+            "Exists is refused"
+        );
+        assert!(state.dialog.is_some());
+        drive(&mut state, Msg::NameInput("Moss".to_string()));
+        assert_eq!(state.name_check("Moss"), Ok("moss".to_string()));
+        drive(&mut state, Msg::NameMode(Mode::Dark));
+        drive(&mut state, Msg::NameConfirm);
+        assert!(state.dialog.is_none());
+        assert_eq!(open_slug(&state), Some("moss"));
+        assert!(!state.dirty());
+        let moss = store.load("moss").unwrap();
+        assert_eq!(moss.name, "Moss");
+        assert_eq!(moss.mode, Mode::Dark);
+        assert_eq!(moss.roles, starter("ember").roles);
+        assert!(moss.pins.is_empty() && moss.pair.is_none() && moss.names.is_empty());
+        assert_eq!(store.versions("moss").unwrap().len(), 1);
+        assert!(state.entries.iter().any(|e| e.slug == "moss"));
+        assert_eq!(
+            store.settings().unwrap().last_palette.as_deref(),
+            Some("moss")
+        );
+
+        // Duplicate Ember as "Ember Two".
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("ember".to_string()));
+        assert_eq!(open_slug(&state), Some("ember"));
+        drive(&mut state, Msg::ShowDuplicate);
+        drive(&mut state, Msg::NameInput("Ember Two".to_string()));
+        drive(&mut state, Msg::NameConfirm);
+        assert_eq!(open_slug(&state), Some("embertwo"));
+        let copy = store.load("embertwo").unwrap();
+        assert_eq!(copy.name, "Ember Two");
+        assert_eq!(copy.roles, starter("ember").roles);
+
+        // Delete removes its folder and opens another entry.
+        drive(&mut state, Msg::ShowDelete);
+        assert!(matches!(
+            &state.dialog,
+            Some(Dialog::Delete { slug, label }) if slug == "embertwo" && label == "Ember Two"
+        ));
+        drive(&mut state, Msg::ConfirmDelete);
+        assert!(!palettes_dir(&tmp).join("embertwo").exists());
+        assert!(state.entries.iter().all(|e| e.slug != "embertwo"));
+        assert_eq!(open_slug(&state), Some("moss"), "the next entry");
+        assert_eq!(last_toast(&state), "Deleted Ember Two");
+    }
+
+    #[test]
+    fn new_with_unsaved_edit_asks() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::ShowNew);
+        drive(&mut state, Msg::NameInput("Moss".to_string()));
+        drive(&mut state, Msg::NameConfirm);
+        assert!(matches!(
+            state.dialog,
+            Some(Dialog::Unsaved(Leave::Create(_)))
+        ));
+        assert!(!store.exists("moss"));
+        drive(&mut state, Msg::UnsavedSave);
+        assert_eq!(store.versions("ember").unwrap().len(), 2, "saved first");
+        assert_eq!(open_slug(&state), Some("moss"));
+        assert_eq!(working(&state).roles.get(Role::Accent), red());
+    }
+
+    #[test]
+    fn switch_asks_when_dirty() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "noir"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+
+        // Cancel keeps the edit.
+        drive(&mut state, Msg::ShowSwitch);
+        assert_eq!(state.dialog, Some(Dialog::Switch));
+        drive(&mut state, Msg::Choose("noir".to_string()));
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::Unsaved(Leave::Open("noir".to_string())))
+        );
+        assert_eq!(open_slug(&state), Some("ember"));
+        drive(&mut state, Msg::CloseDialog);
+        assert!(state.dialog.is_none());
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert!(state.dirty());
+        assert_eq!(working(&state).roles.get(Role::Accent), red());
+
+        // Discard opens the target and saves nothing.
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("noir".to_string()));
+        drive(&mut state, Msg::UnsavedDiscard);
+        assert_eq!(open_slug(&state), Some("noir"));
+        assert!(!state.dirty());
+        assert_eq!(store.versions("ember").unwrap().len(), 1);
+        assert_eq!(store.load("ember").unwrap(), starter("ember"));
+        assert_eq!(
+            store.settings().unwrap().last_palette.as_deref(),
+            Some("noir")
+        );
+
+        // Save saves, then opens the target.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("ember".to_string()));
+        drive(&mut state, Msg::UnsavedSave);
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert_eq!(store.versions("noir").unwrap().len(), 2);
+        assert_eq!(store.load("noir").unwrap().roles.get(Role::Accent), red());
+
+        // Not dirty: Switch opens at once.
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("noir".to_string()));
+        assert!(state.dialog.is_none());
+        assert_eq!(open_slug(&state), Some("noir"));
+    }
+
+    #[test]
+    fn close_with_unsaved_asks() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+
+        // Not dirty: Exit at once.
+        assert!(matches!(
+            update(&mut state, Msg::CloseRequested).as_slice(),
+            [Effect::Exit]
+        ));
+
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        assert!(update(&mut state, Msg::CloseRequested).is_empty());
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
+
+        // Cancel returns nothing.
+        assert!(update(&mut state, Msg::CloseDialog).is_empty());
+        assert!(state.dialog.is_none());
+
+        // Discard returns Exit.
+        update(&mut state, Msg::CloseRequested);
+        assert!(matches!(
+            update(&mut state, Msg::UnsavedDiscard).as_slice(),
+            [Effect::Exit]
+        ));
+        assert_eq!(store.versions("ember").unwrap().len(), 1);
+
+        // Save saves, then exits.
+        update(&mut state, Msg::CloseRequested);
+        let ui = drive(&mut state, Msg::UnsavedSave);
+        assert!(matches!(ui.last(), Some(Effect::Exit)), "{ui:?}");
+        assert_eq!(store.versions("ember").unwrap().len(), 2);
+
+        // Save while a Ctrl+S is still running waits for it, then exits.
+        drive(
+            &mut state,
+            Msg::SetRole(Role::Accent, Rgb::from_hex("#0000FF").unwrap()),
+        );
+        let running = update(&mut state, Msg::Save);
+        update(&mut state, Msg::CloseRequested);
+        assert!(update(&mut state, Msg::UnsavedSave).is_empty());
+        let ui = drive_effects(&mut state, running);
+        assert!(matches!(ui.last(), Some(Effect::Exit)), "{ui:?}");
+        assert_eq!(store.versions("ember").unwrap().len(), 3);
+
+        // A save that fails does not exit.
+        if let Some(Current::Editable { working, .. }) = &mut state.current {
+            working.name = "Bad-Name".to_string();
+        }
+        update(&mut state, Msg::CloseRequested);
+        let ui = drive(&mut state, Msg::UnsavedSave);
+        assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+    }
+
+    #[test]
+    fn not_yet_items_toast() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        state.menu_open = true;
+        let ui = drive(&mut state, MenuItem::Import.msg());
+        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: Import"));
+        assert!(!state.menu_open);
+    }
+}
