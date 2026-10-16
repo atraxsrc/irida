@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::color::Rgb;
 use crate::role::Role;
-use crate::slot::Pins;
+use crate::slot::{PinValue, Pins};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -136,6 +136,9 @@ impl Palette {
             names.insert(role, value);
         }
 
+        let pins = Pins::from_raw(&raw.pins)
+            .map_err(|(key, value)| PaletteError::BadColor { key, value })?;
+
         Ok(Palette {
             name: raw.name,
             slug: raw.slug,
@@ -144,7 +147,7 @@ impl Palette {
             notes: raw.notes,
             roles: Roles(arr),
             names,
-            pins: Pins(raw.pins),
+            pins,
         })
     }
 
@@ -171,10 +174,22 @@ impl Palette {
                 }
             }
         }
-        if !self.pins.0.is_empty() {
+        if !self.pins.is_empty() {
             out.push_str("\n[pins]\n");
-            for (k, v) in &self.pins.0 {
-                out.push_str(&format!("{} = {}\n", quote(k), quote(v)));
+            let mut entries: Vec<(String, String)> = self
+                .pins
+                .iter()
+                .map(|(s, v)| {
+                    let v = match v {
+                        PinValue::Color(c) => c.to_hex(),
+                        PinValue::None => "none".to_string(),
+                    };
+                    (s.to_string(), v)
+                })
+                .collect();
+            entries.sort();
+            for (k, v) in entries {
+                out.push_str(&format!("{} = {}\n", quote(&k), quote(&v)));
             }
         }
         out
