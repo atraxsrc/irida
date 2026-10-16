@@ -164,7 +164,7 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
                 )
             } else if state.draft_is(&palette.slug) {
                 format!(
-                    "The open draft is called {}, so it cannot be replaced. Keep both saves the import under a new name.",
+                    "A palette called {} is open and not saved yet, so it cannot be replaced. Keep both saves the import under a new name.",
                     palette.name
                 )
             } else {
