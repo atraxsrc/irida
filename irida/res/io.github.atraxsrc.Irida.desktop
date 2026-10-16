@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Irida
+GenericName=Palette Designer
+Comment=Design a colour palette and apply it to COSMIC and your apps
+Exec=irida
+Icon=io.github.atraxsrc.Irida
+Terminal=false
+StartupNotify=true
+StartupWMClass=io.github.atraxsrc.Irida
+Categories=Settings;DesktopSettings;
+Keywords=COSMIC;Theme;Palette;Colour;Color;Rice;Terminal;Contrast;Dark;Light;
