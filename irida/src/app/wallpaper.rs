@@ -45,7 +45,7 @@ fn status(d: &WallpaperDialog) -> Option<String> {
         Some(format!("Reading {}", file_name(path)))
     } else if d.finding {
         Some("Looking for your wallpaper".to_string())
-    } else if d.image.is_none() {
+    } else if d.image.is_none() && d.error.is_none() {
         Some(NO_WALLPAPER.to_string())
     } else {
         None
