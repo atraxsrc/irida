@@ -7,9 +7,11 @@ use std::process::Command;
 use common::{TestEnv, fixture_text, palette};
 use irida_core::export::{ExportReport, ExportRequest, ExportStatus, export};
 use irida_core::export_docs::{
-    README_BEGIN, README_END, SHOWCASE_BEGIN, SHOWCASE_END, readme_block, showcase_block,
+    README_BEGIN, README_END, SHOWCASE_BEGIN, SHOWCASE_END, readme_block, readme_names,
+    showcase_block,
 };
 use irida_core::palette::Palette;
+use irida_core::role::Role;
 use irida_core::write::{BlockError, replace_marked};
 
 fn run(env: &TestEnv, p: &Palette, pair: Option<&Palette>, folder: &Path) -> ExportReport {
@@ -70,6 +72,49 @@ fn readme_block_matches() {
         let got = tables(&readme_block(&palette(slug), Some(&palette(other))));
         assert_eq!(got, want, "{slug}");
     }
+}
+
+/// Ember's display names without the ones equal to their capitalised role.
+fn ember_named() -> std::collections::BTreeMap<Role, String> {
+    let mut want = palette("ember").names;
+    for role in [Role::Pane, Role::Muted, Role::Comment] {
+        want.remove(&role);
+    }
+    want
+}
+
+#[test]
+fn readme_names_round_trip() {
+    let ember = palette("ember");
+    let emberday = palette("emberday");
+    let want = ember_named();
+    assert_eq!(want.len(), 10);
+    let text = format!(
+        "{README_BEGIN}\n{}{README_END}\n",
+        readme_block(&ember, Some(&emberday))
+    );
+    assert_eq!(readme_names(&text), want);
+    assert!(readme_names(&readme_block(&ember, None)).is_empty());
+
+    let wrapped = format!(
+        "# Title\n\n{README_BEGIN}\n\n{}\n{README_END}\n\nfooter\n",
+        readme_block(&ember, None)
+    );
+    assert_eq!(readme_names(&wrapped), want);
+
+    let mut noted = ember.clone();
+    noted.notes = Some("Warm greys.\n\nA second paragraph.".into());
+    let text = format!(
+        "{README_BEGIN}\n\n{}\n{README_END}\n",
+        readme_block(&noted, None)
+    );
+    assert_eq!(readme_names(&text), want);
+
+    let broken = format!(
+        "{README_BEGIN}\n| Role | Color | Hex |\n|---|---|---|\n| Nope | ![#15171C](x) Night | `#15171C` |\n{README_END}\n"
+    );
+    assert!(readme_names(&broken).is_empty());
+    assert!(readme_names(&format!("{README_BEGIN}\nno end\n")).is_empty());
 }
 
 #[test]

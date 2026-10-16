@@ -379,3 +379,47 @@ fn apply_all_then_undo() {
     assert_eq!(config_listing(&tmp), before);
     assert_eq!(fs::read_to_string(&zshrc).unwrap(), "export X=1\n");
 }
+
+/// Copy a folder tree.
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn rice_notes_reach_stderr() {
+    let tmp = TempDir::new().unwrap();
+    let noir = tmp.path().join("cosmic-noir-theme");
+    copy_tree(
+        &Path::new(EMBER_RICE).with_file_name("cosmic-noir-theme"),
+        &noir,
+    );
+    let scheme = noir.join("cosmic-term/Noir-term.ron");
+    let text = fs::read_to_string(&scheme).unwrap();
+    assert_eq!(text.matches("foreground: \"#CCD0CF\"").count(), 1);
+    fs::write(
+        &scheme,
+        text.replace("foreground: \"#CCD0CF\"", "foreground: \"#CCD0CF80\""),
+    )
+    .unwrap();
+    let note = "irida: note: foreground: alpha 128 in the terminal scheme was dropped; Irida colours are opaque\n";
+    irida(&tmp)
+        .arg("check")
+        .arg(&noir)
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains(note));
+    irida(&tmp)
+        .arg("check")
+        .arg(EMBER_RICE)
+        .assert()
+        .stderr(predicate::str::contains("note:").not());
+}
