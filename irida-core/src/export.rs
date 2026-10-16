@@ -153,11 +153,14 @@ impl Plan {
 }
 
 /// Whether a rendered repo path stays inside the repo: relative, with no
-/// empty or `..` component.
+/// empty, `.` or `..` component. Rejecting `.` keeps every file to one
+/// spelling, so `./README.md` cannot get past the owner of `README.md`.
 fn stays_inside(path: &str) -> bool {
     !path.is_empty()
         && !path.starts_with('/')
-        && path.split('/').all(|c| !c.is_empty() && c != "..")
+        && path
+            .split('/')
+            .all(|c| !c.is_empty() && c != "." && c != "..")
 }
 
 /// Plan one target's `[[rice]]` entries.

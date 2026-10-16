@@ -156,6 +156,20 @@ fn user_settings_survive() {
 }
 
 #[test]
+fn symlinked_user_settings_survive() {
+    let env = TestEnv::new();
+    let dotfiles = env.tmp.path().join("dotfiles");
+    fs::create_dir_all(&dotfiles).unwrap();
+    fs::write(dotfiles.join("gaps"), "(3, 9)").unwrap();
+    let dir = key_dir(&env, DARK_BUILDER, 2);
+    fs::create_dir_all(&dir).unwrap();
+    std::os::unix::fs::symlink(dotfiles.join("gaps"), dir.join("gaps")).unwrap();
+    let plan = run(&env, &[&palette("ember")]).unwrap();
+    assert!(!under(&env, &plan, DARK_BUILDER).contains_key("gaps"));
+    assert_eq!(under(&env, &plan, DARK)["gaps"], "(3, 9)");
+}
+
+#[test]
 fn bad_key_warns() {
     let env = TestEnv::new();
     put(&env, DARK_BUILDER, 2, "frosted", "NotAVariant");

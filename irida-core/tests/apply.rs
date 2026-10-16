@@ -674,6 +674,80 @@ signal = { process = "iridafake", signal = "TERM" }
     );
 }
 
+#[test]
+fn signal_needs_a_binary() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    // A process with a name nothing else uses, started by this test.
+    let bin = env.tmp.path().join("iridanobin");
+    fs::copy("/bin/sleep", &bin).unwrap();
+    let mut child = std::process::Command::new(&bin).arg("30").spawn().unwrap();
+    put_target(
+        &env,
+        "g",
+        r#"name = "g"
+detect = { config = "~/.config/g" }
+
+[[file]]
+path = "~/.config/g/g.conf"
+write = "file"
+template = "t.tmpl"
+
+[reload]
+signal = { process = "iridanobin", signal = "TERM" }
+"#,
+        &[("t.tmpl", "x\n")],
+    );
+    fs::create_dir_all(home(&env, ".config/g")).unwrap();
+    let report = run(&env, &ember).unwrap();
+    std::thread::sleep(std::time::Duration::from_millis(200));
+    let alive = child.try_wait().unwrap().is_none();
+    let _ = child.kill();
+    let _ = child.wait();
+    assert_eq!(
+        status(&report, "g"),
+        &TargetStatus::Applied(ReloadStatus::NotRunning)
+    );
+    assert!(alive, "a target with no binary signalled a process");
+}
+
+#[test]
+fn same_path_skip_gives_its_reason() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_target(
+        &env,
+        "a",
+        &file_target("a", "~/.config/x/f.conf"),
+        &[("t.tmpl", "from a\n")],
+    );
+    put_target(
+        &env,
+        "b",
+        &file_target("b", "~/.config/x/f.conf"),
+        &[("t.tmpl", "from b\n")],
+    );
+    let conf = env.write(".config/x/f.conf", "mine\n");
+
+    let report = run(&env, &ember).unwrap();
+    applied(&report, "a");
+    assert!(
+        warnings(&report, "a")
+            .iter()
+            .any(|w| w.contains("replaced your file"))
+    );
+    let msg = broken(status(&report, "b"));
+    assert!(msg.contains("already written by a"), "{msg}");
+    assert!(
+        warnings(&report, "b")
+            .iter()
+            .all(|w| !w.contains("replaced your file")),
+        "{:?}",
+        warnings(&report, "b")
+    );
+    assert_eq!(read(&conf), "from a\n");
+}
+
 fn block_target(name: &str, comment: &str) -> String {
     format!(
         "name = \"{name}\"\ndetect = {{}}\n\n[[file]]\npath = \"~/.zshrc\"\nwrite = \"block\"\ntemplate = \"t.tmpl\"\ncomment = \"{comment}\"\n"
