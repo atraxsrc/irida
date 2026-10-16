@@ -5135,6 +5135,46 @@ mod tests {
     }
 
     #[test]
+    fn save_takes_the_pair_the_store_holds() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "emberday"]);
+        let mut state = start(&tmp);
+        assert_eq!(working(&state).pair.as_deref(), Some("emberday"));
+        let pairs = |state: &State| match &state.current {
+            Some(Current::Editable {
+                saved: Some(saved),
+                working,
+                ..
+            }) => (working.pair.clone(), saved.pair.clone()),
+            other => panic!("not saved: {other:?}"),
+        };
+
+        // Unpaired in the store with no message telling the state: the
+        // save writes the store's pair and the editor shows it.
+        store.unlink_pair("ember").unwrap();
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::Save);
+        assert_eq!(store.load("ember").unwrap().pair, None);
+        assert_eq!(pairs(&state), (None, None));
+        assert!(!state.dirty());
+
+        // And the same for a link.
+        store.link_pair("ember", "emberday").unwrap();
+        drive(
+            &mut state,
+            Msg::SetRole(Role::Accent, Rgb::from_hex("#00FF00").unwrap()),
+        );
+        drive(&mut state, Msg::Save);
+        assert_eq!(
+            store.load("ember").unwrap().pair.as_deref(),
+            Some("emberday")
+        );
+        let pair = Some("emberday".to_string());
+        assert_eq!(pairs(&state), (pair.clone(), pair));
+        assert!(!state.dirty());
+    }
+
+    #[test]
     fn compare_versions() {
         let tmp = TempDir::new().unwrap();
         let store = store_with(&tmp, &["ember"]);
