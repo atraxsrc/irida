@@ -315,7 +315,7 @@ impl Application for App {
             Some(Current::Unreadable { slug, error, text }) => {
                 header::unreadable(slug, error, text)
             }
-            None => text::body("No palettes yet. Use New in the palette menu to make one.").into(),
+            None => text::body(self.state.empty_text()).into(),
         };
         let content = widget::container(content.map(Message::Ui))
             .padding(16)
