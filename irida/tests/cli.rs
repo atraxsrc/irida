@@ -86,12 +86,159 @@ fn list_shows_saved() {
 }
 
 #[test]
-fn no_args_prints_help() {
+fn no_display_message() {
     let tmp = TempDir::new().unwrap();
     irida(&tmp)
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("Usage"));
+        .stdout("")
+        .stderr("irida: no display found; run irida --help for the command line\n");
+    irida(&tmp)
+        .env("WAYLAND_DISPLAY", "")
+        .env("DISPLAY", "")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("no display found"));
+    irida(&tmp)
+        .arg("--help")
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("Usage"))
+        .stdout(predicate::str::contains("draft"));
+}
+
+const VECTORS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../irida-core/tests/fixtures/draft/vectors.json"
+);
+
+/// The reference vector `case` written as a 40 by 25 PNG at `path`.
+fn vector_png(case: &str, path: &Path) {
+    use base64::Engine;
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(VECTORS).unwrap()).unwrap();
+    let rgba = base64::engine::general_purpose::STANDARD
+        .decode(v[case]["rgba"].as_str().unwrap())
+        .unwrap();
+    image::RgbaImage::from_raw(40, 25, rgba)
+        .unwrap()
+        .save(path)
+        .unwrap();
+}
+
+/// The stdout of a run that must exit 0.
+fn ok_stdout(cmd: &mut Command) -> String {
+    String::from_utf8(cmd.assert().code(0).get_output().stdout.clone()).unwrap()
+}
+
+fn stored(tmp: &TempDir, slug: &str) -> String {
+    fs::read_to_string(
+        tmp.path()
+            .join("home/.local/share/irida/palettes")
+            .join(slug)
+            .join("palette.toml"),
+    )
+    .unwrap()
+}
+
+#[test]
+fn draft_saves_and_refuses() {
+    let tmp = TempDir::new().unwrap();
+    let png = tmp.path().join("two-tone.png");
+    vector_png("two-tone", &png);
+    let out = ok_stdout(irida(&tmp).arg("draft").arg(&png));
+    assert!(
+        out.starts_with("saved twotone (Two Tone, dark)\nTwo Tone (dark)\n"),
+        "{out}"
+    );
+    assert!(out.ends_with("all pass\n"), "{out}");
+    let text = stored(&tmp, "twotone");
+    assert!(text.contains("name = \"Two Tone\""), "{text}");
+    assert!(text.contains("mode = \"dark\""), "{text}");
+    let versions = tmp
+        .path()
+        .join("home/.local/share/irida/palettes/twotone/versions/1.toml");
+    assert_eq!(fs::read_to_string(versions).unwrap(), text);
+
+    irida(&tmp)
+        .arg("draft")
+        .arg(&png)
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr("irida: a palette called twotone already exists; pass --name\n");
+    assert_eq!(stored(&tmp, "twotone"), text, "unchanged");
+
+    let out = ok_stdout(irida(&tmp).arg("draft").arg(&png).args([
+        "--name",
+        "Night Sky",
+        "--mode",
+        "light",
+    ]));
+    assert!(
+        out.starts_with("saved nightsky (Night Sky, light)\n"),
+        "{out}"
+    );
+    assert!(stored(&tmp, "nightsky").contains("mode = \"light\""));
+    irida(&tmp).args(["check", "nightsky"]).assert().code(0);
+}
+
+#[test]
+fn draft_every_vector_passes_check() {
+    let tmp = TempDir::new().unwrap();
+    for case in ["two-tone", "flat", "grey", "noise", "pastel"] {
+        let png = tmp.path().join(format!("{case}.png"));
+        vector_png(case, &png);
+        let name = format!("Vector {}", case.replace('-', " "));
+        irida(&tmp)
+            .arg("draft")
+            .arg(&png)
+            .args(["--name", &name])
+            .assert()
+            .code(0);
+        let slug: String = name
+            .chars()
+            .filter(char::is_ascii_alphabetic)
+            .collect::<String>()
+            .to_lowercase();
+        irida(&tmp)
+            .args(["check", &slug])
+            .assert()
+            .code(0)
+            .stdout(predicate::str::contains("all pass"));
+    }
+}
+
+#[test]
+fn draft_refuses_bad_input() {
+    let tmp = TempDir::new().unwrap();
+    let text = tmp.path().join("notes.png");
+    fs::write(&text, "hello").unwrap();
+    irida(&tmp)
+        .arg("draft")
+        .arg(&text)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("could not be read as an image"));
+    let png = tmp.path().join("two-tone.png");
+    vector_png("two-tone", &png);
+    for bad in ["Bad-Name", "2024", ""] {
+        irida(&tmp)
+            .arg("draft")
+            .arg(&png)
+            .args(["--name", bad])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::starts_with("irida: "));
+    }
+    irida(&tmp)
+        .arg("draft")
+        .arg(&png)
+        .args(["--mode", "dim"])
+        .assert()
+        .code(2);
+    assert!(!tmp.path().join("home/.local/share/irida/palettes").exists());
 }
 
 /// A temp home with stored palettes, a btop config, and only fake apps on
