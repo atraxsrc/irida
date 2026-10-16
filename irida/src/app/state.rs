@@ -1846,9 +1846,15 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             match result {
                 Ok((n, p)) => {
                     let mut effects = vec![state.toast(format!("Saved version {n}"))];
-                    if let Some(Current::Editable { slug, saved, .. }) = &mut state.current
+                    if let Some(Current::Editable {
+                        slug,
+                        saved,
+                        working,
+                    }) = &mut state.current
                         && *slug == p.slug
                     {
+                        // The save wrote the store's pair, not an edit.
+                        working.pair = p.pair.clone();
                         *saved = Some(p.clone());
                         if !state.versions.iter().any(|v| v.n == n) {
                             state.versions.insert(0, VersionInfo { n, snapshot: None });
@@ -2650,7 +2656,12 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     ));
                 }
                 state.set_pair(&slug, Some(with));
-                vec![state.toast(text), Effect::ListEntries]
+                let mut effects = vec![state.toast(text), Effect::ListEntries];
+                // Live writes the pair too.
+                if state.open_is(&slug) {
+                    effects.extend(state.live_now());
+                }
+                effects
             }
             Err(e) => vec![state.toast(format!("Not paired: {e}"))],
         },
@@ -2679,7 +2690,11 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     state.split = Split::Off;
                     state.pair_palette = None;
                 }
-                vec![state.toast(text), Effect::ListEntries]
+                let mut effects = vec![state.toast(text), Effect::ListEntries];
+                if state.open_is(&slug) {
+                    effects.extend(state.live_now());
+                }
+                effects
             }
             Err(e) => vec![state.toast(format!("Not unpaired: {e}"))],
         },
@@ -4907,6 +4922,52 @@ mod tests {
     }
 
     #[test]
+    fn save_queued_behind_a_link_keeps_the_pair() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "emberday"]);
+        let mut state = start(&tmp);
+        new_named(&mut state, "Moss", Mode::Dark);
+
+        // Ctrl+S before the link has run (behind a live apply, say): both
+        // run in one batch, the save after the link.
+        drive(&mut state, Msg::PairChip);
+        drive(&mut state, Msg::PairChoose("emberday".to_string()));
+        let mut effects = update(&mut state, Msg::PairConfirm);
+        assert!(matches!(effects.as_slice(), [Effect::LinkPair { .. }]));
+        effects.extend(update(&mut state, Msg::SetRole(Role::Accent, red())));
+        effects.extend(update(&mut state, Msg::Save));
+        drive_effects(&mut state, effects);
+        assert_eq!(
+            store.load("moss").unwrap().pair.as_deref(),
+            Some("emberday")
+        );
+        assert_eq!(
+            store.load("emberday").unwrap().pair.as_deref(),
+            Some("moss")
+        );
+        assert_eq!(
+            store.load_version("moss", 2).unwrap().pair.as_deref(),
+            Some("emberday")
+        );
+        assert_eq!(working(&state).pair.as_deref(), Some("emberday"));
+        assert!(!state.dirty());
+
+        // And the same for Unpair.
+        let mut effects = update(&mut state, Msg::Unpair);
+        effects.extend(update(
+            &mut state,
+            Msg::SetRole(Role::Accent, Rgb::from_hex("#00FF00").unwrap()),
+        ));
+        effects.extend(update(&mut state, Msg::Save));
+        drive_effects(&mut state, effects);
+        assert_eq!(store.load("moss").unwrap().pair, None);
+        assert_eq!(store.load("emberday").unwrap().pair, None);
+        assert_eq!(store.load_version("moss", 3).unwrap().pair, None);
+        assert_eq!(working(&state).pair, None);
+        assert!(!state.dirty());
+    }
+
+    #[test]
     fn compare_versions() {
         let tmp = TempDir::new().unwrap();
         let store = store_with(&tmp, &["ember"]);
@@ -5110,6 +5171,43 @@ mod tests {
         );
         assert!(live_marker(tmp).exists());
         (state, config)
+    }
+
+    #[test]
+    fn pairing_while_live_applies_again() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = live_on(&tmp);
+        assert_eq!(working(&state).pair.as_deref(), Some("emberday"));
+        Store::new(Dirs::under(tmp.path()))
+            .save_version(&starter("emberday"))
+            .unwrap();
+        drive_effects(&mut state, vec![Effect::ListEntries]);
+        // The effects that follow running `effects` once, not run.
+        fn after(state: &mut State, effects: Vec<Effect>) -> Vec<Effect> {
+            let msgs: Vec<Msg> = effects
+                .into_iter()
+                .flat_map(|e| perform(e, &state.ctx))
+                .collect();
+            msgs.into_iter().flat_map(|m| update(state, m)).collect()
+        }
+
+        // The pair changes what live writes, so it is applied again.
+        let unlink = update(&mut state, Msg::Unpair);
+        let effects = after(&mut state, unlink);
+        let applies = live_applies(&effects);
+        assert_eq!(applies.len(), 1, "{effects:?}");
+        assert_eq!(applies[0].pair, None);
+        assert!(!state.dirty());
+        drive_effects(&mut state, effects);
+
+        drive(&mut state, Msg::PairChip);
+        let link = update(&mut state, Msg::PairChoose("emberday".to_string()));
+        assert!(live_applies(&link).is_empty());
+        let effects = after(&mut state, link);
+        let applies = live_applies(&effects);
+        assert_eq!(applies.len(), 1, "{effects:?}");
+        assert_eq!(applies[0].pair.as_deref(), Some("emberday"));
+        assert!(!state.dirty());
     }
 
     #[test]
