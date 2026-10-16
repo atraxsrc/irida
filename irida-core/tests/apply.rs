@@ -307,6 +307,59 @@ template = "t.tmpl"
     assert!(record_ids(&env).is_empty());
 }
 
+/// Restores a folder's mode so the TempDir can be removed.
+struct RestoreMode(PathBuf);
+
+impl Drop for RestoreMode {
+    fn drop(&mut self) {
+        let _ = fs::set_permissions(&self.0, fs::Permissions::from_mode(0o755));
+    }
+}
+
+#[test]
+fn rollback_skips_unattempted_writes() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_target(
+        &env,
+        "a",
+        &file_target("a", "~/.config/a/a.conf"),
+        &[("t.tmpl", "x\n")],
+    );
+    put_target(
+        &env,
+        "m",
+        &file_target("m", "~/.config/blocker/b.conf"),
+        &[("t.tmpl", "x\n")],
+    );
+    put_target(
+        &env,
+        "z",
+        &file_target("z", "~/.config/ro/c.conf"),
+        &[("t.tmpl", "x\n")],
+    );
+    let a_conf = env.write(".config/a/a.conf", "old");
+    env.write(".config/blocker", "not a folder");
+    let c_conf = env.write(".config/ro/c.conf", "keep");
+    let ro = c_conf.parent().unwrap().to_path_buf();
+    let _restore = RestoreMode(ro.clone());
+    fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
+    if fs::write(ro.join("probe"), b"").is_ok() {
+        // Running with privileges that ignore folder modes; nothing to test.
+        return;
+    }
+
+    match run(&env, &ember) {
+        Err(e @ ApplyError::Write { rolled_back: true, .. }) => {
+            assert!(e.to_string().contains("blocker/b.conf"), "{e}");
+        }
+        other => panic!("expected rolled back Write, got {other:?}"),
+    }
+    assert_eq!(read(&a_conf), "old");
+    assert_eq!(read(&c_conf), "keep");
+    assert!(record_ids(&env).is_empty());
+}
+
 #[test]
 fn write_error_display_says_whether_record_was_kept() {
     let err = |rolled_back| ApplyError::Write {
