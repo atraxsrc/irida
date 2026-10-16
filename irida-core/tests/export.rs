@@ -186,6 +186,21 @@ fn existing_repo_untouched() {
 }
 
 #[test]
+fn own_scripts_not_stale() {
+    let env = TestEnv::new();
+    let repo = env.tmp.path().join("cosmic-ember-theme");
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("scripts/check_contrast.py"), "print('mine')\n").unwrap();
+
+    let report = run(&env, &palette("ember"), &repo).unwrap();
+    assert!(status(&report, "scripts/check_contrast.py").is_empty());
+    assert_eq!(
+        fs::read_to_string(repo.join("scripts/check_contrast.py")).unwrap(),
+        "print('mine')\n"
+    );
+}
+
+#[test]
 fn escaping_rice_path_rejected() {
     let env = TestEnv::new();
     let absolute = env.tmp.path().join("evil");
