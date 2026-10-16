@@ -1,9 +1,10 @@
+mod app;
 mod output;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
-use clap::{CommandFactory, Parser, Subcommand, ValueEnum};
+use clap::{Parser, Subcommand, ValueEnum};
 use irida_core::apply::{self, ApplyError, ApplyRequest, Ctx};
 use irida_core::contrast;
 use irida_core::dirs::Dirs;
@@ -208,9 +209,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         if !has_display() {
             return Err("no display found; run irida --help for the command line".to_string());
         }
-        // The app opens here from Task 9 on.
-        let _ = Cli::command().write_help(&mut std::io::stderr());
-        return Ok(ExitCode::from(2));
+        return app::run().map(|()| ExitCode::SUCCESS);
     };
     let dirs = Dirs::from_env().map_err(|e| e.to_string())?;
     let store = Store::new(dirs.clone());
