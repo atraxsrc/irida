@@ -47,6 +47,8 @@ pub struct FileEntry {
 pub enum NativeKind {
     #[serde(rename = "cosmic-term")]
     CosmicTerm,
+    #[serde(rename = "cosmic-desktop")]
+    CosmicDesktop,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

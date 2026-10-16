@@ -1,0 +1,4 @@
+name = "cosmic-desktop"
+native = "cosmic-desktop"
+live = true
+detect = { binary = "cosmic-settings", config = "~/.config/cosmic" }

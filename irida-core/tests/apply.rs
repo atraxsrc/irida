@@ -15,6 +15,7 @@ use irida_core::native::cosmic_term::config_dir;
 use irida_core::palette::Palette;
 use irida_core::reload::ReloadStatus;
 use irida_core::store::Settings;
+use irida_core::target::load_targets;
 use irida_core::template::Renderer;
 use irida_core::term::ColorScheme;
 
@@ -448,7 +449,11 @@ fn nothing_to_apply_lists_every_target() {
     match run(&env, &ember) {
         Err(ApplyError::NothingToApply(results)) => {
             let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
-            assert_eq!(names, ["b", "btop", "cosmic-term"]);
+            let loaded = load_targets(&env.dirs);
+            let mut expected = vec!["b"];
+            expected.extend(loaded.iter().map(|t| t.name.as_str()).filter(|n| *n != "b"));
+            expected[1..].sort();
+            assert_eq!(names, expected);
         }
         other => panic!("expected NothingToApply, got {other:?}"),
     }
