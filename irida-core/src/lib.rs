@@ -8,4 +8,5 @@ pub mod dirs;
 pub mod slot;
 pub mod store;
 pub mod target;
+pub mod template;
 pub mod term;
