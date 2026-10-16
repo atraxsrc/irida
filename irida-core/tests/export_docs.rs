@@ -120,8 +120,8 @@ fn changed_switch(fixture: &str) -> String {
             "# Terminal tools; bat, starship and cava only exist in some repos\nfor tool in fastfetch lsd bat starship cava; do\n",
         ),
         (
-            "ln -sfn \"$R/scripts/update_system.sh\" \"$HOME/update_system.sh\"\necho \"  ~/update_system.sh -> $NAME\"\n",
-            "if [ -x scripts/update_system.sh ]; then\n    ln -sfn \"$R/scripts/update_system.sh\" \"$HOME/update_system.sh\"\n    echo \"  ~/update_system.sh -> $NAME\"\nfi\n",
+            "# Updater banner\nln -sfn \"$R/scripts/update_system.sh\" \"$HOME/update_system.sh\"\necho \"  ~/update_system.sh -> $NAME\"\n\n",
+            "",
         ),
         (
             "./claude-desktop/install.sh | sed '/^$/d; s/^/  claude-desktop: /'\nclaude_theme=\"$(basename \"$(ls claude-desktop/*.jsonc | head -n1)\" .jsonc)\"\n",

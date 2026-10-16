@@ -508,8 +508,9 @@ Export writes into `cosmic-<slug>-theme/`, matching the current repos:
   with its `install.sh`, made executable
 - `scripts/switch.sh`, the shared script with its settings block filled in
   and the slug added to its `RICES` list. Three changes make it work in a repo
-  Irida exported: it skips Claude Desktop and `update_system.sh` when they are
-  absent, and runs `cava/install.sh`. The other repos can take the same lines.
+  Irida exported: it skips Claude Desktop when it is absent, never links
+  `update_system.sh` (or anything else) into the home folder, and runs
+  `cava/install.sh`. The other repos can take the same lines.
 - `README.md` with the palette table, and `docs/showcase.md` as a skeleton
   with the contrast table (window and pane ratios)
 - `.gitignore`, `.pre-commit-config.yaml` and the `cosmic/config/` baseline
