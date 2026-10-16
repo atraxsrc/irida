@@ -1,15 +1,19 @@
 //! The effect runner: the app's IO, synchronous and free of libcosmic
 //! types. Every IO effect returns its result as `Msg`s.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use irida_core::apply::{self, ApplyError, ApplyRequest, Ctx, UndoError, target_status};
+use irida_core::draft::{clusters, mode_of};
 use irida_core::export::{ExportRequest, export};
 use irida_core::import::import_rice_with_notes;
 use irida_core::palette::Palette;
 use irida_core::store::{PairLookup, Settings, Store, StoreEntry, StoreError};
+use irida_core::wallpaper::{WallpaperError, current_wallpaper_in, load_pixels};
 
-use super::state::{ApplyFailure, Effect, EntrySummary, ExportSummary, Msg, OpenFailure, UndoDone};
+use super::state::{
+    ApplyFailure, Effect, EntrySummary, ExportSummary, Msg, NOT_IMAGE, OpenFailure, UndoDone,
+};
 use crate::output::format_export;
 
 /// The palette's slug field must name its own folder; otherwise saving it
@@ -183,6 +187,34 @@ fn export_to(
     })
 }
 
+/// Read the image at `path` and find its colours and mode.
+fn draft_image(path: PathBuf) -> Msg {
+    match load_pixels(&path) {
+        Ok(rgba) => {
+            let clusters = clusters(&rgba);
+            let mode = mode_of(&clusters);
+            Msg::DraftReady {
+                path,
+                clusters,
+                mode,
+            }
+        }
+        Err(e) => {
+            let error = match e {
+                WallpaperError::NotImage(_) => NOT_IMAGE.to_string(),
+                WallpaperError::Io(_, reason) => {
+                    let name = path.file_name().unwrap_or(path.as_os_str());
+                    format!(
+                        "Could not read {}: {reason}. Choose another image.",
+                        name.to_string_lossy()
+                    )
+                }
+            };
+            Msg::DraftFailed { path, error }
+        }
+    }
+}
+
 pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
     let store = Store::new(ctx.dirs.clone());
     let msg = match effect {
@@ -235,7 +267,16 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
         Effect::Export { palette, folder } => {
             Msg::Exported(export_to(&store, ctx, &palette, &folder))
         }
-        Effect::Toast(_) | Effect::Copy(_) | Effect::ChooseFolder(_) | Effect::Exit => {
+        Effect::FindWallpaper(system) => Msg::WallpaperFound(current_wallpaper_in(
+            &ctx.dirs.config.join("cosmic"),
+            &system,
+        )),
+        Effect::DraftImage(path) => draft_image(path),
+        Effect::Toast(_)
+        | Effect::Copy(_)
+        | Effect::ChooseFolder(_)
+        | Effect::ChooseImage
+        | Effect::Exit => {
             return Vec::new();
         }
     };
@@ -410,5 +451,82 @@ mod tests {
         assert!(Effect::LoadStore.is_io());
         assert!(!Effect::ChooseFolder(FolderFor::Import).is_io());
         assert!(perform(Effect::ChooseFolder(FolderFor::Export), &ctx(&tmp)).is_empty());
+        assert!(!Effect::ChooseImage.is_io());
+        assert!(perform(Effect::ChooseImage, &ctx(&tmp)).is_empty());
+    }
+
+    #[test]
+    fn draft_image_reads_or_says_why_not() {
+        let tmp = TempDir::new().unwrap();
+        let ctx = ctx(&tmp);
+        let png = tmp.path().join("flat.png");
+        image::RgbaImage::from_pixel(40, 25, image::Rgba([200, 60, 40, 255]))
+            .save(&png)
+            .unwrap();
+        let msgs = perform(Effect::DraftImage(png.clone()), &ctx);
+        let [
+            Msg::DraftReady {
+                path,
+                clusters,
+                mode,
+            },
+        ] = msgs.as_slice()
+        else {
+            panic!("{msgs:?}");
+        };
+        assert_eq!(path, &png);
+        assert_eq!(clusters.len(), 1);
+        assert_eq!(*mode, irida_core::draft::mode_of(clusters));
+
+        let text = tmp.path().join("notes.txt");
+        fs::write(&text, "words").unwrap();
+        let msgs = perform(Effect::DraftImage(text.clone()), &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::DraftFailed { path, error }]
+                if *path == text && error == NOT_IMAGE),
+            "{msgs:?}"
+        );
+        let gone = tmp.path().join("gone.jpg");
+        let msgs = perform(Effect::DraftImage(gone.clone()), &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::DraftFailed { path, error }]
+                if *path == gone && error.starts_with("Could not read gone.jpg: ")),
+            "{msgs:?}"
+        );
+    }
+
+    #[test]
+    fn find_wallpaper_reads_without_writing() {
+        let tmp = TempDir::new().unwrap();
+        let ctx = ctx(&tmp);
+        let system = tmp.path().join("system");
+        let msgs = perform(Effect::FindWallpaper(system.clone()), &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::WallpaperFound(None)]),
+            "{msgs:?}"
+        );
+        assert!(!ctx.dirs.config.exists(), "nothing created");
+        assert!(!system.exists(), "nothing created");
+
+        // The system default is read when the user has none.
+        let image = tmp.path().join("w.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([0, 0, 0, 255]))
+            .save(&image)
+            .unwrap();
+        let keys = system.join("com.system76.CosmicBackground/v1");
+        fs::create_dir_all(&keys).unwrap();
+        fs::write(
+            keys.join("all"),
+            format!(
+                "(output: \"all\", source: Path({:?}), filter_by_theme: #true)",
+                image.to_str().unwrap()
+            ),
+        )
+        .unwrap();
+        let msgs = perform(Effect::FindWallpaper(system), &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::WallpaperFound(Some(p))] if *p == image),
+            "{msgs:?}"
+        );
     }
 }

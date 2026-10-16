@@ -12,12 +12,14 @@ use irida_core::apply::{ApplyReport, Ctx, TargetInfo, TargetStatus};
 use irida_core::color::Rgb;
 use irida_core::contrast::{RoleContrast, check};
 use irida_core::derive::derive;
+use irida_core::draft::{Cluster, draft, draft_palette};
 use irida_core::export::ExportLine;
-use irida_core::palette::{Mode, Palette, slug_from_name, validate_name};
+use irida_core::palette::{Mode, Palette, Roles, slug_from_name, validate_name};
 use irida_core::reload::ReloadStatus;
 use irida_core::role::Role;
 use irida_core::slot::{Ansi, PinValue, Slot, Tone};
 use irida_core::store::{PairLookup, Settings, starters};
+use irida_core::wallpaper::name_from_file;
 
 /// One stored palette as the Switch list shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -106,11 +108,16 @@ pub enum NameFor {
 pub enum Leave {
     Open(String),
     Create(Palette),
-    Duplicate { from: String, name: String },
+    Duplicate {
+        from: String,
+        name: String,
+    },
+    /// Open a wallpaper draft, unsaved.
+    Draft(Palette),
     Exit,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum Dialog {
     /// The list of stored palettes.
     Switch,
@@ -135,6 +142,71 @@ pub enum Dialog {
     },
     /// What an export wrote.
     Exported(ExportSummary),
+    /// New from wallpaper.
+    Wallpaper(WallpaperDialog),
+}
+
+/// The text a failed draft shows for a file that is not an image.
+pub const NOT_IMAGE: &str = "This file could not be read as an image. Try a JPEG, PNG or WebP.";
+
+/// What the New from wallpaper dialog shows when COSMIC's wallpaper is not
+/// an image file Irida can find (a colour, a gradient, a missing file).
+pub const NO_WALLPAPER: &str =
+    "Your wallpaper is not an image file Irida can find. Choose an image to draft from.";
+
+/// New from wallpaper: the image, the colours found in it, and the draft
+/// for the chosen mode.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WallpaperDialog {
+    /// Looking up COSMIC's current wallpaper.
+    pub finding: bool,
+    /// The image being read; a result for any other path is stale.
+    pub reading: Option<PathBuf>,
+    /// The image the draft below was made from.
+    pub image: Option<PathBuf>,
+    /// Its colours, heaviest first (at most eight).
+    pub clusters: Vec<Cluster>,
+    pub mode: Mode,
+    /// The draft's roles for `mode`, once an image was read.
+    pub roles: Option<Roles>,
+    /// The cluster the accent came from.
+    pub accent_from: Option<usize>,
+    pub name: String,
+    /// The user typed a name, so a new image keeps it.
+    pub name_edited: bool,
+    /// Why the last image could not be used.
+    pub error: Option<String>,
+}
+
+impl WallpaperDialog {
+    fn new() -> WallpaperDialog {
+        WallpaperDialog {
+            finding: true,
+            reading: None,
+            image: None,
+            clusters: Vec::new(),
+            mode: Mode::Dark,
+            roles: None,
+            accent_from: None,
+            name: String::new(),
+            name_edited: false,
+            error: None,
+        }
+    }
+
+    /// Draft the roles again for `mode`.
+    fn redraft(&mut self, mode: Mode) {
+        let d = draft(&self.clusters, mode);
+        self.mode = mode;
+        self.roles = Some(d.roles);
+        self.accent_from = d.accent_from;
+    }
+
+    /// Start reading `path`; the effect that does it.
+    fn read(&mut self, path: PathBuf) -> Effect {
+        self.reading = Some(path.clone());
+        Effect::DraftImage(path)
+    }
 }
 
 /// What a folder is chosen for.
@@ -369,7 +441,7 @@ impl MenuItem {
             MenuItem::Import => Msg::ShowImport,
             MenuItem::Export => Msg::ShowExport,
             MenuItem::UndoLastApply => Msg::UndoLastApply,
-            MenuItem::NewFromWallpaper => Msg::NotYet(self.label()),
+            MenuItem::NewFromWallpaper => Msg::ShowWallpaper,
         }
     }
 }
@@ -613,6 +685,26 @@ pub enum Msg {
         notes: Vec<String>,
     },
     Exported(Result<ExportSummary, String>),
+    // New from wallpaper.
+    ShowWallpaper,
+    /// COSMIC's current wallpaper, when it is an image file.
+    WallpaperFound(Option<PathBuf>),
+    /// Choose another image.
+    ChooseImage,
+    /// The file chooser's image, or why it could not open.
+    Image(Result<PathBuf, String>),
+    DraftReady {
+        path: PathBuf,
+        clusters: Vec<Cluster>,
+        mode: Mode,
+    },
+    DraftFailed {
+        path: PathBuf,
+        error: String,
+    },
+    WallpaperMode(Mode),
+    WallpaperName(String),
+    WallpaperCreate,
     /// An item a later version builds.
     NotYet(&'static str),
 }
@@ -661,11 +753,18 @@ pub enum Effect {
         palette: Palette,
         folder: PathBuf,
     },
+    /// Find COSMIC's current wallpaper, reading missing keys from this
+    /// system folder.
+    FindWallpaper(PathBuf),
+    /// Read an image and find its colours.
+    DraftImage(PathBuf),
     Toast(ToastItem),
     /// Put text on the clipboard.
     Copy(String),
     /// Ask for a folder with the file chooser.
     ChooseFolder(FolderFor),
+    /// Ask for an image with the file chooser.
+    ChooseImage,
     Exit,
 }
 
@@ -674,7 +773,11 @@ impl Effect {
     pub fn is_io(&self) -> bool {
         !matches!(
             self,
-            Effect::Toast(_) | Effect::Copy(_) | Effect::ChooseFolder(_) | Effect::Exit
+            Effect::Toast(_)
+                | Effect::Copy(_)
+                | Effect::ChooseFolder(_)
+                | Effect::ChooseImage
+                | Effect::Exit
         )
     }
 }
@@ -682,7 +785,6 @@ impl Effect {
 pub struct State {
     pub ctx: Ctx,
     /// The system COSMIC config folder (`/usr/share/cosmic` in the app).
-    #[allow(dead_code, reason = "read by New from wallpaper")]
     pub wallpaper_system: PathBuf,
     pub settings: Settings,
     /// `settings.toml` could not be read: defaults are in use and the file
@@ -775,14 +877,40 @@ impl State {
         self.fields.clear();
     }
 
+    /// An open wallpaper draft that has never been saved: it is not in the
+    /// store yet.
+    fn unsaved_draft(&self) -> bool {
+        matches!(self.current, Some(Current::Editable { saved: None, .. }))
+    }
+
     pub fn menu_enabled(&self, item: MenuItem) -> bool {
         match item {
             MenuItem::Switch => !self.entries.is_empty(),
             MenuItem::New | MenuItem::NewFromWallpaper | MenuItem::Import => true,
             // A read-only palette offers only what the plan lists for it.
             MenuItem::UndoLastApply => !matches!(self.current, Some(Current::Unreadable { .. })),
-            MenuItem::Duplicate | MenuItem::Export => self.editable(),
-            MenuItem::Delete => self.current.is_some(),
+            MenuItem::Export => self.editable(),
+            // Both work on the stored palette, which a draft does not have.
+            MenuItem::Duplicate => self.editable() && !self.unsaved_draft(),
+            MenuItem::Delete => self.current.is_some() && !self.unsaved_draft(),
+        }
+    }
+
+    /// The New from wallpaper dialog can create: an image was drafted, no
+    /// other is being read, and the name can be used for a new palette.
+    pub fn wallpaper_ready(&self) -> bool {
+        match &self.dialog {
+            Some(Dialog::Wallpaper(d)) => {
+                d.roles.is_some() && d.reading.is_none() && self.name_check(&d.name).is_ok()
+            }
+            _ => false,
+        }
+    }
+
+    fn wallpaper_dialog(&mut self) -> Option<&mut WallpaperDialog> {
+        match &mut self.dialog {
+            Some(Dialog::Wallpaper(d)) => Some(d),
+            _ => None,
         }
     }
 
@@ -875,6 +1003,16 @@ impl State {
             Leave::Open(slug) => vec![Effect::OpenPalette(slug)],
             Leave::Create(p) => vec![Effect::Create(p)],
             Leave::Duplicate { from, name } => vec![Effect::Duplicate { from, name }],
+            // Not remembered as the last palette until it is saved.
+            Leave::Draft(p) => {
+                self.reset_editor();
+                self.current = Some(Current::Editable {
+                    slug: p.slug.clone(),
+                    saved: None,
+                    working: p,
+                });
+                Vec::new()
+            }
             Leave::Exit => vec![Effect::Exit],
         }
     }
@@ -1059,6 +1197,8 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     if !state.entries.iter().any(|e| e.slug == p.slug) {
                         effects.push(Effect::ListEntries);
                     }
+                    // A draft's first save makes it the last palette.
+                    effects.extend(state.remember(p.slug.clone()));
                     if let Some(leave) = leave {
                         effects.extend(state.go(leave));
                     }
@@ -1564,6 +1704,99 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::Exported(Err(e)) => vec![state.toast(format!("Not exported: {e}"))],
+        Msg::ShowWallpaper => {
+            state.menu_open = false;
+            state.dialog = Some(Dialog::Wallpaper(WallpaperDialog::new()));
+            vec![Effect::FindWallpaper(state.wallpaper_system.clone())]
+        }
+        Msg::WallpaperFound(found) => {
+            let Some(d) = state.wallpaper_dialog().filter(|d| d.finding) else {
+                return Vec::new();
+            };
+            d.finding = false;
+            // An image the user chose meanwhile wins.
+            match found {
+                Some(path) if d.reading.is_none() && d.image.is_none() => vec![d.read(path)],
+                _ => Vec::new(),
+            }
+        }
+        Msg::ChooseImage => {
+            if state.wallpaper_dialog().is_some() {
+                vec![Effect::ChooseImage]
+            } else {
+                Vec::new()
+            }
+        }
+        Msg::Image(result) => {
+            let Some(d) = state.wallpaper_dialog() else {
+                return Vec::new();
+            };
+            match result {
+                Ok(path) => {
+                    d.error = None;
+                    vec![d.read(path)]
+                }
+                Err(e) => {
+                    d.error = Some(format!("Could not choose an image: {e}"));
+                    Vec::new()
+                }
+            }
+        }
+        Msg::DraftReady {
+            path,
+            clusters,
+            mode,
+        } => {
+            let Some(d) = state
+                .wallpaper_dialog()
+                .filter(|d| d.reading.as_ref() == Some(&path))
+            else {
+                return Vec::new();
+            };
+            d.reading = None;
+            d.error = None;
+            if !d.name_edited {
+                d.name = name_from_file(&path);
+            }
+            d.image = Some(path);
+            d.clusters = clusters;
+            d.redraft(mode);
+            Vec::new()
+        }
+        Msg::DraftFailed { path, error } => {
+            // The last good draft, if any, stays.
+            if let Some(d) = state
+                .wallpaper_dialog()
+                .filter(|d| d.reading.as_ref() == Some(&path))
+            {
+                d.reading = None;
+                d.error = Some(error);
+            }
+            Vec::new()
+        }
+        Msg::WallpaperMode(mode) => {
+            if let Some(d) = state.wallpaper_dialog().filter(|d| d.roles.is_some()) {
+                d.redraft(mode);
+            }
+            Vec::new()
+        }
+        Msg::WallpaperName(name) => {
+            if let Some(d) = state.wallpaper_dialog() {
+                d.name = name;
+                d.name_edited = true;
+            }
+            Vec::new()
+        }
+        Msg::WallpaperCreate => {
+            if !state.wallpaper_ready() {
+                return Vec::new();
+            }
+            let Some(Dialog::Wallpaper(d)) = &state.dialog else {
+                return Vec::new();
+            };
+            let p = draft_palette(&d.clusters, d.mode, &d.name);
+            state.leave(Leave::Draft(p))
+        }
         Msg::NotYet(what) => {
             state.menu_open = false;
             vec![state.toast(format!("Coming soon: {what}"))]
@@ -2092,10 +2325,8 @@ mod tests {
         store_with(&tmp, &["ember"]);
         let mut state = start(&tmp);
         state.menu_open = true;
-        let ui = drive(&mut state, MenuItem::NewFromWallpaper.msg());
-        assert!(
-            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: New from wallpaper")
-        );
+        let ui = drive(&mut state, Msg::NotYet("Compare"));
+        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: Compare"));
         assert!(!state.menu_open);
     }
 
@@ -2828,6 +3059,273 @@ mod tests {
         assert!(summary.text.contains("emberday"), "{}", summary.text);
         assert!(out.join("cosmic-ember-theme/cosmic/Ember.ron").is_file());
         drive(&mut state, Msg::CloseDialog);
+        assert!(state.dialog.is_none());
+    }
+
+    const VECTORS: &str = concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../irida-core/tests/fixtures/draft/vectors.json"
+    );
+
+    /// The reference vector `case` written as a 40 by 25 PNG at `path`.
+    fn vector_png(case: &str, path: &std::path::Path) {
+        use base64::Engine;
+        let v: serde_json::Value =
+            serde_json::from_str(&fs::read_to_string(VECTORS).unwrap()).unwrap();
+        let rgba = base64::engine::general_purpose::STANDARD
+            .decode(v[case]["rgba"].as_str().unwrap())
+            .unwrap();
+        image::RgbaImage::from_raw(40, 25, rgba)
+            .unwrap()
+            .save(path)
+            .unwrap();
+    }
+
+    /// COSMIC's `all` background key under the temp config, pointing at
+    /// `image`, written as COSMIC's own default file is (with `#true`).
+    fn cosmic_wallpaper(tmp: &TempDir, image: &std::path::Path) {
+        let dir = Dirs::under(tmp.path())
+            .config
+            .join("cosmic/com.system76.CosmicBackground/v1");
+        fs::create_dir_all(&dir).unwrap();
+        let entry = format!(
+            "(\n    output: \"all\",\n    source: Path({:?}),\n    filter_by_theme: #true,\n    rotation_frequency: 3600,\n    filter_method: Lanczos,\n    scaling_mode: Zoom,\n    sampling_method: Alphanumeric,\n)",
+            image.to_str().unwrap()
+        );
+        fs::write(dir.join("all"), entry).unwrap();
+    }
+
+    fn wallpaper_dialog(state: &State) -> &WallpaperDialog {
+        match &state.dialog {
+            Some(Dialog::Wallpaper(d)) => d,
+            other => panic!("no wallpaper dialog: {other:?}"),
+        }
+    }
+
+    /// A started app on Ember whose COSMIC wallpaper is the two-tone vector,
+    /// with New from wallpaper opened.
+    fn two_tone_dialog(tmp: &TempDir) -> (State, PathBuf) {
+        store_with(tmp, &["ember"]);
+        let image = tmp.path().join("pictures/two-tone.png");
+        fs::create_dir_all(image.parent().unwrap()).unwrap();
+        vector_png("two-tone", &image);
+        cosmic_wallpaper(tmp, &image);
+        let mut state = start(tmp);
+        state.menu_open = true;
+        drive(&mut state, MenuItem::NewFromWallpaper.msg());
+        (state, image)
+    }
+
+    #[test]
+    fn opens_with_current_wallpaper() {
+        let tmp = TempDir::new().unwrap();
+        let (state, image) = two_tone_dialog(&tmp);
+        assert!(!state.menu_open);
+        let d = wallpaper_dialog(&state);
+        assert_eq!(d.image.as_deref(), Some(image.as_path()));
+        assert_eq!(d.clusters.len(), 8);
+        assert_eq!(d.mode, Mode::Dark);
+        let expected = irida_core::draft::draft(&d.clusters, Mode::Dark);
+        assert_eq!(d.roles, Some(expected.roles));
+        assert_eq!(d.accent_from, expected.accent_from);
+        assert!(d.accent_from.is_some(), "two-tone has a vivid colour");
+        assert_eq!(d.name, "Two Tone");
+        assert_eq!(d.error, None);
+        assert_eq!(d.reading, None);
+        assert!(state.wallpaper_ready());
+
+        // No wallpaper set: the dialog opens empty, asking for an image.
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let ui = drive(&mut state, Msg::ShowWallpaper);
+        assert!(ui.is_empty(), "{ui:?}");
+        let d = wallpaper_dialog(&state);
+        assert_eq!(d.image, None);
+        assert!(d.clusters.is_empty());
+        assert_eq!(d.roles, None);
+        assert!(!state.wallpaper_ready());
+        // Choose another image asks the file chooser.
+        let ui = drive(&mut state, Msg::ChooseImage);
+        assert!(matches!(ui.as_slice(), [Effect::ChooseImage]), "{ui:?}");
+        assert!(!Effect::ChooseImage.is_io());
+    }
+
+    #[test]
+    fn switch_mode_redrafts() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        let clusters = wallpaper_dialog(&state).clusters.clone();
+        drive(&mut state, Msg::WallpaperMode(Mode::Light));
+        let d = wallpaper_dialog(&state);
+        assert_eq!(d.mode, Mode::Light);
+        let light = irida_core::draft::draft(&clusters, Mode::Light);
+        assert_eq!(d.roles, Some(light.roles.clone()));
+        assert_eq!(d.accent_from, light.accent_from);
+        assert_ne!(
+            light.roles,
+            irida_core::draft::draft(&clusters, Mode::Dark).roles
+        );
+
+        // Created in light mode, the draft keeps those roles.
+        drive(&mut state, Msg::WallpaperCreate);
+        assert!(state.dialog.is_none());
+        let w = working(&state);
+        assert_eq!(w.mode, Mode::Light);
+        assert_eq!(w.roles, light.roles);
+    }
+
+    #[test]
+    fn create_opens_unsaved() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        let before = snapshot(&tmp);
+        let settings = Dirs::under(tmp.path()).config.join("irida/settings.toml");
+        let settings_before = fs::read(&settings).ok();
+
+        // A taken name cannot be created.
+        drive(&mut state, Msg::WallpaperName("Ember".to_string()));
+        assert!(!state.wallpaper_ready());
+        drive(&mut state, Msg::WallpaperCreate);
+        assert!(matches!(state.dialog, Some(Dialog::Wallpaper(_))));
+        drive(&mut state, Msg::WallpaperName("Bad-Name".to_string()));
+        assert!(!state.wallpaper_ready());
+
+        drive(&mut state, Msg::WallpaperName("Two Tone".to_string()));
+        assert!(state.wallpaper_ready());
+        let clusters = wallpaper_dialog(&state).clusters.clone();
+        let ui = drive(&mut state, Msg::WallpaperCreate);
+        assert!(ui.is_empty(), "{ui:?}");
+        assert!(state.dialog.is_none());
+        let Some(Current::Editable {
+            slug,
+            saved,
+            working,
+        }) = &state.current
+        else {
+            panic!("{:?}", state.current);
+        };
+        assert_eq!(slug, "twotone");
+        assert_eq!(saved, &None);
+        assert_eq!(
+            working,
+            &irida_core::draft::draft_palette(&clusters, Mode::Dark, "Two Tone")
+        );
+        assert!(state.dirty());
+        assert_eq!(state.title(), "Two Tone \u{2022}");
+        assert_eq!(snapshot(&tmp), before, "nothing written to the store");
+        assert_eq!(fs::read(&settings).ok(), settings_before);
+        // An unsaved draft cannot be duplicated or deleted by slug.
+        assert!(!state.menu_enabled(MenuItem::Duplicate));
+        assert!(!state.menu_enabled(MenuItem::Delete));
+
+        // Ctrl+S saves version 1 and remembers it.
+        let ui = drive(&mut state, Msg::Save);
+        assert!(
+            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Saved version 1"),
+            "{ui:?}"
+        );
+        assert!(!state.dirty());
+        let store = Store::new(Dirs::under(tmp.path()));
+        assert_eq!(store.versions("twotone").unwrap().len(), 1);
+        assert!(state.entries.iter().any(|e| e.slug == "twotone"));
+        assert_eq!(
+            store.settings().unwrap().last_palette.as_deref(),
+            Some("twotone")
+        );
+        assert!(state.menu_enabled(MenuItem::Delete));
+    }
+
+    #[test]
+    fn create_while_dirty_asks() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        drive(&mut state, Msg::CloseDialog);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::ShowWallpaper);
+        assert!(wallpaper_dialog(&state).roles.is_some());
+        drive(&mut state, Msg::WallpaperCreate);
+        assert!(matches!(
+            state.dialog,
+            Some(Dialog::Unsaved(Leave::Draft(_)))
+        ));
+        assert_eq!(open_slug(&state), Some("ember"));
+        drive(&mut state, Msg::UnsavedDiscard);
+        assert_eq!(open_slug(&state), Some("twotone"));
+        assert!(state.dirty());
+    }
+
+    #[test]
+    fn bad_file_message() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, image) = two_tone_dialog(&tmp);
+        let text = tmp.path().join("notes.txt");
+        fs::write(&text, "not an image").unwrap();
+        drive(&mut state, Msg::Image(Ok(text)));
+        let d = wallpaper_dialog(&state);
+        assert_eq!(
+            d.error.as_deref(),
+            Some("This file could not be read as an image. Try a JPEG, PNG or WebP.")
+        );
+        // The last good draft stays, so Create still works.
+        assert_eq!(d.image.as_deref(), Some(image.as_path()));
+        assert_eq!(d.clusters.len(), 8);
+        assert_eq!(d.reading, None);
+        assert!(state.wallpaper_ready());
+
+        // A missing file says so, and the chooser's own error is shown.
+        let gone = tmp.path().join("gone.png");
+        drive(&mut state, Msg::Image(Ok(gone)));
+        let d = wallpaper_dialog(&state);
+        assert!(
+            d.error
+                .as_deref()
+                .unwrap()
+                .starts_with("Could not read gone.png"),
+            "{:?}",
+            d.error
+        );
+        drive(&mut state, Msg::Image(Err("portal gone".to_string())));
+        assert_eq!(
+            wallpaper_dialog(&state).error.as_deref(),
+            Some("Could not choose an image: portal gone")
+        );
+
+        // A good image clears the error and takes its name.
+        let other = tmp.path().join("aurora-forest.png");
+        vector_png("pastel", &other);
+        drive(&mut state, Msg::Image(Ok(other.clone())));
+        let d = wallpaper_dialog(&state);
+        assert_eq!(d.error, None);
+        assert_eq!(d.image.as_deref(), Some(other.as_path()));
+        assert_eq!(d.name, "Aurora Forest");
+    }
+
+    #[test]
+    fn stale_drafts_are_ignored() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, image) = two_tone_dialog(&tmp);
+        let other = tmp.path().join("pastel.png");
+        vector_png("pastel", &other);
+        // Pastel is being read when two-tone's late result arrives.
+        let effects = update(&mut state, Msg::Image(Ok(other.clone())));
+        assert!(matches!(effects.as_slice(), [Effect::DraftImage(p)] if *p == other));
+        let late = perform(Effect::DraftImage(image.clone()), &state.ctx);
+        let before = wallpaper_dialog(&state).clone();
+        for msg in late {
+            drive(&mut state, msg);
+        }
+        assert_eq!(wallpaper_dialog(&state), &before);
+        drive_effects(&mut state, effects);
+        assert_eq!(
+            wallpaper_dialog(&state).image.as_deref(),
+            Some(other.as_path())
+        );
+        // A result after the dialog closed changes nothing.
+        drive(&mut state, Msg::CloseDialog);
+        for msg in perform(Effect::DraftImage(image), &state.ctx) {
+            drive(&mut state, msg);
+        }
         assert!(state.dialog.is_none());
     }
 }
