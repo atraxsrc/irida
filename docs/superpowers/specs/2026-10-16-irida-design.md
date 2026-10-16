@@ -50,7 +50,7 @@ the editor, not an extra.
 | Topic | Decision |
 |---|---|
 | Audience | COSMIC users, plus a rice repo export for rice authors |
-| Palette source | Hand design first; wallpaper extraction later as a first draft |
+| Palette source | Hand design, or a draft from a wallpaper that the role editor then finishes |
 | Unit of design | One palette, dark or light; two palettes can be linked as a pair |
 | Live tweaks | In-app previews first; "try it live" on the real desktop last |
 | Comparison | Pairs side by side, and before and after (saved version or snapshot) |
@@ -169,6 +169,60 @@ raw ratio; ratios display with one decimal. `contrast.py` gates on the window
 only, so the pane check and the muted 3:1 rule are new: under them Ember,
 Ember Day and Dossier have pane failures that `contrast.py` never reported.
 That is intended.
+
+### Drafting from a wallpaper
+
+A wallpaper can seed a new palette. The draft is palette first: lightness and
+chroma come from Ember (dark) and Ember Day (light), and the wallpaper only
+decides the neutral cast, the accent, and how far each semantic hue leans
+toward a nearby wallpaper colour. The user finishes it in the role editor.
+
+1. Scale the image to 160 px on its longest side; skip pixels with alpha under
+   128. Convert to OKLab.
+2. k-means with k = 8, 14 iterations, k-means++ seeding from a fixed seed, so
+   the same image always gives the same draft. Clusters carry their weight
+   (share of pixels) and their OKLCH lightness, chroma and hue.
+3. Mode: dark when the weighted mean lightness is under 0.55, else light. The
+   user can redraft in the other mode.
+4. Neutral cast: the hue of the weighted mean of a and b, its chroma capped at
+   0.018. Surfaces and neutrals take that hue at these OKLCH lightnesses, with
+   the cast chroma scaled per role (background 0.8, pane and container 1,
+   text 0.8, muted 1.4, comment 1.6):
+
+   | Role | Dark | Light |
+   |---|---|---|
+   | background | 0.205 | 0.925 |
+   | pane | 0.235 | 0.886 |
+   | container | 0.268 | 0.902 |
+   | text | 0.885 | 0.302 |
+   | muted | 0.606 | 0.541 |
+   | comment | 0.490 | 0.653 |
+   | accent | 0.680 | 0.510 |
+   | the six semantic roles | 0.700 | 0.490 |
+
+5. Accent: among clusters with chroma over 0.045, the one with the highest
+   chroma times the square root of its weight; its hue, its chroma clamped to
+   0.11 to 0.19. With no such cluster (a grey wallpaper): hue 44, chroma 0.15.
+6. Semantic roles start from these hues and chromas: error 23 / 0.155,
+   warning 78 / 0.125, success 141 / 0.075, cyan 190 / 0.062, blue 250 /
+   0.075, magenta 310 / 0.095. When the heaviest cluster with chroma over 0.04
+   lies within 35 degrees, the hue moves halfway to it and the chroma takes
+   the cluster's, clamped to 0.8 to 1.3 times the default.
+7. Out of gamut colours lose chroma (bisection) until they fit sRGB.
+8. Every role with a minimum (section Contrast) moves in lightness away from
+   the surfaces, 0.005 at a time, until it reaches its minimum plus 0.02 on
+   both `background` and `pane`. A draft therefore always passes `irida
+   check`.
+9. Name: the image file name in title case, letters and digits only, at most
+   four words, or "Wallpaper"; the slug follows from the name. No pins, no
+   pair, no role names.
+
+The palette builder artifact of 2026-10-16 is the reference implementation;
+the Rust version follows the same steps and values. Drafts from the two need
+not match byte for byte, since image decoding and scaling differ.
+
+The JavaScript of that page is kept as
+`docs/superpowers/specs/2026-10-16-wallpaper-draft.js`.
 
 ### Versions
 
@@ -451,8 +505,8 @@ session open, it offers to revert on next start.
 
 ### Main window
 
-- **Header:** palette name with a menu (switch, new, duplicate, import, export
-  as rice repo, delete), the mode chip, the pair chip, Compare, the try-live
+- **Header:** palette name with a menu (switch, new, new from wallpaper,
+  duplicate, import, export as rice repo, delete), the mode chip, the pair chip, Compare, the try-live
   toggle, Apply.
 - **Left, role list:** grouped as in the palette model. Each row shows the
   swatch, name, hex and the lower of its two contrast ratios, red when under
@@ -474,6 +528,14 @@ Lists detected targets with a toggle each, remembered per user. Not installed
 targets fold under one line. A broken target shows its error and stays off.
 After applying, a toast reports the result, names any app that needs a
 restart, and offers Undo.
+
+### New from wallpaper
+
+Opens with the current COSMIC wallpaper selected (read from
+`com.system76.CosmicBackground`; with one wallpaper per output, the first
+one), and a file chooser for any other image. It shows the image, the eight
+colours found, which one became the accent, and Dark and Light buttons. The
+draft opens in the role editor as an unsaved palette.
 
 Mockups: the three layouts and the chosen layout's states were reviewed as
 claude.ai artifacts on 2026-10-16.
@@ -550,12 +612,15 @@ irida check <palette>                    contrast table; exit 1 on a failure
 irida apply <palette> [--only btop,nvim]
 irida undo
 irida export <palette> <folder>
+irida draft <image> [--mode dark|light] [--name NAME]
 irida list
 ```
 
 `check` replaces the rice repos' `contrast.py`. `<palette>` is a slug, a path
 to a `palette.toml`, or a rice repo folder (imported on the fly). `list` lists
-saved palettes.
+saved palettes. `draft` makes a palette from an image (section Drafting from a
+wallpaper), saves it to the store, prints its check table, and refuses a slug
+that already exists.
 
 ## 8. Architecture
 
@@ -603,6 +668,9 @@ uses edition 2024 and Rust 1.93 or newer, as libcosmic does.
   missing markers, all against a temporary home folder. Native undo round-trips
   a `ThemeBuilder` and the terminal scheme maps through a temporary COSMIC
   config folder.
+- **Wallpaper draft:** the same image gives the same draft; for flat, grey,
+  two-tone and noise images every role meets its minimum in both modes; the
+  mode follows the image's lightness.
 - **Command line:** end-to-end runs of each subcommand.
 - **Built-in targets:** each checked once by hand against the real app before
   it counts as built-in.
@@ -616,14 +684,14 @@ uses edition 2024 and Rust 1.93 or newer, as libcosmic does.
    (days 3 to 6)
 3. Built-in targets: COSMIC desktop, COSMIC Terminal, btop, Neovim, fastfetch,
    lsd, zsh, cava (days 6 to 9)
-4. App: layout B, role editor, preview scene, Apply sheet (days 9 to 12)
+4. App: layout B, role editor, preview scene, Apply sheet, new from
+   wallpaper and `irida draft` (days 9 to 12)
 5. Compare, pairs, import of existing rices, rice export (days 12 to 13)
 6. The .deb (it needs the app, its `.desktop` file and icon), then try it live
    (day 14; try it live is the first thing to slip if time runs short)
 
 ## 12. Later
 
-- Wallpaper extraction as a first draft for the role editor
 - Base16 import
 - Wallpaper recolour (the logic of `scripts/wallpaper.sh`)
 - More built-in targets in batches: Alacritty, Kitty, Ghostty, WezTerm, Helix,
