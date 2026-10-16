@@ -17,9 +17,20 @@ use crate::write::atomic_write;
 pub enum StoreError {
     NotFound(String),
     BadSlug(String),
-    Unreadable { path: PathBuf, message: String },
-    Import { path: PathBuf, message: String },
-    Io { path: PathBuf, source: io::Error },
+    /// The palette breaks a rule its file needs; nothing was written.
+    Invalid(String),
+    Unreadable {
+        path: PathBuf,
+        message: String,
+    },
+    Import {
+        path: PathBuf,
+        message: String,
+    },
+    Io {
+        path: PathBuf,
+        source: io::Error,
+    },
 }
 
 impl fmt::Display for StoreError {
@@ -27,6 +38,7 @@ impl fmt::Display for StoreError {
         match self {
             StoreError::NotFound(what) => write!(f, "not found: {what}"),
             StoreError::BadSlug(slug) => write!(f, "invalid palette slug: {slug:?}"),
+            StoreError::Invalid(message) => write!(f, "{message}"),
             StoreError::Unreadable { path, message } | StoreError::Import { path, message } => {
                 write!(f, "{}: {message}", path.display())
             }
@@ -63,6 +75,13 @@ fn io_err(path: &Path, source: io::Error) -> StoreError {
 
 fn check_slug(slug: &str) -> Result<(), StoreError> {
     validate_slug(slug).map_err(|_| StoreError::BadSlug(slug.to_string()))
+}
+
+/// The checks every write of a palette makes first: the slug (it names the
+/// folder), then the rest of the file's rules.
+fn check_palette(p: &Palette) -> Result<(), StoreError> {
+    check_slug(&p.slug)?;
+    p.validate().map_err(|e| StoreError::Invalid(e.to_string()))
 }
 
 fn read_palette(path: &Path) -> Result<Palette, StoreError> {
@@ -125,7 +144,7 @@ impl Store {
     }
 
     pub fn save(&self, p: &Palette) -> Result<(), StoreError> {
-        check_slug(&p.slug)?;
+        check_palette(p)?;
         write_file(
             &self.palette_dir(&p.slug).join("palette.toml"),
             &p.to_toml(),
@@ -149,7 +168,7 @@ impl Store {
     }
 
     pub fn save_version(&self, p: &Palette) -> Result<u32, StoreError> {
-        check_slug(&p.slug)?;
+        check_palette(p)?;
         let n = self
             .version_numbers(&p.slug)?
             .into_iter()

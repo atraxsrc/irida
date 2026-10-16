@@ -75,10 +75,12 @@ fn readme_block_matches() {
 #[test]
 fn readme_block_transparent_and_alone() {
     let mut p = palette("ember");
-    p.pins.set(
-        irida_core::slot::Slot::Background,
-        irida_core::slot::PinValue::None,
-    );
+    p.pins
+        .set(
+            irida_core::slot::Slot::Background,
+            irida_core::slot::PinValue::None,
+        )
+        .expect("background can be none");
     let block = readme_block(&p, None);
     assert!(
         block.contains(" Pane, transparent | `#1B1E24` |"),

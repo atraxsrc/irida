@@ -1,7 +1,11 @@
 mod common;
 
-use irida_core::palette::{Mode, Palette, PaletteError, Roles, validate_name, validate_slug};
+use irida_core::color::Rgb;
+use irida_core::palette::{
+    Mode, Palette, PaletteError, Roles, slug_from_name, validate_name, validate_slug,
+};
 use irida_core::role::Role;
+use irida_core::slot::{PinError, PinValue, Pins, Slot};
 
 use common::{fixture_text, palette};
 
@@ -108,4 +112,73 @@ fn roles_new() {
     let p = palette("ember");
     let colors = Role::ALL.map(|r| p.roles.get(r));
     assert_eq!(Roles::new(colors), p.roles);
+}
+
+#[test]
+fn pins_none_only_for_background() {
+    let mut pins = Pins::default();
+    assert_eq!(pins.set(Slot::Background, PinValue::None), Ok(()));
+    assert_eq!(pins.get(Slot::Background), Some(PinValue::None));
+
+    let red = PinValue::Color(Rgb::from_hex("#FF0000").unwrap());
+    pins.set(Slot::Foreground, red)
+        .expect("colour pins are always allowed");
+    let before = pins.clone();
+    let err = pins.set(Slot::Foreground, PinValue::None).unwrap_err();
+    assert_eq!(err, PinError::NoneNotAllowed(Slot::Foreground));
+    assert_eq!(
+        err.to_string(),
+        "foreground cannot be none; only background can"
+    );
+    assert_eq!(pins, before);
+    assert_eq!(pins.get(Slot::Foreground), Some(red));
+
+    let mut empty = Pins::default();
+    assert!(empty.set(Slot::Cursor, PinValue::None).is_err());
+    assert!(empty.is_empty());
+}
+
+#[test]
+fn validate_rules() {
+    for s in SLUGS {
+        assert_eq!(palette(s).validate(), Ok(()), "{s}");
+    }
+    let mut paired = palette("ember");
+    paired.pair = Some("emberday".into());
+    assert_eq!(paired.validate(), Ok(()));
+
+    let mut p = palette("ember");
+    p.name = "Ember-Day".into();
+    let err = p.validate().unwrap_err();
+    assert!(matches!(err, PaletteError::BadName(_)), "{err:?}");
+    assert!(err.to_string().contains("name \"Ember-Day\""), "{err}");
+
+    let mut p = palette("ember");
+    p.slug = "ember2".into();
+    let err = p.validate().unwrap_err();
+    assert!(matches!(err, PaletteError::BadSlug(_)), "{err:?}");
+    assert!(err.to_string().contains("slug \"ember2\""), "{err}");
+
+    let mut p = palette("ember");
+    p.pair = Some("ember".into());
+    let err = p.validate().unwrap_err();
+    assert!(matches!(err, PaletteError::BadPair(_)), "{err:?}");
+    assert!(err.to_string().contains("pair \"ember\""), "{err}");
+
+    let mut p = palette("ember");
+    p.pair = Some("ember-day".into());
+    assert!(matches!(p.validate(), Err(PaletteError::BadPair(_))));
+
+    let mut p = palette("ember");
+    p.names.insert(Role::Accent, "  ".into());
+    let err = p.validate().unwrap_err();
+    assert_eq!(err, PaletteError::EmptyRoleName(Role::Accent));
+    assert!(err.to_string().contains("names.accent"), "{err}");
+}
+
+#[test]
+fn slug_from_name_cases() {
+    assert_eq!(slug_from_name("Ember Day"), "emberday");
+    assert_eq!(slug_from_name("Neon 80s"), "neons");
+    assert_eq!(slug_from_name("42"), "");
 }
