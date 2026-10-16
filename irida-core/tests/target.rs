@@ -4,7 +4,8 @@ use std::path::PathBuf;
 
 use common::TestEnv;
 use irida_core::target::{
-    LoadedTarget, Source, TargetError, WriteKind, is_detected, load_targets, Detect, TargetDef,
+    LoadedTarget, NativeKind, Source, TargetError, WriteKind, is_detected, load_targets, Detect,
+    TargetDef,
 };
 
 const CAVA: &str = r##"name = "cava"
@@ -89,6 +90,24 @@ fn validation_errors() {
             find(&all, folder).result.as_ref().err()
         );
     }
+}
+
+#[test]
+fn builtin_cosmic_term_and_user_override() {
+    let env = TestEnv::new();
+    let all = load_targets(&env.dirs);
+    let t = find(&all, "cosmic-term").result.as_ref().expect("built-in loads");
+    assert_eq!(t.source, Source::Builtin);
+    assert_eq!(t.def.native, Some(NativeKind::CosmicTerm));
+    assert!(t.def.live);
+
+    let user = "name = \"cosmic-term\"\n\n[[file]]\npath = \"~/.config/x\"\nwrite = \"file\"\ntemplate = \"a.tmpl\"\n";
+    put(&env, "cosmic-term", user, &["a.tmpl"]);
+    let all = load_targets(&env.dirs);
+    let t = find(&all, "cosmic-term").result.as_ref().expect("user target loads");
+    assert!(matches!(t.source, Source::User(_)));
+    assert_eq!(t.def.native, None);
+    assert_eq!(t.def.files.len(), 1);
 }
 
 #[test]

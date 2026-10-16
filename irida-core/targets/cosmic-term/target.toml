@@ -1,0 +1,4 @@
+name = "cosmic-term"
+native = "cosmic-term"
+live = true
+detect = { binary = "cosmic-term", config = "~/.config/cosmic/com.system76.CosmicTerm" }
