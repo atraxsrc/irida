@@ -1,7 +1,8 @@
 //! Apply records: what every file looked like before an apply, for rollback and undo.
 
 use std::fs;
-use std::io;
+use std::io::{self, Write};
+use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
@@ -98,6 +99,18 @@ fn record_ids(dirs: &Dirs) -> io::Result<Vec<u32>> {
     Ok(ids)
 }
 
+/// Create a folder (and missing parents) readable only by the user.
+fn private_dir(path: &Path, recursive: bool) -> io::Result<()> {
+    fs::DirBuilder::new().recursive(recursive).mode(0o700).create(path)
+}
+
+/// Write a new file readable only by the user; fails when it already exists.
+fn write_private(path: &Path, contents: &[u8]) -> io::Result<()> {
+    let mut f = fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(path)?;
+    f.write_all(contents)?;
+    f.sync_all()
+}
+
 fn is_absent(e: &io::Error) -> bool {
     matches!(e.kind(), io::ErrorKind::NotFound | io::ErrorKind::NotADirectory)
 }
@@ -111,10 +124,10 @@ pub struct RecordWriter {
 impl RecordWriter {
     /// Start a record in a new folder numbered one above the highest existing one.
     pub fn create(dirs: &Dirs, palette_slug: &str) -> io::Result<RecordWriter> {
-        fs::create_dir_all(applies_dir(dirs))?;
+        private_dir(&applies_dir(dirs), true)?;
         let id = record_ids(dirs)?.last().map_or(1, |n| n + 1);
         let dir = record_dir(dirs, id);
-        fs::create_dir(&dir)?;
+        private_dir(&dir, false)?;
         Ok(RecordWriter {
             dir,
             record: Record { id, palette: palette_slug.to_string(), entries: Vec::new() },
@@ -130,8 +143,8 @@ impl RecordWriter {
             Err(e) => return Err(e),
         };
         let name = format!("files/{}", self.blobs);
-        fs::create_dir_all(self.dir.join("files"))?;
-        fs::write(self.dir.join(&name), bytes)?;
+        private_dir(&self.dir.join("files"), true)?;
+        write_private(&self.dir.join(&name), &bytes)?;
         self.blobs += 1;
         Ok(Some(name))
     }
@@ -143,7 +156,13 @@ impl RecordWriter {
     /// Write `record.toml` and return the record.
     pub fn finish(self) -> io::Result<Record> {
         let text = toml::to_string(&self.record).map_err(io::Error::other)?;
-        atomic_write(&self.dir.join(RECORD_FILE), text.as_bytes())?;
+        let tmp = self.dir.join(format!(".{RECORD_FILE}.tmp"));
+        let result = write_private(&tmp, text.as_bytes())
+            .and_then(|()| fs::rename(&tmp, self.dir.join(RECORD_FILE)));
+        if result.is_err() {
+            let _ = fs::remove_file(&tmp);
+        }
+        result?;
         Ok(self.record)
     }
 }
