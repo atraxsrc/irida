@@ -127,6 +127,7 @@ pub(crate) fn plan(palettes: &[&Palette], dirs: &Dirs) -> Result<NativePlan, Tar
             undo: vec![NativeUndo::TermScheme {
                 mode: p.mode,
                 id,
+                name: p.name.clone(),
                 before,
             }],
         });
@@ -193,10 +194,24 @@ fn bad_record(what: &str, e: impl std::fmt::Display) -> std::io::Error {
 
 /// `color_schemes_<mode>` text with the scheme at `id` put back as `before`
 /// (its RON), or removed when `before` is `None`. Every other scheme is kept.
-pub(crate) fn undo_scheme(current: &str, id: u64, before: Option<&str>) -> std::io::Result<Undone> {
+/// `name` is the scheme Irida wrote at `id`: when the id now holds a scheme
+/// with another name, the user put it there after the apply, and it is kept.
+/// When the id is empty, `before` is put back if there was one.
+pub(crate) fn undo_scheme(
+    current: &str,
+    id: u64,
+    name: &str,
+    before: Option<&str>,
+) -> std::io::Result<Undone> {
     let Ok(mut schemes) = ron::from_str::<Schemes>(current) else {
         return Ok(Undone::Unparsable);
     };
+    if schemes.get(&id).is_some_and(|s| s.name != name) {
+        return Ok(Undone::Text {
+            text: current.to_string(),
+            empty: false,
+        });
+    }
     match before {
         Some(text) => {
             let scheme: ColorScheme =

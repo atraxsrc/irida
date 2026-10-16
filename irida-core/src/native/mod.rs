@@ -24,9 +24,12 @@ pub struct KeyFileWrite {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum NativeUndo {
     /// One COSMIC Terminal colour scheme, by id, in `color_schemes_<mode>`.
+    /// `name` is the name Irida wrote there, so undo can tell Irida's scheme
+    /// from one the user put at the same id later.
     TermScheme {
         mode: Mode,
         id: u64,
+        name: String,
         before: Option<String>,
     },
     /// One syntax theme field of one COSMIC Terminal profile, in `profiles`.

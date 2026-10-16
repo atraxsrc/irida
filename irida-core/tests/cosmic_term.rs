@@ -399,6 +399,7 @@ fn plan_lists_undo_items() {
         [NativeUndo::TermScheme {
             mode: Mode::Dark,
             id: 3,
+            name: "Ember".into(),
             before: Some(ron_text(&old_ember)),
         }]
     );
@@ -407,6 +408,7 @@ fn plan_lists_undo_items() {
         [NativeUndo::TermScheme {
             mode: Mode::Light,
             id: 0,
+            name: "Ember Day".into(),
             before: None,
         }]
     );
@@ -466,6 +468,84 @@ fn undo_keeps_user_scheme() {
     assert_eq!(profile_field(&env, 1, "syntax_theme_light"), "COSMIC Light");
     assert_eq!(profile_field(&env, 0, "name"), "Other");
     assert_eq!(read_key(&env, "syntax_theme_dark"), "\"Gruvbox\"");
+}
+
+#[test]
+fn undo_keeps_user_scheme_at_reused_id() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    let gruvbox = named("Gruvbox", 0x11);
+    put(
+        &env,
+        "color_schemes_dark",
+        &ron_text(&Schemes::from([(0, gruvbox.clone())])),
+    );
+
+    apply_term(&env, &ember, None, &["cosmic-term"]).unwrap();
+    let mut dark: Schemes = ron::from_str(&read_key(&env, "color_schemes_dark")).unwrap();
+    assert_eq!(dark[&1], scheme_of(&ember));
+
+    // The user deletes Ember in Terminal settings and imports their own
+    // scheme, which COSMIC Terminal puts at the id Ember had.
+    let mine = named("Mine", 0x33);
+    dark.insert(1, mine.clone());
+    put(&env, "color_schemes_dark", &ron_text(&dark));
+
+    undo_term(&env);
+    let dark: Schemes = ron::from_str(&read_key(&env, "color_schemes_dark")).unwrap();
+    assert_eq!(dark, Schemes::from([(0, gruvbox), (1, mine)]));
+}
+
+#[test]
+fn undo_keeps_user_scheme_over_replaced_one() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    let old_ember = named("Ember", 0x22);
+    put(
+        &env,
+        "color_schemes_dark",
+        &ron_text(&Schemes::from([(0, old_ember)])),
+    );
+
+    apply_term(&env, &ember, None, &["cosmic-term"]).unwrap();
+    let mine = named("Mine", 0x33);
+    put(
+        &env,
+        "color_schemes_dark",
+        &ron_text(&Schemes::from([(0, mine.clone())])),
+    );
+
+    undo_term(&env);
+    let dark: Schemes = ron::from_str(&read_key(&env, "color_schemes_dark")).unwrap();
+    assert_eq!(dark, Schemes::from([(0, mine)]));
+}
+
+#[test]
+fn undo_restores_replaced_scheme_the_user_deleted() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    let gruvbox = named("Gruvbox", 0x11);
+    let old_ember = named("Ember", 0x22);
+    put(
+        &env,
+        "color_schemes_dark",
+        &ron_text(&Schemes::from([
+            (0, gruvbox.clone()),
+            (1, old_ember.clone()),
+        ])),
+    );
+
+    apply_term(&env, &ember, None, &["cosmic-term"]).unwrap();
+    // The user deletes Irida's Ember; undo still puts the old one back.
+    put(
+        &env,
+        "color_schemes_dark",
+        &ron_text(&Schemes::from([(0, gruvbox.clone())])),
+    );
+
+    undo_term(&env);
+    let dark: Schemes = ron::from_str(&read_key(&env, "color_schemes_dark")).unwrap();
+    assert_eq!(dark, Schemes::from([(0, gruvbox), (1, old_ember)]));
 }
 
 #[test]

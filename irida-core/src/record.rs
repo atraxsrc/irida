@@ -41,14 +41,16 @@ pub enum Entry {
         before: Option<String>,
         appended_newline: bool,
     },
-    /// One COSMIC Terminal colour scheme; `before` is its RON, `None` when the
-    /// id was free.
+    /// One COSMIC Terminal colour scheme; `name` is the scheme Irida wrote at
+    /// `id`, `before` its RON before the write, `None` when the id was free.
     TermScheme {
         path: PathBuf,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         blob: Option<String>,
         mode: Mode,
         id: u64,
+        #[serde(default)]
+        name: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         before: Option<String>,
     },
@@ -309,12 +311,12 @@ fn undo_edit(dir: &Path, e: &Entry) -> io::Result<()> {
             let empty = text.is_empty();
             (text, empty)
         }
-        Entry::TermScheme { id, before, .. } => {
-            match cosmic_term::undo_scheme(&current, *id, before.as_deref())? {
-                Undone::Text { text, empty } => (text, empty),
-                Undone::Unparsable => return put_back(dir, path, e.blob()),
-            }
-        }
+        Entry::TermScheme {
+            id, name, before, ..
+        } => match cosmic_term::undo_scheme(&current, *id, name, before.as_deref())? {
+            Undone::Text { text, empty } => (text, empty),
+            Undone::Unparsable => return put_back(dir, path, e.blob()),
+        },
         Entry::TermProfileTheme {
             profile,
             field,
