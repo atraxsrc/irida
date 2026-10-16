@@ -135,13 +135,26 @@ fn constant_line(key: &str) -> Regex {
     Regex::new(&format!(r#"(?m)^{key} = "(#[0-9A-Fa-f]{{6}})"$"#)).expect("pattern compiles")
 }
 
-/// A Python string's text: every backslash keeps only the character after it.
+/// A Python string's text: `\xHH` is that character, and every other
+/// backslash keeps only the character after it.
 fn py_unescape(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     let mut chars = s.chars();
     while let Some(c) = chars.next() {
         match c {
-            '\\' => out.extend(chars.next()),
+            '\\' => match chars.next() {
+                Some('x') => {
+                    let digits: String = chars.clone().take(2).collect();
+                    if digits.len() == 2 && digits.chars().all(|d| d.is_ascii_hexdigit()) {
+                        let b = u8::from_str_radix(&digits, 16).expect("two hex digits");
+                        out.push(char::from(b));
+                        chars.nth(1);
+                    } else {
+                        out.push('x');
+                    }
+                }
+                next => out.extend(next),
+            },
             c => out.push(c),
         }
     }
@@ -152,10 +165,10 @@ fn py_escape(s: &str) -> String {
     s.replace('\\', r"\\").replace('"', r#"\""#)
 }
 
-/// [`py_escape`] with `/` escaped too, so the ` / ` between the container
-/// and pane names of `Containers` stays the only unescaped one.
+/// [`py_escape`] with `/` written `\x2f`, so the ` / ` between the container
+/// and pane names of `Containers` is the only `/` in the line.
 fn py_escape_half(s: &str) -> String {
-    py_escape(s).replace('/', r"\/")
+    py_escape(s).replace('/', r"\x2f")
 }
 
 /// Path 1: the roles and names in `scripts/contrast.py`, when it has exactly
@@ -214,7 +227,7 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
                 keep(Role::Background, py_unescape(&c[3]));
             }
             "Containers" => {
-                // Split before unescaping: a `/` in a name is written `\/`.
+                // Split before unescaping: a `/` in a name is written `\x2f`.
                 let (container, pane) = c[3].split_once(" / ")?;
                 keep(Role::Container, py_unescape(container));
                 keep(Role::Pane, py_unescape(pane));
