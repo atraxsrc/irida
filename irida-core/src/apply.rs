@@ -231,11 +231,17 @@ impl PlannedWrite {
             Edit::Native(undo) => undo
                 .iter()
                 .map(|u| match u {
-                    NativeUndo::TermScheme { mode, id, before } => Entry::TermScheme {
+                    NativeUndo::TermScheme {
+                        mode,
+                        id,
+                        name,
+                        before,
+                    } => Entry::TermScheme {
                         path: path.clone(),
                         blob: blob.clone(),
                         mode: *mode,
                         id: *id,
+                        name: name.clone(),
                         before: before.clone(),
                     },
                     NativeUndo::TermProfileTheme {
