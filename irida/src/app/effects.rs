@@ -3,6 +3,7 @@
 
 use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
 use irida_core::apply::{
     self, ApplyError, ApplyRequest, Ctx, UndoError, UndoReport, target_status,
@@ -364,6 +365,9 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
         Effect::LoadLiveTargets(settings) => {
             Msg::LiveTargets(any_live_target(&target_status(ctx, &settings)))
         }
+        Effect::RetryAppLock => {
+            Msg::AppLock(live::lock_app(&ctx.dirs).ok().flatten().map(Arc::new))
+        }
         Effect::Toast(_)
         | Effect::Copy(_)
         | Effect::ChooseFolder(_)
@@ -469,6 +473,7 @@ pub(crate) fn panicked(effect: Effect, ctx: &Ctx, error: String) -> Msg {
         | Effect::LoadPair(_)
         | Effect::FindPendingLive
         | Effect::LoadLiveTargets(_)
+        | Effect::RetryAppLock
         | Effect::Toast(_)
         | Effect::Copy(_)
         | Effect::ChooseFolder(_)
