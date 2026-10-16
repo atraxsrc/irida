@@ -3,7 +3,9 @@
 
 mod effects;
 mod header;
+mod preview;
 mod roles;
+mod scene;
 mod state;
 
 use std::path::PathBuf;
@@ -208,7 +210,10 @@ impl Application for App {
                     widget::Column::new()
                         .spacing(12)
                         .width(Length::FillPortion(3))
-                        .push(widget::Space::new().height(Length::Fill))
+                        .push(
+                            widget::scrollable(preview::view(scene::scene(working)))
+                                .height(Length::Fill),
+                        )
                         .push(roles::notes(working)),
                 )
                 .into(),
