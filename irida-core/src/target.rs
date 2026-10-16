@@ -161,10 +161,10 @@ fn build(
         }
     }
     for r in &def.rice {
-        if let Some(t) = &r.template {
-            if !templates.contains_key(t) {
-                return invalid(format!("{}: missing template {t}", r.path));
-            }
+        if let Some(t) = &r.template
+            && !templates.contains_key(t)
+        {
+            return invalid(format!("{}: missing template {t}", r.path));
         }
     }
     Ok(Target { def, templates, source })
@@ -253,20 +253,20 @@ pub fn is_detected(def: &TargetDef, dirs: &Dirs, path: &[PathBuf]) -> bool {
     if d.binary.is_none() && d.config.is_none() && d.flatpak.is_none() {
         return true;
     }
-    if let Some(bin) = &d.binary {
-        if path.iter().any(|p| is_executable(&p.join(bin))) {
-            return true;
-        }
+    if let Some(bin) = &d.binary
+        && path.iter().any(|p| is_executable(&p.join(bin)))
+    {
+        return true;
     }
-    if let Some(cfg) = &d.config {
-        if dirs.expand(cfg).is_dir() {
-            return true;
-        }
+    if let Some(cfg) = &d.config
+        && dirs.expand(cfg).is_dir()
+    {
+        return true;
     }
-    if let Some(id) = &d.flatpak {
-        if dirs.home.join(".var/app").join(id).join("config").is_dir() {
-            return true;
-        }
+    if let Some(id) = &d.flatpak
+        && dirs.home.join(".var/app").join(id).join("config").is_dir()
+    {
+        return true;
     }
     false
 }
