@@ -1,0 +1,22 @@
+name = "btop"
+detect = { binary = "btop", config = "~/.config/btop" }
+
+[[file]]
+path = "~/.config/btop/themes/irida.theme"
+write = "file"
+template = "btop.theme.tmpl"
+
+[[file]]
+path = "~/.config/btop/btop.conf"
+write = "key"
+key = "color_theme"
+template = "color_theme.tmpl"
+
+[reload]
+signal = { process = "btop", signal = "USR2" }
+min_version = { command = "btop --version", version = "1.3.2" }
+
+[[rice]]
+path = "btop/{{ stem }}.theme"
+install = "file"
+template = "btop.theme.tmpl"
