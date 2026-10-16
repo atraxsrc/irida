@@ -1531,15 +1531,20 @@ impl State {
         vec![Effect::SaveSettings(self.settings.clone())]
     }
 
-    /// Do `leave`, first asking Save, Discard or Cancel when there are
-    /// unsaved changes.
+    /// Do `leave` the user asked for, as `leave_now` does. It replaces any
+    /// answer still waiting on a save: the newest answer decides.
     fn leave(&mut self, leave: Leave) -> Vec<Effect> {
+        self.after_save = None;
+        self.leave_now(leave)
+    }
+
+    /// Do `leave`, first asking Save, Discard or Cancel when there are
+    /// unsaved changes, and Keep or Revert when Try it live is on.
+    fn leave_now(&mut self, leave: Leave) -> Vec<Effect> {
         if self.live.is_some() {
             return self.ask_live(LiveThen::Leave(leave));
         }
         if self.dirty() {
-            // A new question replaces any answer still waiting on a save.
-            self.after_save = None;
             self.dialog = Some(Dialog::Unsaved(leave));
             Vec::new()
         } else {
@@ -1801,7 +1806,8 @@ impl State {
             Some(LiveThen::Switch) => update(self, Msg::ShowSwitch),
             Some(LiveThen::Delete) => update(self, Msg::ShowDelete),
             Some(LiveThen::Apply) => update(self, Msg::ShowApply),
-            Some(LiveThen::Leave(leave)) => self.leave(leave),
+            // Asked before, so an answer waiting on a save still stands.
+            Some(LiveThen::Leave(leave)) => self.leave_now(leave),
         }
     }
 
@@ -1915,7 +1921,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     // An edit made while the save ran is not in it: ask
                     // again rather than drop it.
                     if let Some(leave) = leave {
-                        effects.extend(state.leave(leave));
+                        effects.extend(state.leave_now(leave));
                     }
                     effects
                 }
@@ -1924,7 +1930,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     // Asked from the unsaved-changes question: ask it again,
                     // so a draft is not lost.
                     if let Some(leave) = leave {
-                        effects.extend(state.leave(leave));
+                        effects.extend(state.leave_now(leave));
                     }
                     effects
                 }
@@ -2470,8 +2476,8 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             let mut effects = vec![state.toast(lines.join("\n")), Effect::ListEntries];
             // A Replace over the open palette asked about its edits before
             // it wrote, so this only asks about an edit made since, or an
-            // open draft.
-            effects.extend(state.leave(Leave::Open(p.slug)));
+            // open draft. A Save then exit the user asked for still exits.
+            effects.extend(state.leave_now(Leave::Open(p.slug)));
             effects
         }
         Msg::ImportSaved { result: Err(e), .. } => {
@@ -5782,6 +5788,87 @@ mod tests {
         assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
         let ui = drive(&mut state, Msg::UnsavedDiscard);
         assert!(matches!(ui.as_slice(), [Effect::Exit]), "{ui:?}");
+    }
+
+    #[test]
+    fn newest_answer_decides_with_try_it_live_on() {
+        for ok in [true, false] {
+            let tmp = TempDir::new().unwrap();
+            store_with(&tmp, &["ember", "noir"]);
+            put_cava(&tmp);
+            let mut state = start(&tmp);
+            drive(&mut state, Msg::SetRole(Role::Accent, red()));
+            drive(&mut state, Msg::CloseRequested);
+            let running = update(&mut state, Msg::UnsavedSave);
+            assert!(matches!(running.as_slice(), [Effect::SaveVersion { .. }]));
+
+            // While the save runs, Try it live goes on and New asks Keep or
+            // Revert: that answer replaces Save then exit.
+            drive(&mut state, Msg::LiveToggle(true));
+            drive(&mut state, Msg::ShowNew);
+            drive(&mut state, Msg::NameInput("Moss".to_string()));
+            drive(&mut state, Msg::NameConfirm);
+            let create = state.dialog.clone();
+            assert!(
+                matches!(
+                    &create,
+                    Some(Dialog::KeepOrRevert {
+                        then: Some(LiveThen::Leave(Leave::Create(p))),
+                        pending: false,
+                    }) if p.slug == "moss"
+                ),
+                "{create:?}"
+            );
+            let ui = if ok {
+                drive_effects(&mut state, running)
+            } else {
+                drive(&mut state, Msg::Saved(Err("disk full".to_string())))
+            };
+            assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+            assert_eq!(state.dialog, create);
+            let ui = drive(&mut state, Msg::LiveKeep);
+            assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+            assert!(!state.live_on());
+            if ok {
+                assert_eq!(open_slug(&state), Some("moss"));
+            } else {
+                assert!(
+                    matches!(&state.dialog, Some(Dialog::Unsaved(Leave::Create(p))) if p.slug == "moss"),
+                    "{:?}",
+                    state.dialog
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn finished_import_keeps_save_then_exit() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::CloseRequested);
+        let running = update(&mut state, Msg::UnsavedSave);
+        assert!(matches!(running.as_slice(), [Effect::SaveVersion { .. }]));
+
+        // An import started earlier finishes while the save runs: it asks to
+        // open what it wrote, but the save still exits.
+        drive_effects(
+            &mut state,
+            vec![Effect::SaveImport {
+                palette: starter("noir"),
+                notes: Vec::new(),
+                replace: false,
+            }],
+        );
+        assert!(store.load("noir").is_ok());
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::Unsaved(Leave::Open("noir".to_string())))
+        );
+        let ui = drive_effects(&mut state, running);
+        assert!(ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+        assert!(state.dialog.is_none());
     }
 
     #[test]
