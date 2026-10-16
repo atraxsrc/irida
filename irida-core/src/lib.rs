@@ -6,6 +6,7 @@ pub mod dirs;
 pub mod export;
 pub mod export_docs;
 pub mod import;
+pub mod live;
 pub mod native;
 pub mod palette;
 pub mod ramp;

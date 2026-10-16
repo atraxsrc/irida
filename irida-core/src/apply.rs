@@ -7,6 +7,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::dirs::{Dirs, DirsError};
+use crate::live;
+use crate::native::cosmic_term;
 use crate::native::{self, NativeUndo};
 use crate::palette::Palette;
 use crate::record::{self, Entry, Record, RecordWriter, RestoreMode};
@@ -19,7 +21,7 @@ use crate::template::{Renderer, check_syntax};
 use crate::write::{atomic_write, resolve_write_path, set_block, set_key};
 
 /// Apply records kept after an apply.
-const KEEP_RECORDS: usize = 10;
+pub(crate) const KEEP_RECORDS: usize = 10;
 
 /// Where an apply reads and writes, and the `$PATH` used to detect and reload apps.
 #[derive(Debug, Clone)]
@@ -201,6 +203,8 @@ pub struct UndoReport {
 #[derive(Debug)]
 pub enum UndoError {
     NothingToUndo,
+    /// A live session's record is open; it is kept or reverted in the app.
+    LiveSessionOpen,
     Io(io::Error),
 }
 
@@ -208,6 +212,12 @@ impl fmt::Display for UndoError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             UndoError::NothingToUndo => write!(f, "nothing to undo"),
+            UndoError::LiveSessionOpen => {
+                write!(
+                    f,
+                    "A live session is open; keep or revert it in Irida first"
+                )
+            }
             UndoError::Io(e) => write!(f, "apply record: {e}"),
         }
     }
@@ -217,7 +227,7 @@ impl std::error::Error for UndoError {
     fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
         match self {
             UndoError::Io(e) => Some(e),
-            UndoError::NothingToUndo => None,
+            UndoError::NothingToUndo | UndoError::LiveSessionOpen => None,
         }
     }
 }
@@ -652,36 +662,208 @@ impl TargetPlan<'_> {
     }
 }
 
-/// Capture every file once before it is written. On failure the unfinished record
-/// folder, which holds private copies, is deleted; the capture or finish error
-/// is returned even when that cleanup fails.
-fn record_writes(dirs: &Dirs, slug: &str, writes: &[&PlannedWrite]) -> Result<Record, ApplyError> {
-    let mut writer = RecordWriter::create(dirs, slug).map_err(ApplyError::Record)?;
+/// Capture every file before it is written and save the record; then write,
+/// rolling back from the record when a write fails.
+fn write_recorded(
+    dirs: &Dirs,
+    rec: &mut RecordWriter,
+    writes: &[&PlannedWrite],
+) -> Result<(), ApplyError> {
     for w in writes {
-        match writer.capture(&w.path) {
-            Ok(blob) => {
-                for e in w.entries(blob) {
-                    writer.push(e);
-                }
+        let blob = rec.capture(&w.path).map_err(ApplyError::Record)?;
+        for e in w.entries(blob) {
+            rec.push(e);
+        }
+    }
+    rec.save().map_err(ApplyError::Record)?;
+    // Entries of the writes done so far; one write can make several entries.
+    let mut done = 0;
+    for w in writes {
+        if let Err(source) = atomic_write(&w.path, w.contents.as_bytes()) {
+            let record = rec.record();
+            let completed = Record {
+                id: record.id,
+                palette: record.palette.clone(),
+                entries: record.entries[..done].to_vec(),
+            };
+            let rolled_back = record::restore(dirs, &completed, RestoreMode::Rollback).is_empty();
+            return Err(ApplyError::Write {
+                path: w.path.clone(),
+                source,
+                rolled_back,
+            });
+        }
+        done += w.entry_count();
+    }
+    Ok(())
+}
+
+/// The bytes at `path` now, through symlinks; `None` when it does not exist.
+fn current_bytes(path: &Path) -> io::Result<Option<Vec<u8>>> {
+    match fs::read(resolve_write_path(path)?) {
+        Ok(bytes) => Ok(Some(bytes)),
+        Err(e)
+            if matches!(
+                e.kind(),
+                io::ErrorKind::NotFound | io::ErrorKind::NotADirectory
+            ) =>
+        {
+            Ok(None)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+/// Add a live session apply's writes to its record. A path is captured only
+/// the first time the session writes it; after that only new COSMIC Terminal
+/// schemes and profile fields get entries, their `before` read from the
+/// session's captured copy, so undo goes back to before the session.
+fn add_session_entries(rec: &mut RecordWriter, writes: &[&PlannedWrite]) -> io::Result<()> {
+    for w in writes {
+        if !rec.has(&w.path) {
+            let blob = rec.capture(&w.path)?;
+            for e in w.entries(blob) {
+                rec.push(e);
             }
-            Err(e) => {
-                let _ = writer.abort();
-                return Err(ApplyError::Record(e));
+            continue;
+        }
+        let Edit::Native(undo) = &w.edit else {
+            continue;
+        };
+        let (blob, text) = match rec.captured(&w.path)? {
+            Some((name, bytes)) => (Some(name), String::from_utf8(bytes).ok()),
+            None => (None, None),
+        };
+        for u in undo {
+            match u {
+                NativeUndo::TermScheme { mode, id, name, .. } => {
+                    let known = rec.entries_mut().iter_mut().find_map(|e| match e {
+                        Entry::TermScheme {
+                            path,
+                            mode: m,
+                            id: i,
+                            name: n,
+                            ..
+                        } if *path == w.path && m == mode && i == id => Some(n),
+                        _ => None,
+                    });
+                    match known {
+                        // Undo must recognise the scheme this apply wrote there.
+                        Some(n) => n.clone_from(name),
+                        None => rec.push(Entry::TermScheme {
+                            path: w.path.clone(),
+                            blob: blob.clone(),
+                            mode: *mode,
+                            id: *id,
+                            name: name.clone(),
+                            before: text
+                                .as_deref()
+                                .and_then(|t| cosmic_term::scheme_before(t, *id)),
+                        }),
+                    }
+                }
+                NativeUndo::TermProfileTheme { profile, field, .. } => {
+                    let known = rec.record().entries.iter().any(|e| {
+                        matches!(e, Entry::TermProfileTheme { path, profile: p, field: f, .. }
+                            if *path == w.path && p == profile && f == field)
+                    });
+                    if !known {
+                        rec.push(Entry::TermProfileTheme {
+                            path: w.path.clone(),
+                            blob: blob.clone(),
+                            profile: *profile,
+                            field: field.clone(),
+                            before: text.as_deref().and_then(|t| {
+                                cosmic_term::profile_theme_before(t, *profile, field)
+                            }),
+                        });
+                    }
+                }
             }
         }
     }
-    // `finish` consumes the writer, so its own id names the folder to clean up.
-    let id = writer.id();
-    writer.finish().map_err(|e| {
-        let _ = record::delete(dirs, id);
-        ApplyError::Record(e)
-    })
+    Ok(())
+}
+
+/// A live session's writes: record what is new, save the record before the
+/// first write, then write. A failed write puts back only this call's writes
+/// from the bytes read just before it, and sets the record back to how it was
+/// before this call; the record itself is never deleted.
+fn write_session(rec: &mut RecordWriter, writes: &[&PlannedWrite]) -> Result<(), ApplyError> {
+    let before = writes
+        .iter()
+        .map(|w| current_bytes(&w.path))
+        .collect::<io::Result<Vec<_>>>()
+        .map_err(ApplyError::Record)?;
+    let checkpoint = rec.checkpoint();
+    if let Err(e) = add_session_entries(rec, writes).and_then(|()| rec.save()) {
+        let _ = rec.rewind(checkpoint);
+        return Err(ApplyError::Record(e));
+    }
+    for (i, w) in writes.iter().enumerate() {
+        if let Err(source) = atomic_write(&w.path, w.contents.as_bytes()) {
+            let failed = writes[..i]
+                .iter()
+                .zip(&before)
+                .rev()
+                .filter(|(w, bytes)| {
+                    match bytes {
+                        Some(b) => atomic_write(&w.path, b),
+                        None => record::remove(&w.path),
+                    }
+                    .is_err()
+                })
+                .count();
+            let rolled_back = failed == 0;
+            if rolled_back {
+                let _ = rec.rewind(checkpoint);
+            }
+            return Err(ApplyError::Write {
+                path: w.path.clone(),
+                source,
+                rolled_back,
+            });
+        }
+    }
+    Ok(())
 }
 
 pub fn apply(
     ctx: &Ctx,
     settings: &Settings,
     req: &ApplyRequest,
+) -> Result<ApplyReport, ApplyError> {
+    let mut rec = RecordWriter::create(&ctx.dirs, &req.palette.slug).map_err(ApplyError::Record)?;
+    match apply_into(ctx, settings, req, &mut rec, false) {
+        Ok(report) => {
+            let _ = record::prune(&ctx.dirs, KEEP_RECORDS);
+            Ok(report)
+        }
+        // Rolling back failed, so the record is kept for `irida undo` to retry.
+        Err(
+            e @ ApplyError::Write {
+                rolled_back: false, ..
+            },
+        ) => Err(e),
+        Err(e) => {
+            // The unfinished folder holds private copies; the apply error is
+            // returned even when this cleanup fails.
+            let _ = rec.abort();
+            Err(e)
+        }
+    }
+}
+
+/// Select, plan, record and write one apply into `rec`, then reload. With
+/// `session` false, `rec` is fresh and the caller cleans it up on failure;
+/// with `session` true, `rec` is a live session's record (see `write_session`).
+/// Nothing is pruned here.
+pub(crate) fn apply_into(
+    ctx: &Ctx,
+    settings: &Settings,
+    req: &ApplyRequest,
+    rec: &mut RecordWriter,
+    session: bool,
 ) -> Result<ApplyReport, ApplyError> {
     let loaded = load_targets(&ctx.dirs);
     if let Some(only) = &req.only
@@ -691,11 +873,16 @@ pub fn apply(
     }
 
     let renderer = Renderer::new(req.palette);
+    // Files Irida wrote last time: the newest record's, and an open session's.
     let recorded: Vec<PathBuf> = record::latest(&ctx.dirs)
         .ok()
         .flatten()
-        .map(|r| r.entries.iter().map(|e| e.path().to_path_buf()).collect())
-        .unwrap_or_default();
+        .map(|r| r.entries)
+        .unwrap_or_default()
+        .iter()
+        .chain(&rec.record().entries)
+        .map(|e| e.path().to_path_buf())
+        .collect();
     let mut seen = Vec::new();
     let mut plans = Vec::new();
     for lt in &loaded {
@@ -736,28 +923,10 @@ pub fn apply(
         return Err(ApplyError::NothingToApply(results));
     }
 
-    let record = record_writes(&ctx.dirs, &req.palette.slug, &writes)?;
-    // Entries of the writes done so far; one write can make several entries.
-    let mut done = 0;
-    for w in &writes {
-        if let Err(source) = atomic_write(&w.path, w.contents.as_bytes()) {
-            let completed = Record {
-                id: record.id,
-                palette: record.palette.clone(),
-                entries: record.entries[..done].to_vec(),
-            };
-            let rolled_back =
-                record::restore(&ctx.dirs, &completed, RestoreMode::Rollback).is_empty();
-            if rolled_back {
-                let _ = record::delete(&ctx.dirs, record.id);
-            }
-            return Err(ApplyError::Write {
-                path: w.path.clone(),
-                source,
-                rolled_back,
-            });
-        }
-        done += w.entry_count();
+    if session {
+        write_session(rec, &writes)?;
+    } else {
+        write_recorded(&ctx.dirs, rec, &writes)?;
     }
 
     let targets = plans
@@ -770,16 +939,15 @@ pub fn apply(
             p.into_result(status)
         })
         .collect();
-    let _ = record::prune(&ctx.dirs, KEEP_RECORDS);
     Ok(ApplyReport {
-        record_id: record.id,
+        record_id: rec.id(),
         targets,
     })
 }
 
 /// Reload one applied target. A signal is sent only when the target's binary
 /// is on the path: an app found only by its config folder cannot be running.
-fn reload_target(target: &Target, ctx: &Ctx) -> ReloadStatus {
+pub(crate) fn reload_target(target: &Target, ctx: &Ctx) -> ReloadStatus {
     let r = target.def.reload.as_ref();
     // A signal goes only to a target whose binary is on PATH; one found only
     // by its config folder, or with no binary named, cannot be running.
@@ -797,7 +965,11 @@ fn reload_target(target: &Target, ctx: &Ctx) -> ReloadStatus {
 }
 
 /// Undo the newest apply, keeping the user's own edits to block and key files.
+/// Refuses while a live session's record is open.
 pub fn undo(ctx: &Ctx) -> Result<UndoReport, UndoError> {
+    if live::marker_record(&ctx.dirs).is_some_and(|id| record::exists(&ctx.dirs, id)) {
+        return Err(UndoError::LiveSessionOpen);
+    }
     let record = record::latest(&ctx.dirs)
         .map_err(UndoError::Io)?
         .ok_or(UndoError::NothingToUndo)?;

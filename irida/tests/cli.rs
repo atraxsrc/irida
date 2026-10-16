@@ -208,6 +208,33 @@ fn undo_nothing() {
 }
 
 #[test]
+fn undo_refuses_during_live_session() {
+    let tmp = TempDir::new().unwrap();
+    apply_env(&tmp)
+        .args(["apply", "ember", "--only", "btop"])
+        .assert()
+        .code(0);
+    // A live session whose record is apply 1.
+    let marker = tmp.path().join("home/.local/state/irida/live.toml");
+    fs::write(&marker, "palette = \"ember\"\nrecord = 1\n").unwrap();
+    apply_env(&tmp)
+        .arg("undo")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "A live session is open; keep or revert it in Irida first",
+        ));
+    assert!(
+        tmp.path()
+            .join("home/.local/state/irida/applies/1")
+            .is_dir()
+    );
+
+    fs::remove_file(&marker).unwrap();
+    apply_env(&tmp).arg("undo").assert().code(0);
+}
+
+#[test]
 fn apply_reports_even_when_settings_cannot_be_saved() {
     let tmp = TempDir::new().unwrap();
     let _ = apply_env(&tmp);

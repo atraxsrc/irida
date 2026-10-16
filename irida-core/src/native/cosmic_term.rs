@@ -271,6 +271,21 @@ pub(crate) fn undo_profile_theme(
     })
 }
 
+/// The RON of the scheme at `id` in `color_schemes_<mode>` text, as a
+/// `TermScheme` entry's `before`; `None` when the id is free or the text does
+/// not parse.
+pub(crate) fn scheme_before(text: &str, id: u64) -> Option<String> {
+    ron::from_str::<Schemes>(text).ok()?.get(&id).map(ron_text)
+}
+
+/// The RON of one profile's syntax theme `field` in `profiles` text, as a
+/// `TermProfileTheme` entry's `before`; `None` when the profile is missing or
+/// the text does not parse.
+pub(crate) fn profile_theme_before(text: &str, profile: u64, field: &str) -> Option<String> {
+    let mut profiles = ron::from_str::<BTreeMap<u64, Profile>>(text).ok()?;
+    profile_theme(profiles.get_mut(&profile)?, field).map(|v| ron_text(v))
+}
+
 /// `cosmic-term/<Stem>-term.ron` and the `syntax_theme_<mode>` that selects it.
 pub(crate) fn export(p: &Palette) -> Vec<ExportFile> {
     vec![
