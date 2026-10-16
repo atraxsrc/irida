@@ -265,7 +265,12 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
             let result = open(&store, &slug);
             Msg::Opened { slug, result }
         }
-        Effect::SaveVersion { palette, fresh } => {
+        Effect::SaveVersion { mut palette, fresh } => {
+            // The pair is the store's: a link or unlink queued before this
+            // save has already written it.
+            if !fresh && let Ok(stored) = store.load(&palette.slug) {
+                palette.pair = stored.pair;
+            }
             Msg::Saved(save(&store, &palette, fresh).map(|n| (n, palette)))
         }
         Effect::Create(p) => Msg::Created(save(&store, &p, true).map(|_| p)),
