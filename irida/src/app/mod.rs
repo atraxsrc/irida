@@ -1,6 +1,7 @@
 //! The libcosmic app: a thin layer that shows `State`, feeds `Msg`s to
 //! `state::update`, and runs the effects it returns.
 
+mod apply_sheet;
 mod effects;
 mod header;
 mod preview;
@@ -11,6 +12,7 @@ mod state;
 use std::path::PathBuf;
 
 use cosmic::app::{Core, Settings, Task};
+use cosmic::dialog::file_chooser;
 use cosmic::iced::event::{self, Event};
 use cosmic::iced::keyboard;
 use cosmic::iced::{Length, Limits, Size, Subscription, window};
@@ -21,7 +23,7 @@ use cosmic::{Application, ApplicationExt, Element};
 use irida_core::apply::Ctx;
 
 use effects::perform;
-use state::{Current, Effect, Msg, State, ToastItem, update};
+use state::{Current, Effect, FolderFor, Msg, State, ToastItem, update};
 
 pub const APP_ID: &str = "io.github.atraxsrc.Irida";
 
@@ -68,6 +70,7 @@ impl App {
             match effect {
                 Effect::Toast(item) => tasks.push(self.toast(item)),
                 Effect::Copy(text) => tasks.push(cosmic::iced::clipboard::write(text)),
+                Effect::ChooseFolder(purpose) => tasks.push(choose_folder(purpose)),
                 Effect::Exit => tasks.push(cosmic::iced::exit()),
                 effect => {
                     debug_assert!(effect.is_io());
@@ -98,6 +101,25 @@ impl App {
         }
         self.toasts.push(toast).map(cosmic::Action::App)
     }
+}
+
+/// Ask for a folder with the portal's file chooser; cancelling sends
+/// nothing.
+fn choose_folder(purpose: FolderFor) -> Task<Message> {
+    cosmic::task::future(async move {
+        let dialog = file_chooser::open::Dialog::new().title(purpose.title());
+        let result = match dialog.open_folder().await {
+            Ok(response) => response
+                .0
+                .uris()
+                .first()
+                .and_then(|url| url.to_file_path().ok())
+                .ok_or_else(|| "the chosen folder is not a local folder".to_string()),
+            Err(file_chooser::Error::Cancelled) => return Message::Results(Vec::new()),
+            Err(e) => Err(e.to_string()),
+        };
+        Message::Ui(Msg::Folder(purpose, result))
+    })
 }
 
 /// Ctrl+S saves; a compositor close asks first, as the header button does.

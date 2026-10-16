@@ -6,7 +6,8 @@ use cosmic::iced::Length;
 use cosmic::widget::{self, button, popover, text};
 use irida_core::palette::Mode;
 
-use super::state::{Dialog, HeaderItem, Leave, MenuItem, Msg, NameFor, State};
+use super::apply_sheet;
+use super::state::{Dialog, ExportSummary, HeaderItem, Leave, MenuItem, Msg, NameFor, State};
 
 /// The palette name with its menu.
 pub fn start(state: &State) -> Vec<Element<'_, Msg>> {
@@ -84,7 +85,7 @@ pub fn end(state: &State) -> Vec<Element<'_, Msg>> {
             .on_press_maybe(
                 state
                     .header_enabled(HeaderItem::Apply)
-                    .then_some(Msg::NotYet("Apply")),
+                    .then_some(Msg::ShowApply),
             )
             .into(),
     ]
@@ -116,8 +117,47 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
                 .secondary_action(button::standard("Cancel").on_press(Msg::CloseDialog))
                 .tertiary_action(button::destructive("Discard").on_press(Msg::UnsavedDiscard))
         }
+        Dialog::Apply(sheet) => apply_sheet::view(state, sheet),
+        Dialog::ImportCollision {
+            palette,
+            replace_ok,
+            ..
+        } => {
+            let body = if *replace_ok {
+                format!(
+                    "Replace saves the import as a new version of {0}. Keep both saves it under a new name, like {0} Two.",
+                    palette.name
+                )
+            } else {
+                format!(
+                    "The palette saved as {} cannot be read, so it cannot be replaced. Keep both saves the import under a new name.",
+                    palette.slug
+                )
+            };
+            widget::dialog()
+                .title(format!("{} already exists", palette.name))
+                .body(body)
+                .primary_action(
+                    button::suggested("Replace")
+                        .on_press_maybe(replace_ok.then_some(Msg::ImportReplace)),
+                )
+                .secondary_action(button::standard("Cancel").on_press(Msg::CloseDialog))
+                .tertiary_action(button::standard("Keep both").on_press(Msg::ImportKeepBoth))
+        }
+        Dialog::Exported(summary) => exported(summary),
     };
     Some(d.into())
+}
+
+/// What an export wrote, as `irida export` prints it.
+fn exported(summary: &ExportSummary) -> widget::Dialog<'_, Msg> {
+    let text = widget::container(text::monotext(summary.text.as_str()))
+        .padding(12)
+        .class(cosmic::theme::Container::Card);
+    widget::dialog()
+        .title("Exported")
+        .control(widget::scrollable(text).height(Length::Fixed(360.)))
+        .primary_action(button::suggested("Done").on_press(Msg::CloseDialog))
 }
 
 fn switch(state: &State) -> widget::Dialog<'_, Msg> {
