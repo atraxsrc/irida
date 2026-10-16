@@ -940,6 +940,17 @@ impl State {
         if self.entries.iter().any(|e| e.slug == slug) {
             return Err(format!("A palette called {slug} already exists"));
         }
+        // An open draft holds its slug too: a second palette made with it
+        // could never be saved, since the draft takes the name first.
+        if let Some(Current::Editable {
+            saved: None,
+            slug: open,
+            ..
+        }) = &self.current
+            && *open == slug
+        {
+            return Err(format!("A palette called {slug} is open and not saved yet"));
+        }
         Ok(slug)
     }
 
@@ -3253,6 +3264,59 @@ mod tests {
         drive(&mut state, Msg::UnsavedDiscard);
         assert_eq!(open_slug(&state), Some("twotone"));
         assert!(state.dirty());
+    }
+
+    #[test]
+    fn open_draft_name_is_taken() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        drive(&mut state, Msg::WallpaperCreate);
+        assert_eq!(open_slug(&state), Some("twotone"));
+        let first = working(&state).clone();
+
+        // The same image again: its name is held by the open draft.
+        drive(&mut state, Msg::ShowWallpaper);
+        drive(&mut state, Msg::WallpaperMode(Mode::Light));
+        assert_eq!(wallpaper_dialog(&state).name, "Two Tone");
+        let taken = Err("A palette called twotone is open and not saved yet".to_string());
+        assert_eq!(state.name_check("Two Tone"), taken);
+        assert!(!state.wallpaper_ready());
+        drive(&mut state, Msg::WallpaperCreate);
+        assert!(matches!(state.dialog, Some(Dialog::Wallpaper(_))));
+        assert_eq!(working(&state), &first);
+        // New is refused the same way.
+        drive(&mut state, Msg::ShowNew);
+        drive(&mut state, Msg::NameInput("Two Tone".to_string()));
+        assert!(drive(&mut state, Msg::NameConfirm).is_empty());
+        assert!(matches!(state.dialog, Some(Dialog::Name { .. })));
+        drive(&mut state, Msg::ShowWallpaper);
+        drive(&mut state, Msg::WallpaperMode(Mode::Light));
+
+        // Another name goes through Save, and both drafts save version 1.
+        drive(&mut state, Msg::WallpaperName("Two Tone Light".to_string()));
+        assert!(state.wallpaper_ready());
+        drive(&mut state, Msg::WallpaperCreate);
+        assert!(matches!(
+            state.dialog,
+            Some(Dialog::Unsaved(Leave::Draft(_)))
+        ));
+        drive(&mut state, Msg::UnsavedSave);
+        assert_eq!(open_slug(&state), Some("twotonelight"));
+        assert!(state.dirty());
+        assert_eq!(working(&state).mode, Mode::Light);
+        let ui = drive(&mut state, Msg::Save);
+        assert!(
+            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Saved version 1"),
+            "{ui:?}"
+        );
+        let store = Store::new(Dirs::under(tmp.path()));
+        assert_eq!(store.versions("twotone").unwrap().len(), 1);
+        assert_eq!(store.versions("twotonelight").unwrap().len(), 1);
+        // Saved, the draft's name is taken by the store instead.
+        assert_eq!(
+            state.name_check("Two Tone Light"),
+            Err("A palette called twotonelight already exists".to_string())
+        );
     }
 
     #[test]
