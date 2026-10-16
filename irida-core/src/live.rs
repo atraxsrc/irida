@@ -143,10 +143,12 @@ impl LiveSession {
     }
 
     /// This session as its marker names it now: an apply that stopped part
-    /// way (a panic) may have made the record this copy does not know.
+    /// way (a panic) may have made the record this copy does not know. A
+    /// record stopped before its first write is not taken, so the next apply
+    /// starts it again.
     pub fn refreshed(mut self, dirs: &Dirs) -> LiveSession {
         if self.record.is_none() {
-            self.record = marker_record(dirs);
+            self.record = marker_record(dirs).filter(|&id| record::exists(dirs, id));
         }
         self
     }
