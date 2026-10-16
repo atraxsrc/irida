@@ -1152,6 +1152,16 @@ impl State {
         }
     }
 
+    /// The main area's text when no palette is open. A store with palettes
+    /// can get here when the one opened at start fails to read.
+    pub fn empty_text(&self) -> &'static str {
+        if self.entries.is_empty() {
+            "No palettes yet. Use New in the palette menu to make one."
+        } else {
+            "Choose a palette from the palette menu."
+        }
+    }
+
     fn editable(&self) -> bool {
         matches!(self.current, Some(Current::Editable { .. }))
     }
@@ -3134,6 +3144,28 @@ mod tests {
         assert!(state.entries.iter().all(EntrySummary::readable));
         assert_eq!(open_slug(&state), Some("dossier"));
         assert!(!state.dirty());
+    }
+
+    #[test]
+    fn empty_area_says_choose_when_the_store_has_palettes() {
+        // The only palette fails to open at the IO level, so nothing is open.
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["noir"]);
+        fs::write(palettes_dir(&tmp).join("noir/palette.toml"), [0xff, 0xfe]).unwrap();
+        let state = start(&tmp);
+        assert!(state.current.is_none());
+        assert!(!state.entries.is_empty());
+        assert_eq!(
+            state.empty_text(),
+            "Choose a palette from the palette menu."
+        );
+
+        let mut state = state;
+        state.entries.clear();
+        assert_eq!(
+            state.empty_text(),
+            "No palettes yet. Use New in the palette menu to make one."
+        );
     }
 
     #[test]
