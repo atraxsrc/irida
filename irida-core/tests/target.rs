@@ -152,3 +152,30 @@ fn def() -> TargetDef {
         live: false,
     }
 }
+
+#[test]
+fn reload_typos_and_unknown_signals_are_rejected() {
+    let env = TestEnv::new();
+    put(
+        &env,
+        "typo",
+        "name = \"typo\"\n[reload]\nsingal = { process = \"x\", signal = \"USR1\" }\n",
+        &[],
+    );
+    put(
+        &env,
+        "kill",
+        "name = \"kill\"\n[reload]\nsignal = { process = \"x\", signal = \"KILL\" }\n",
+        &[],
+    );
+    put(
+        &env,
+        "fine",
+        "name = \"fine\"\n[reload]\nsignal = { process = \"x\", signal = \"HUP\" }\n",
+        &[],
+    );
+    let all = load_targets(&env.dirs);
+    assert!(matches!(find(&all, "typo").result, Err(TargetError::Parse(_))));
+    assert!(matches!(find(&all, "kill").result, Err(TargetError::Invalid(_))));
+    assert!(find(&all, "fine").result.is_ok());
+}
