@@ -183,6 +183,7 @@ fn choose_image() -> Task<Message> {
 }
 
 /// Ctrl+S saves; a compositor close asks first, as the header button does.
+/// Focus is reported, so a second window can try the app's lock again.
 fn events(event: Event, _status: event::Status, _window: window::Id) -> Option<Message> {
     match event {
         Event::Keyboard(keyboard::Event::KeyPressed {
@@ -199,6 +200,7 @@ fn events(event: Event, _status: event::Status, _window: window::Id) -> Option<M
                 .then_some(Message::Ui(Msg::Save))
         }
         Event::Window(window::Event::CloseRequested) => Some(Message::Ui(Msg::CloseRequested)),
+        Event::Window(window::Event::Focused) => Some(Message::Ui(Msg::Focused)),
         _ => None,
     }
 }

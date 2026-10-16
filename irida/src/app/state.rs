@@ -6,6 +6,7 @@ use std::collections::BTreeMap;
 use std::fs::File;
 use std::io;
 use std::path::PathBuf;
+use std::sync::Arc;
 use std::time::Duration;
 
 use cosmic::cosmic_theme::palette::{FromColor, Hsv, Srgb};
@@ -959,6 +960,11 @@ pub enum Msg {
     LivePending(Option<LiveSession>),
     /// Whether a target that reloads live is installed and usable.
     LiveTargets(bool),
+    /// The app's lock, taken again; `None` while another window holds it
+    /// or it could not be taken.
+    AppLock(Option<Arc<File>>),
+    /// The window gained focus.
+    Focused,
     /// An effect with no failure Msg of its own failed.
     Failed(String),
 }
@@ -1056,6 +1062,8 @@ pub enum Effect {
     FindPendingLive,
     /// Read whether a target that reloads live can be used.
     LoadLiveTargets(Settings),
+    /// Try the app's lock again, as a second window.
+    RetryAppLock,
     Exit,
 }
 
@@ -1111,7 +1119,7 @@ pub struct State {
     /// A target that reloads live is installed and usable.
     live_targets: bool,
     /// The app's lock, held while the window is open.
-    _app_lock: Option<File>,
+    _app_lock: Option<Arc<File>>,
     /// Another Irida window holds the app's lock: the live marker may be its
     /// open session, so this window neither offers it back nor starts one.
     other_window: bool,
@@ -1150,7 +1158,7 @@ impl State {
             compare_version: None,
             live: None,
             live_targets: false,
-            _app_lock: app_lock.ok().flatten(),
+            _app_lock: app_lock.ok().flatten().map(Arc::new),
             other_window,
         };
         (state, vec![Effect::SeedStarters, Effect::LoadStore])
@@ -1699,6 +1707,12 @@ impl State {
         self.live.is_some()
     }
 
+    /// As a second window, try the app's lock again: the other window may
+    /// have closed or crashed since.
+    fn retry_lock(&self) -> Option<Effect> {
+        self.other_window.then_some(Effect::RetryAppLock)
+    }
+
     /// Ask Keep or Revert, then do `then`.
     fn ask_live(&mut self, then: LiveThen) -> Vec<Effect> {
         self.menu_open = false;
@@ -2124,7 +2138,11 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         Msg::Save => state.save().into_iter().collect(),
         Msg::Menu(open) => {
             state.menu_open = open;
-            Vec::new()
+            if open {
+                state.retry_lock().into_iter().collect()
+            } else {
+                Vec::new()
+            }
         }
         Msg::ShowSwitch => {
             state.menu_open = false;
@@ -2284,19 +2302,21 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         }
         Msg::CloseRequested => state.leave(Leave::Exit),
         Msg::ShowApply => {
+            let mut effects: Vec<Effect> = state.retry_lock().into_iter().collect();
             if !state.header_enabled(HeaderItem::Apply) {
-                return Vec::new();
+                return effects;
             }
             if state.live.is_some() {
                 return state.ask_live(LiveThen::Apply);
             }
             match state.checked_working("applied") {
-                Ok(palette) => vec![Effect::LoadApplySheet {
+                Ok(palette) => effects.push(Effect::LoadApplySheet {
                     palette,
                     settings: state.settings.clone(),
-                }],
-                Err(effects) => effects,
+                }),
+                Err(more) => effects.extend(more),
             }
+            effects
         }
         Msg::ApplySheetLoaded {
             slug,
@@ -2354,11 +2374,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         Msg::Applied(Ok(report)) => vec![state.toast_undo(applied_text(&report))],
         Msg::Applied(Err(failure)) => {
             let text = failure.text();
-            if failure.needs_undo() {
+            let mut effects = if failure.needs_undo() {
                 vec![state.toast_undo(text)]
             } else {
                 vec![state.toast(text)]
-            }
+            };
+            // It may have failed for the session of a window now gone.
+            effects.extend(state.retry_lock());
+            effects
         }
         Msg::UndoLastApply => {
             state.menu_open = false;
@@ -2372,7 +2395,11 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             lines.extend(done.failures);
             vec![state.toast(lines.join("\n"))]
         }
-        Msg::Undone(Err(e)) => vec![state.toast(e)],
+        Msg::Undone(Err(e)) => {
+            let mut effects = vec![state.toast(e)];
+            effects.extend(state.retry_lock());
+            effects
+        }
         Msg::ShowImport => {
             state.menu_open = false;
             vec![Effect::ChooseFolder(FolderFor::Import)]
@@ -2989,6 +3016,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             state.live_targets = any;
             Vec::new()
         }
+        // The other window has gone: a session it left open is offered here.
+        Msg::AppLock(Some(lock)) if state.other_window => {
+            state._app_lock = Some(lock);
+            state.other_window = false;
+            vec![Effect::FindPendingLive]
+        }
+        Msg::AppLock(_) => Vec::new(),
+        Msg::Focused => state.retry_lock().into_iter().collect(),
         Msg::Failed(e) => vec![state.toast(e)],
     }
 }
@@ -5968,6 +6003,115 @@ mod tests {
             "{:?}",
             state.dialog
         );
+    }
+
+    /// A second window on the store in `tmp`, started while the first one
+    /// holds the app's lock.
+    fn second_window(tmp: &TempDir) -> State {
+        let second = start(tmp);
+        assert!(second.other_window);
+        second
+    }
+
+    #[test]
+    fn second_window_takes_the_lock_once_the_first_has_gone() {
+        // While the first window is open, nothing changes.
+        let tmp = TempDir::new().unwrap();
+        let (first, _) = live_on(&tmp);
+        let mut second = second_window(&tmp);
+        let effects = update(&mut second, Msg::Focused);
+        assert!(matches!(effects.as_slice(), [Effect::RetryAppLock]));
+        let msgs: Vec<Msg> = effects
+            .into_iter()
+            .flat_map(|e| perform(e, &second.ctx))
+            .collect();
+        let asked: Vec<Effect> = msgs
+            .into_iter()
+            .flat_map(|m| update(&mut second, m))
+            .collect();
+        assert!(asked.is_empty(), "{asked:?}");
+        assert!(second.other_window);
+        assert_eq!(
+            second.header_tooltip(HeaderItem::TryLive),
+            Some(LIVE_IN_OTHER_WINDOW)
+        );
+        assert!(first.live_on());
+        // The first window does not try.
+        let mut first = first;
+        assert!(update(&mut first, Msg::Focused).is_empty());
+        assert!(update(&mut first, Msg::Menu(true)).is_empty());
+
+        // Once it has gone, each of these offers the session it left open.
+        let triggers: [&[Msg]; 4] = [
+            &[Msg::Focused],
+            &[Msg::Menu(true)],
+            &[Msg::ShowApply],
+            &[Msg::UndoLastApply],
+        ];
+        for msgs in triggers {
+            let tmp = TempDir::new().unwrap();
+            let (first, config) = live_on(&tmp);
+            let mut second = second_window(&tmp);
+            drop(first);
+            for msg in msgs {
+                drive(&mut second, msg.clone());
+            }
+            assert!(!second.other_window, "{msgs:?}");
+            assert!(
+                matches!(
+                    second.dialog,
+                    Some(Dialog::KeepOrRevert { pending: true, .. })
+                ),
+                "{msgs:?}: {:?}",
+                second.dialog
+            );
+            drive(&mut second, Msg::LiveRevert);
+            assert!(second.dialog.is_none(), "{:?}", second.dialog);
+            assert!(!second.live_on());
+            assert_eq!(fs::read(&config).unwrap(), b"x\n");
+            assert!(second.header_enabled(HeaderItem::TryLive));
+            assert_eq!(second.header_tooltip(HeaderItem::TryLive), None);
+        }
+
+        // An apply that comes back refused for the session tries again.
+        let tmp = TempDir::new().unwrap();
+        let (first, _) = live_on(&tmp);
+        let mut second = second_window(&tmp);
+        drive(&mut second, Msg::ShowApply);
+        assert!(matches!(second.dialog, Some(Dialog::Apply(_))));
+        drop(first);
+        drive(&mut second, Msg::ConfirmApply);
+        assert!(!second.other_window);
+        assert!(
+            matches!(
+                second.dialog,
+                Some(Dialog::KeepOrRevert { pending: true, .. })
+            ),
+            "{:?}",
+            second.dialog
+        );
+    }
+
+    #[test]
+    fn second_window_with_no_session_left_can_try_it_live() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        put_cava(&tmp);
+        let first = start(&tmp);
+        let mut second = second_window(&tmp);
+        assert!(!second.header_enabled(HeaderItem::TryLive));
+        drop(first);
+        drive(&mut second, Msg::Focused);
+        assert!(!second.other_window);
+        assert!(second.dialog.is_none(), "{:?}", second.dialog);
+        assert!(second.header_enabled(HeaderItem::TryLive));
+        assert_eq!(second.header_tooltip(HeaderItem::TryLive), None);
+        drive(&mut second, Msg::LiveToggle(true));
+        assert!(second.live_on());
+        assert!(live_marker(&tmp).exists());
+        // It holds the lock now, so a third window is the second one.
+        let third = second_window(&tmp);
+        assert!(third.dialog.is_none(), "{:?}", third.dialog);
     }
 
     #[test]
