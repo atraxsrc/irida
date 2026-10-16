@@ -6,13 +6,30 @@ use std::io::{self, Write};
 use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
 use std::path::{Path, PathBuf};
 
-/// The path to write to: the symlink target when `path` exists, else `path`.
+/// Symlink hops followed before giving up, as Linux does.
+const MAX_SYMLINK_HOPS: usize = 40;
+
+/// The path to write to: symlinks are followed, even when the final target is
+/// missing, so writing creates the target and keeps the link. An existing
+/// result is canonicalized.
 pub fn resolve_write_path(path: &Path) -> io::Result<PathBuf> {
-    if path.exists() {
-        fs::canonicalize(path)
-    } else {
-        Ok(path.to_path_buf())
+    let mut current = path.to_path_buf();
+    let mut hops = 0;
+    while fs::symlink_metadata(&current).is_ok_and(|m| m.file_type().is_symlink()) {
+        if hops == MAX_SYMLINK_HOPS {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidInput,
+                format!("{}: too many levels of symbolic links", path.display()),
+            ));
+        }
+        hops += 1;
+        let target = fs::read_link(&current)?;
+        current = match current.parent() {
+            Some(parent) => parent.join(target),
+            None => target,
+        };
     }
+    if current.exists() { fs::canonicalize(&current) } else { Ok(current) }
 }
 
 /// Write via a temporary sibling and rename, keeping symlinks and modes.

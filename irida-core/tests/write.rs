@@ -4,7 +4,7 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
 use irida_core::write::{
-    BlockError, atomic_write, restore_block, restore_key, set_block, set_key,
+    BlockError, atomic_write, resolve_write_path, restore_block, restore_key, set_block, set_key,
 };
 
 #[test]
@@ -83,6 +83,26 @@ fn atomic_write_through_symlink() {
     atomic_write(&link, b"new").unwrap();
     assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
     assert_eq!(fs::read_to_string(&real).unwrap(), "new");
+}
+
+#[test]
+fn atomic_write_through_dangling_symlink() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let link = tmp.path().join("link.conf");
+    symlink("dotfiles/real.conf", &link).unwrap();
+    atomic_write(&link, b"new").unwrap();
+    assert!(fs::symlink_metadata(&link).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(tmp.path().join("dotfiles/real.conf")).unwrap(), "new");
+}
+
+#[test]
+fn symlink_loop_is_an_error() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let a = tmp.path().join("a");
+    symlink("b", &a).unwrap();
+    symlink("a", tmp.path().join("b")).unwrap();
+    assert!(resolve_write_path(&a).is_err());
+    assert!(atomic_write(&a, b"x").is_err());
 }
 
 #[test]
