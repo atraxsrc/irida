@@ -1,0 +1,158 @@
+{% set lines = mix(text, pane, 0.70)|ansi -%}
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "file",
+    "source": "~/.config/fastfetch/cosmic.txt",
+    "color": {
+      "1": "{{ text|ansi }}"
+    },
+    "padding": {
+      "top": 3,
+      "left": 2,
+      "right": 6
+    }
+  },
+  "display": {
+    "separator": ": ",
+    "color": {
+      "output": "{{ text|ansi }}"
+    }
+  },
+  "modules": [
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[{{ lines }}m┌───────────────────────\u001b[{{ magenta|ansi }}mHardware\u001b[{{ lines }}m───────────────────────┐"
+    },
+    {
+      "type": "host",
+      "key": " PC",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "cpu",
+      "key": "├ ",
+      "keyColor": "{{ accent|ansi }}",
+      "showPeCoreCount": true
+    },
+    {
+      "type": "gpu",
+      "key": "├ 󰢮",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "display",
+      "key": "├ 󰍹",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "disk",
+      "key": "├ ",
+      "keyColor": "{{ accent|ansi }}",
+      "folders": "/"
+    },
+    {
+      "type": "memory",
+      "key": "├ 󰍛",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "swap",
+      "key": "├ 󰓡",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "battery",
+      "key": "└ 󰁹",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "custom",
+      "format": "\u001b[{{ lines }}m└──────────────────────────────────────────────────────┘"
+    },
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[{{ lines }}m┌───────────────────────\u001b[{{ magenta|ansi }}mSoftware\u001b[{{ lines }}m───────────────────────┐"
+    },
+    {
+      "type": "os",
+      "key": " OS",
+      "keyColor": "{{ accent|ansi }}",
+      "format": "{name} {version-id}"
+    },
+    {
+      "type": "de",
+      "key": "├ ",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "wm",
+      "key": "├ ",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "kernel",
+      "key": "├ ",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "shell",
+      "key": "├ ",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "terminal",
+      "key": "├ ",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "packages",
+      "key": "├ 󰏖",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "command",
+      "key": "├ 󰏘",
+      "keyColor": "{{ accent|ansi }}",
+      "text": "echo -n '{{ name }} '; for c in {{ text|rgb }} {{ accent|rgb }} {{ success|rgb }} {{ warning|rgb }} {{ error|rgb }} {{ magenta|rgb }} {{ cyan|rgb }}; do printf '\\033[38;2;%sm●' \"$(echo $c | tr , \\;)\"; done"
+    },
+    {
+      "type": "terminalfont",
+      "key": "└ ",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "custom",
+      "format": "\u001b[{{ lines }}m└──────────────────────────────────────────────────────┘"
+    },
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[{{ lines }}m┌────────────────\u001b[{{ magenta|ansi }}mAge / Uptime / Update\u001b[{{ lines }}m─────────────────┐"
+    },
+    {
+      "type": "command",
+      "key": "󰔟 OS Age",
+      "keyColor": "{{ accent|ansi }}",
+      "text": "b=$(stat -c %W / 2>/dev/null); [ \"${b:-0}\" -le 0 ] && b=$(stat -c %Y /var/log/installer 2>/dev/null); echo \"$(( ($(date +%s) - b) / 86400 )) days\""
+    },
+    {
+      "type": "uptime",
+      "key": "󰅐 Uptime",
+      "keyColor": "{{ accent|ansi }}"
+    },
+    {
+      "type": "command",
+      "key": "󰚰 Update",
+      "keyColor": "{{ accent|ansi }}",
+      "text": "d=$( { zcat -f /var/log/apt/history.log* 2>/dev/null; } | grep '^Start-Date' | sort | tail -1 | cut -d' ' -f2- ); [ -n \"$d\" ] && date -d \"$d\" '+%A, %B %d %Y at %H:%M' || echo unknown"
+    },
+    {
+      "type": "custom",
+      "format": "\u001b[{{ lines }}m└──────────────────────────────────────────────────────┘"
+    },
+    "break"
+  ]
+}
