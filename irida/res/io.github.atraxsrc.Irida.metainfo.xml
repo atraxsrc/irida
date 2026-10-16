@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.atraxsrc.Irida</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>MIT</project_license>
+  <name>Irida</name>
+  <summary>Design a colour palette and apply it to COSMIC</summary>
+  <description>
+    <p>
+      Irida is a palette designer for the COSMIC desktop. Pick a palette, draft
+      one from a wallpaper, or edit its thirteen roles by hand while the preview
+      and the contrast ratios follow every change.
+    </p>
+    <p>
+      Apply it to the COSMIC desktop, COSMIC Terminal, btop, Neovim, fastfetch,
+      lsd, zsh and cava in one step, and undo it in one step. Link a dark and a
+      light palette as a pair, compare with saved versions, and export a
+      complete rice repository.
+    </p>
+  </description>
+  <developer id="io.github.atraxsrc">
+    <name>atraxsrc</name>
+  </developer>
+  <url type="homepage">https://github.com/atraxsrc/irida</url>
+  <url type="bugtracker">https://github.com/atraxsrc/irida/issues</url>
+  <url type="vcs-browser">https://github.com/atraxsrc/irida</url>
+  <launchable type="desktop-id">io.github.atraxsrc.Irida.desktop</launchable>
+  <provides>
+    <id>com.system76.CosmicApplication</id>
+    <binary>irida</binary>
+  </provides>
+  <categories>
+    <category>Settings</category>
+    <category>DesktopSettings</category>
+  </categories>
+  <keywords>
+    <keyword>COSMIC</keyword>
+    <keyword>Theme</keyword>
+    <keyword>Palette</keyword>
+    <keyword>Colour</keyword>
+    <keyword>Color</keyword>
+    <keyword>Rice</keyword>
+    <keyword>Terminal</keyword>
+    <keyword>Contrast</keyword>
+    <keyword>Dark</keyword>
+    <keyword>Light</keyword>
+  </keywords>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="0.1.0" date="2026-10-17">
+      <description>
+        <p>First release.</p>
+      </description>
+    </release>
+  </releases>
+</component>
