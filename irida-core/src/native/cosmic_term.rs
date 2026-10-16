@@ -87,6 +87,18 @@ fn scheme_id(schemes: &Schemes, name: &str) -> Result<u64, TargetError> {
     }
 }
 
+/// Read every key `plan` reads, writing nothing: the config-shape error an
+/// apply would give, if any.
+pub(crate) fn check(dirs: &Dirs) -> Result<(), TargetError> {
+    let dir = config_dir(dirs);
+    read_key::<Schemes>(&dir, "color_schemes_dark")?;
+    read_key::<Schemes>(&dir, "color_schemes_light")?;
+    read_key::<Option<u64>>(&dir, "default_profile")?;
+    read_key::<BTreeMap<u64, Profile>>(&dir, "profiles")?;
+    read_key::<AppTheme>(&dir, "app_theme")?;
+    Ok(())
+}
+
 pub(crate) fn plan(palettes: &[&Palette], dirs: &Dirs) -> Result<NativePlan, TargetError> {
     super::check_palettes(palettes)?;
 

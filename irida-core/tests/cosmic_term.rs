@@ -326,6 +326,7 @@ fn apply_term(
             palette: p,
             pair,
             only: Some(only.iter().map(|s| s.to_string()).collect()),
+            live_only: false,
         },
     )
 }

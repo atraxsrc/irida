@@ -8,7 +8,8 @@ use std::path::{Path, PathBuf};
 use common::{TestEnv, palette};
 use hex_color::HexColor;
 use irida_core::apply::{
-    ApplyError, ApplyReport, ApplyRequest, Ctx, SkipReason, TargetStatus, UndoError, apply, undo,
+    ApplyError, ApplyReport, ApplyRequest, Ctx, SkipReason, TargetInfo, TargetStatus, UndoError,
+    app_path, apply, target_status, undo,
 };
 use irida_core::derive::derive;
 use irida_core::native::cosmic_term::config_dir;
@@ -104,6 +105,7 @@ fn run_with(
         palette: p,
         pair,
         only: only.map(|o| o.iter().map(|s| s.to_string()).collect()),
+        live_only: false,
     };
     apply(&ctx(env), settings, &req)
 }
@@ -949,4 +951,227 @@ fn hint_reaches_report() {
         status(&report, "h"),
         &TargetStatus::Applied(ReloadStatus::Restart("x".into()))
     );
+}
+
+/// Every path below `root` with its bytes (`None` for a folder), sorted.
+fn listing(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
+    let mut out = Vec::new();
+    let mut todo = vec![root.to_path_buf()];
+    while let Some(dir) = todo.pop() {
+        for entry in fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                todo.push(path.clone());
+                out.push((path, None));
+            } else {
+                let bytes = fs::read(&path).unwrap();
+                out.push((path, Some(bytes)));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+const BUILTINS: [&str; 8] = [
+    "btop",
+    "cava",
+    "cosmic-desktop",
+    "cosmic-term",
+    "fastfetch",
+    "lsd",
+    "nvim",
+    "zsh",
+];
+const LIVE: [&str; 3] = ["cava", "cosmic-desktop", "cosmic-term"];
+
+fn info<'a>(status: &'a [TargetInfo], name: &str) -> &'a TargetInfo {
+    status
+        .iter()
+        .find(|t| t.name == name)
+        .unwrap_or_else(|| panic!("{name} in status"))
+}
+
+#[test]
+fn status_lists_without_writing() {
+    let env = TestEnv::new();
+    put_a(&env);
+    put_target(&env, "bad", "name = \"bad\"\nbogus = 1\n", &[]);
+    let settings = Settings {
+        disabled: ["a".to_string()].into(),
+        last_palette: None,
+    };
+    let before = listing(env.tmp.path());
+
+    let status = target_status(&ctx(&env), &settings);
+    assert_eq!(listing(env.tmp.path()), before);
+
+    let names: Vec<&str> = status.iter().map(|t| t.name.as_str()).collect();
+    let mut expected: Vec<&str> = BUILTINS.iter().copied().chain(["a", "bad"]).collect();
+    expected.sort();
+    assert_eq!(names, expected);
+
+    assert_eq!(
+        info(&status, "a"),
+        &TargetInfo {
+            name: "a".into(),
+            builtin: false,
+            live: false,
+            detected: true,
+            enabled: false,
+            broken: None,
+        }
+    );
+    let bad = info(&status, "bad");
+    assert!(
+        bad.broken.as_deref().is_some_and(|m| m.contains("bogus")),
+        "{bad:?}"
+    );
+    assert!(!bad.builtin && !bad.live && bad.enabled, "{bad:?}");
+    for name in BUILTINS {
+        assert_eq!(
+            info(&status, name),
+            &TargetInfo {
+                name: name.into(),
+                builtin: true,
+                live: LIVE.contains(&name),
+                detected: false,
+                enabled: true,
+                broken: None,
+            }
+        );
+    }
+}
+
+#[test]
+fn status_reports_template_and_config_errors() {
+    let env = TestEnv::new();
+    put_target(
+        &env,
+        "s",
+        &file_target("s", "~/.config/s/s.conf"),
+        &[("t.tmpl", "{% for %}\n")],
+    );
+    put_target(
+        &env,
+        "nvim",
+        &file_target("nvim", "~/.config/nvim/x.lua"),
+        &[("t.tmpl", "x\n")],
+    );
+    let text = ron_text(&Schemes::from([(0, gruvbox())])).replace(
+        "name: \"Gruvbox\",",
+        "name: \"Gruvbox\",\n        extra: 1,",
+    );
+    let dark = put_term_key(&env, "color_schemes_dark", &text);
+    let before = listing(env.tmp.path());
+
+    let status = target_status(&ctx(&env), &Settings::default());
+    assert_eq!(listing(env.tmp.path()), before);
+    assert_eq!(read(&dark), text);
+
+    let s = info(&status, "s");
+    assert!(s.detected && s.broken.is_some(), "{s:?}");
+    let term = info(&status, "cosmic-term");
+    assert!(term.detected && term.live && term.builtin, "{term:?}");
+    assert!(
+        term.broken
+            .as_deref()
+            .is_some_and(|m| m.contains("color_schemes_dark")),
+        "{term:?}"
+    );
+    // A user target that replaces a built-in is the user's.
+    let nvim = info(&status, "nvim");
+    assert!(
+        !nvim.builtin && !nvim.live && nvim.broken.is_none(),
+        "{nvim:?}"
+    );
+}
+
+#[test]
+fn app_path_adds_standard_dirs() {
+    let env = TestEnv::new();
+    let home = &env.dirs.home;
+    let std_dirs = || {
+        vec![
+            PathBuf::from("/usr/local/bin"),
+            PathBuf::from("/usr/bin"),
+            PathBuf::from("/bin"),
+            home.join(".local/bin"),
+            home.join(".cargo/bin"),
+        ]
+    };
+
+    let mut expected = vec![PathBuf::from("/opt/x")];
+    expected.extend(std_dirs());
+    assert_eq!(app_path(&env.dirs, vec!["/opt/x".into()]), expected);
+
+    let path = app_path(&env.dirs, vec!["/usr/bin".into(), "/opt/x".into()]);
+    let mut expected = vec![PathBuf::from("/usr/bin"), PathBuf::from("/opt/x")];
+    expected.extend(
+        std_dirs()
+            .into_iter()
+            .filter(|p| p != Path::new("/usr/bin")),
+    );
+    assert_eq!(path, expected);
+    assert_eq!(
+        path.iter().filter(|p| *p == Path::new("/usr/bin")).count(),
+        1
+    );
+
+    assert_eq!(app_path(&env.dirs, vec![]), std_dirs());
+    assert_eq!(app_path(&env.dirs, std_dirs()), std_dirs());
+}
+
+#[test]
+fn app_path_detects_home_binaries() {
+    let env = TestEnv::new();
+    put_target(
+        &env,
+        "tool",
+        "name = \"tool\"\ndetect = { binary = \"irida-test-tool\" }\n\n[[file]]\npath = \"~/.config/tool/t.conf\"\nwrite = \"file\"\ntemplate = \"t.tmpl\"\n",
+        &[("t.tmpl", "x\n")],
+    );
+    let bin = env.write(".local/bin/irida-test-tool", "#!/bin/sh\n");
+    fs::set_permissions(&bin, fs::Permissions::from_mode(0o755)).unwrap();
+
+    let short = target_status(&ctx(&env), &Settings::default());
+    assert!(!info(&short, "tool").detected);
+
+    let app = Ctx {
+        dirs: env.dirs.clone(),
+        path: app_path(&env.dirs, vec![]),
+    };
+    assert!(info(&target_status(&app, &Settings::default()), "tool").detected);
+}
+
+#[test]
+fn live_only_selects_live_targets() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    put_a(&env);
+    put_target(&env, "bad", "name = \"bad\"\nbogus = 1\n", &[]);
+    let cava = env.write(".config/cava/config", "x\n");
+
+    let req = ApplyRequest {
+        palette: &ember,
+        pair: None,
+        only: None,
+        live_only: true,
+    };
+    let report = apply(&ctx(&env), &Settings::default(), &req).unwrap();
+
+    assert_eq!(
+        status(&report, "cava"),
+        &TargetStatus::Applied(ReloadStatus::NotRunning)
+    );
+    let names: Vec<&str> = report.targets.iter().map(|t| t.name.as_str()).collect();
+    assert_eq!(names, LIVE);
+    assert!(report.get("a").is_none());
+    assert!(report.get("bad").is_none());
+    assert!(!home(&env, ".config/a").exists());
+    let text = read(&cava);
+    assert!(text.starts_with("x\n") && text.len() > 2, "{text}");
+
+    common::undo(&env);
+    assert_eq!(read(&cava), "x\n");
 }
