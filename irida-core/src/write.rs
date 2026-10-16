@@ -102,8 +102,15 @@ pub struct BlockEdit {
 
 /// Line indexes of the begin and end markers, `None` when absent.
 fn find_block(lines: &[&str], comment: &str) -> Result<Option<(usize, usize)>, BlockError> {
-    let begin = begin_marker(comment);
-    let end = end_marker(comment);
+    find_markers(lines, &begin_marker(comment), &end_marker(comment))
+}
+
+/// Line indexes of exactly one `begin` line before exactly one `end` line.
+fn find_markers(
+    lines: &[&str],
+    begin: &str,
+    end: &str,
+) -> Result<Option<(usize, usize)>, BlockError> {
     let begins: Vec<usize> = (0..lines.len())
         .filter(|&i| lines[i].trim_end() == begin)
         .collect();
@@ -161,6 +168,25 @@ pub fn set_block(
             })
         }
     }
+}
+
+/// Replace the lines between the `begin` and `end` marker lines with `body`.
+/// `Ok(None)` when neither marker is present.
+pub fn replace_marked(
+    existing: &str,
+    begin: &str,
+    end: &str,
+    body: &str,
+) -> Result<Option<String>, BlockError> {
+    let lines: Vec<&str> = existing.split_inclusive('\n').collect();
+    Ok(find_markers(&lines, begin, end)?.map(|(b, e)| {
+        format!(
+            "{}{}{}",
+            lines[..=b].concat(),
+            with_newline(body),
+            lines[e..].concat()
+        )
+    }))
 }
 
 pub fn restore_block(

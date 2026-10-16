@@ -102,6 +102,7 @@ fn hex_arg(s: &str) -> Result<Rgb, Error> {
 pub struct Renderer {
     env: Environment<'static>,
     ctx: Value,
+    fields: BTreeMap<String, Value>,
 }
 
 fn ansi_map(get: impl Fn(Ansi) -> Rgb) -> BTreeMap<&'static str, String> {
@@ -216,12 +217,29 @@ impl Renderer {
         Renderer {
             env,
             ctx: Value::from_serialize(&ctx),
+            fields: ctx,
         }
     }
 
     pub fn render(&self, template_name: &str, source: &str) -> Result<String, TemplateError> {
         self.env
             .render_named_str(template_name, source, &self.ctx)
+            .map_err(|e| to_error(template_name, e))
+    }
+
+    /// Render with the palette context plus `extra` values.
+    pub fn render_with(
+        &self,
+        template_name: &str,
+        source: &str,
+        extra: &[(&str, String)],
+    ) -> Result<String, TemplateError> {
+        let mut fields = self.fields.clone();
+        for (k, v) in extra {
+            fields.insert(k.to_string(), Value::from(v.clone()));
+        }
+        self.env
+            .render_named_str(template_name, source, Value::from_serialize(&fields))
             .map_err(|e| to_error(template_name, e))
     }
 }
