@@ -82,6 +82,7 @@ fn term_reload(process: &str, min: Option<&str>) -> Reload {
             command: "btop --version".into(),
             version: v.into(),
         }),
+        hint: None,
     }
 }
 

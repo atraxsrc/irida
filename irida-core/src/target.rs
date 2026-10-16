@@ -38,6 +38,9 @@ pub struct FileEntry {
     pub comment: Option<String>,
     #[serde(default)]
     pub key: Option<String>,
+    /// Write only when the file does not exist yet.
+    #[serde(default)]
+    pub create_only: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -66,15 +69,18 @@ pub struct Reload {
     pub signal: Option<SignalReload>,
     pub command: Option<String>,
     pub min_version: Option<MinVersion>,
+    /// Restart advice shown when nothing can be reloaded.
+    pub hint: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct RiceEntry {
+    /// The repo path, itself a template.
     pub path: String,
-    pub install: WriteKind,
+    pub template: String,
     #[serde(default)]
-    pub template: Option<String>,
+    pub executable: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
@@ -161,6 +167,9 @@ fn build(
             }
             _ => {}
         }
+        if f.create_only && f.write != WriteKind::File {
+            return invalid(format!("{}: create_only needs write = \"file\"", f.path));
+        }
         if !templates.contains_key(&f.template) {
             return invalid(format!("{}: missing template {}", f.path, f.template));
         }
@@ -169,13 +178,6 @@ fn build(
         && !crate::reload::SIGNAL_NAMES.contains(&sig.signal.as_str())
     {
         return invalid(format!("unknown reload signal {:?}", sig.signal));
-    }
-    for r in &def.rice {
-        if let Some(t) = &r.template
-            && !templates.contains_key(t)
-        {
-            return invalid(format!("{}: missing template {t}", r.path));
-        }
     }
     Ok(Target {
         def,
@@ -283,7 +285,7 @@ pub fn is_detected(def: &TargetDef, dirs: &Dirs, path: &[PathBuf]) -> bool {
         return true;
     }
     if let Some(cfg) = &d.config
-        && dirs.expand(cfg).is_dir()
+        && dirs.expand(cfg).exists()
     {
         return true;
     }
