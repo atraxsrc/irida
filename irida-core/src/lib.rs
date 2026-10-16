@@ -3,6 +3,7 @@ pub mod color;
 pub mod contrast;
 pub mod derive;
 pub mod dirs;
+pub mod import;
 pub mod native;
 pub mod palette;
 pub mod ramp;
