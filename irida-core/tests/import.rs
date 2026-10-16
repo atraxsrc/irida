@@ -222,7 +222,7 @@ fn export_into_rice_with_contrast_py_imports_back() {
         "{script}"
     );
     assert!(
-        script.contains(r##"("Containers", "Soot \/ Ash / Pane", ["#22262E", "#1B1E24"]),"##),
+        script.contains(r##"("Containers", "Soot \x2f Ash / Pane", ["#22262E", "#1B1E24"]),"##),
         "{script}"
     );
 
