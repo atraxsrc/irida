@@ -193,6 +193,7 @@ impl LiveSession {
         settings: &Settings,
         req: &ApplyRequest,
     ) -> Result<ApplyReport, ApplyError> {
+        drop_unfinished(&ctx.dirs);
         let mut rec = RecordWriter::create(&ctx.dirs, &self.palette).map_err(ApplyError::Record)?;
         let id = rec.id();
         if let Err(e) = self.save_marker(&ctx.dirs, Some(id)) {
@@ -223,6 +224,9 @@ impl LiveSession {
     /// End the session keeping its changes: the record becomes a normal apply
     /// record that `irida undo` undoes in one step.
     pub fn keep(self, ctx: &Ctx) -> io::Result<()> {
+        if self.record.is_none() {
+            drop_unfinished(&ctx.dirs);
+        }
         remove_marker(&ctx.dirs)?;
         if self.record.is_some() {
             // As after an apply, a failed prune is not the caller's problem.
@@ -237,6 +241,7 @@ impl LiveSession {
     /// the marker stay, so Revert is offered again.
     pub fn revert(self, ctx: &Ctx) -> Result<Option<UndoReport>, UndoError> {
         let Some(id) = self.record else {
+            drop_unfinished(&ctx.dirs);
             remove_marker(&ctx.dirs).map_err(UndoError::Io)?;
             return Ok(None);
         };
@@ -262,6 +267,15 @@ impl LiveSession {
             palette: rec.palette,
             failures,
         }))
+    }
+}
+
+/// Delete the record the marker names when it has no record.toml: a first
+/// apply that stopped before its first write (a panic), so nothing of it is
+/// on disk to put back, and it must not count as a closed record.
+fn drop_unfinished(dirs: &Dirs) {
+    if let Some(id) = marker_record(dirs).filter(|&id| !record::exists(dirs, id)) {
+        let _ = record::delete(dirs, id);
     }
 }
 
