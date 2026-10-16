@@ -317,6 +317,12 @@ fn apply_refuses_during_session() {
     put_a(&env);
     let a = env.dirs.home.join(".config/a/a.conf");
     let ember = palette("ember");
+    // More older records than Keep's prune keeps: the session's must survive.
+    for _ in 0..12 {
+        apply_a(&env, &ember);
+    }
+    let before = record_ids(&env);
+    let a_before = read(&a);
     let mut s = LiveSession::start(&ctx(&env), "ember").unwrap();
     session_apply(&mut s, &env, &ember);
     let id = s.record_id().unwrap();
@@ -333,8 +339,10 @@ fn apply_refuses_during_session() {
         other => panic!("expected LiveSessionOpen, got {other:?}"),
     }
     assert_eq!(read(&cava), applied);
-    assert!(!a.exists(), "nothing written");
-    assert_eq!(record_ids(&env), vec![id], "no record made");
+    assert_eq!(read(&a), a_before, "nothing written");
+    let mut with_session = before.clone();
+    with_session.push(id);
+    assert_eq!(record_ids(&env), with_session, "no record made");
 
     // Keep, then one undo still puts back what was there before the session.
     s.keep(&ctx(&env)).unwrap();
@@ -342,6 +350,26 @@ fn apply_refuses_during_session() {
     apply::undo(&ctx(&env)).unwrap();
     apply::undo(&ctx(&env)).unwrap();
     assert_eq!(read(&cava), "x\n");
+}
+
+#[test]
+fn stale_marker_never_names_a_new_record() {
+    let env = TestEnv::new();
+    put_cava(&env);
+    put_a(&env);
+    let ember = palette("ember");
+    let first = apply_a(&env, &ember).record_id;
+    // A revert that died between deleting its record and its marker.
+    put_marker(
+        &env,
+        &format!("palette = \"ember\"\nrecord = {}\n", first + 1),
+    );
+
+    let next = apply_a(&env, &ember).record_id;
+    assert_eq!(next, first + 2, "the marker's id is skipped");
+    apply_a(&env, &ember);
+    apply::undo(&ctx(&env)).unwrap();
+    apply::undo(&ctx(&env)).unwrap();
 }
 
 #[test]

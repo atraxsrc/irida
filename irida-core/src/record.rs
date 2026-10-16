@@ -173,10 +173,16 @@ pub(crate) struct Checkpoint {
 }
 
 impl RecordWriter {
-    /// Start a record in a new folder numbered one above the highest existing one.
+    /// Start a record in a new folder numbered one above the highest existing
+    /// one, and above the record a live marker names, so a marker left behind
+    /// never names a new normal record.
     pub fn create(dirs: &Dirs, palette_slug: &str) -> io::Result<RecordWriter> {
         private_dir(&applies_dir(dirs), true)?;
-        let id = record_ids(dirs)?.last().map_or(1, |n| n + 1);
+        let highest = record_ids(dirs)?
+            .last()
+            .copied()
+            .max(live::marker_record(dirs));
+        let id = highest.map_or(1, |n| n + 1);
         let dir = record_dir(dirs, id);
         private_dir(&dir, false)?;
         Ok(RecordWriter {

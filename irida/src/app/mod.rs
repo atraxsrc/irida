@@ -70,12 +70,14 @@ impl App {
         self.run_effects(effects)
     }
 
-    /// Toasts, timers and exit happen here; the IO effects queue behind any
-    /// still running and run in order on a blocking thread, so a later
-    /// effect sees an earlier one's writes, even from an earlier `update`.
+    /// Toasts and timers happen here; the IO effects queue behind any still
+    /// running and run in order on a blocking thread, so a later effect sees
+    /// an earlier one's writes, even from an earlier `update`. Exit waits
+    /// until the queue is empty.
     fn run_effects(&mut self, effects: Vec<Effect>) -> Task<Message> {
         let mut tasks = Vec::new();
         let mut io = Vec::new();
+        let mut exit = false;
         for effect in effects {
             match effect {
                 Effect::Toast(item) => tasks.push(self.toast(item)),
@@ -88,7 +90,7 @@ impl App {
                         Message::Ui(Msg::LiveTick(generation))
                     }));
                 }
-                Effect::Exit => tasks.push(cosmic::iced::exit()),
+                Effect::Exit => exit = true,
                 effect => {
                     debug_assert!(effect.is_io());
                     io.push(effect);
@@ -97,6 +99,10 @@ impl App {
         }
         if let Some(batch) = self.io.enqueue(io) {
             tasks.push(self.start_io(batch));
+        }
+        // Exit waits for queued IO, so a save asked for first still runs.
+        if exit && self.io.exit() {
+            tasks.push(cosmic::iced::exit());
         }
         Task::batch(tasks)
     }
@@ -269,6 +275,9 @@ impl Application for App {
                 }
                 for msg in msgs {
                     tasks.push(self.handle(msg));
+                }
+                if self.io.exit_due() {
+                    tasks.push(cosmic::iced::exit());
                 }
                 Task::batch(tasks)
             }
