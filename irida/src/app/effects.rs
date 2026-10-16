@@ -3,16 +3,20 @@
 
 use std::path::{Path, PathBuf};
 
-use irida_core::apply::{self, ApplyError, ApplyRequest, Ctx, UndoError, target_status};
+use irida_core::apply::{
+    self, ApplyError, ApplyRequest, Ctx, UndoError, UndoReport, target_status,
+};
 use irida_core::draft::{clusters, mode_of};
 use irida_core::export::{ExportRequest, export};
 use irida_core::import::import_rice_with_notes;
+use irida_core::live::{self, LiveSession};
 use irida_core::palette::Palette;
 use irida_core::store::{PairLookup, Settings, Store, StoreEntry, StoreError};
 use irida_core::wallpaper::{WallpaperError, current_wallpaper_in, load_pixels};
 
 use super::state::{
     ApplyFailure, Effect, EntrySummary, ExportSummary, Msg, NOT_IMAGE, OpenFailure, UndoDone,
+    any_live_target,
 };
 use crate::output::format_export;
 
@@ -109,21 +113,21 @@ fn apply_palette(ctx: &Ctx, palette: &Palette, pair: Option<&Palette>, settings:
     Msg::Applied(apply::apply(ctx, settings, &req).map_err(apply_failure))
 }
 
+/// What an undo or a revert did, one line per file it could not put back.
+fn undo_done(r: &UndoReport, again: &str) -> UndoDone {
+    UndoDone {
+        record_id: r.record_id,
+        failures: r
+            .failures
+            .iter()
+            .map(|(path, e)| format!("Could not restore {}: {e}; {again}", path.display()))
+            .collect(),
+    }
+}
+
 fn undo(ctx: &Ctx) -> Result<UndoDone, String> {
     match apply::undo(ctx) {
-        Ok(r) => Ok(UndoDone {
-            record_id: r.record_id,
-            failures: r
-                .failures
-                .iter()
-                .map(|(path, e)| {
-                    format!(
-                        "Could not restore {}: {e}; run Undo last apply again.",
-                        path.display()
-                    )
-                })
-                .collect(),
-        }),
+        Ok(r) => Ok(undo_done(&r, "run Undo last apply again.")),
         Err(UndoError::NothingToUndo) => Err("Nothing to undo".to_string()),
         Err(e @ UndoError::LiveSessionOpen) => Err(e.to_string()),
         Err(UndoError::Io(e)) => Err(format!("Could not undo: {e}")),
@@ -186,6 +190,36 @@ fn export_to(
         lines: report.lines,
         text,
     })
+}
+
+/// Apply `palette` in the live session, with its pair as Apply does; the
+/// session comes back with its record.
+fn live_apply(
+    store: &Store,
+    ctx: &Ctx,
+    mut session: LiveSession,
+    palette: &Palette,
+    settings: &Settings,
+) -> Msg {
+    let pair = match store.pair_of(palette) {
+        PairLookup::Found(p) => Some(p),
+        _ => None,
+    };
+    let req = ApplyRequest {
+        palette,
+        pair: pair.as_ref(),
+        only: None,
+        live_only: true,
+    };
+    let result = session.apply(ctx, settings, &req).map_err(apply_failure);
+    Msg::LiveApplied { session, result }
+}
+
+fn live_revert(ctx: &Ctx, session: LiveSession) -> Result<Option<UndoDone>, String> {
+    session
+        .revert(ctx)
+        .map(|r| r.map(|r| undo_done(&r, "Revert is offered again.")))
+        .map_err(|e| e.to_string())
 }
 
 /// Read the image at `path` and find its colours and mode.
@@ -309,10 +343,25 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
             n,
             name: None,
         },
+        Effect::StartLive(slug) => {
+            Msg::LiveStarted(LiveSession::start(ctx, &slug).map_err(|e| e.to_string()))
+        }
+        Effect::LiveApply {
+            session,
+            palette,
+            settings,
+        } => live_apply(&store, ctx, session, &palette, &settings),
+        Effect::KeepLive(session) => Msg::LiveKept(session.keep(ctx).map_err(|e| e.to_string())),
+        Effect::RevertLive(session) => Msg::LiveReverted(live_revert(ctx, session)),
+        Effect::FindPendingLive => Msg::LivePending(live::pending(&ctx.dirs)),
+        Effect::LoadLiveTargets(settings) => {
+            Msg::LiveTargets(any_live_target(&target_status(ctx, &settings)))
+        }
         Effect::Toast(_)
         | Effect::Copy(_)
         | Effect::ChooseFolder(_)
         | Effect::ChooseImage
+        | Effect::StartTimer(..)
         | Effect::Exit => {
             return Vec::new();
         }
@@ -490,6 +539,90 @@ mod tests {
         assert!(perform(Effect::ChooseFolder(FolderFor::Export), &ctx(&tmp)).is_empty());
         assert!(!Effect::ChooseImage.is_io());
         assert!(perform(Effect::ChooseImage, &ctx(&tmp)).is_empty());
+        let timer = Effect::StartTimer(crate::app::state::LIVE_DELAY, 1);
+        assert!(!timer.is_io());
+        assert!(perform(timer, &ctx(&tmp)).is_empty());
+    }
+
+    #[test]
+    fn live_session_round_trip() {
+        let tmp = TempDir::new().unwrap();
+        let ctx = ctx(&tmp);
+        let config = ctx.dirs.config.join("cava/config");
+        fs::create_dir_all(config.parent().unwrap()).unwrap();
+        fs::write(&config, "x\n").unwrap();
+        assert!(matches!(
+            perform(Effect::LoadLiveTargets(Settings::default()), &ctx).as_slice(),
+            [Msg::LiveTargets(true)]
+        ));
+        assert!(matches!(
+            perform(Effect::FindPendingLive, &ctx).as_slice(),
+            [Msg::LivePending(None)]
+        ));
+        let msgs = perform(Effect::StartLive("ember".to_string()), &ctx);
+        let [Msg::LiveStarted(Ok(session))] = msgs.as_slice() else {
+            panic!("{msgs:?}");
+        };
+        assert_eq!(session.record_id(), None);
+        let msgs = perform(
+            Effect::LiveApply {
+                session: session.clone(),
+                palette: ember(),
+                settings: Settings::default(),
+            },
+            &ctx,
+        );
+        let [
+            Msg::LiveApplied {
+                session,
+                result: Ok(report),
+            },
+        ] = msgs.as_slice()
+        else {
+            panic!("{msgs:?}");
+        };
+        assert!(session.record_id().is_some(), "the record comes back");
+        let applied: Vec<&str> = report
+            .targets
+            .iter()
+            .filter(|t| matches!(t.status, apply::TargetStatus::Applied(_)))
+            .map(|t| t.name.as_str())
+            .collect();
+        assert_eq!(applied, ["cava"]);
+        assert_ne!(fs::read(&config).unwrap(), b"x\n");
+        // A second start is refused while this one is open.
+        assert!(matches!(
+            perform(Effect::StartLive("ember".to_string()), &ctx).as_slice(),
+            [Msg::LiveStarted(Err(_))]
+        ));
+        let msgs = perform(Effect::FindPendingLive, &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::LivePending(Some(s))] if s == session),
+            "{msgs:?}"
+        );
+        let msgs = perform(Effect::RevertLive(session.clone()), &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::LiveReverted(Ok(Some(done)))] if done.failures.is_empty()),
+            "{msgs:?}"
+        );
+        assert_eq!(fs::read(&config).unwrap(), b"x\n");
+
+        // A session that never applied keeps nothing.
+        let msgs = perform(Effect::StartLive("ember".to_string()), &ctx);
+        let [Msg::LiveStarted(Ok(session))] = msgs.as_slice() else {
+            panic!("{msgs:?}");
+        };
+        assert!(matches!(
+            perform(Effect::KeepLive(session.clone()), &ctx).as_slice(),
+            [Msg::LiveKept(Ok(()))]
+        ));
+        assert!(!ctx.dirs.state.join("irida/live.toml").exists());
+        // No live target: none.
+        fs::remove_dir_all(config.parent().unwrap()).unwrap();
+        assert!(matches!(
+            perform(Effect::LoadLiveTargets(Settings::default()), &ctx).as_slice(),
+            [Msg::LiveTargets(false)]
+        ));
     }
 
     #[test]
