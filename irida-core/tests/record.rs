@@ -1,7 +1,7 @@
 mod common;
 
 use std::fs;
-use std::os::unix::fs::symlink;
+use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
 use common::TestEnv;
@@ -220,4 +220,27 @@ fn record_toml_round_trips() {
     assert_eq!(rec.palette, "noir");
     assert_eq!(rec.entries.len(), 6);
     assert_eq!(record::latest(&env.dirs).unwrap(), Some(rec));
+}
+
+fn mode(path: &Path) -> u32 {
+    fs::metadata(path).unwrap().permissions().mode() & 0o777
+}
+
+#[test]
+fn records_are_private() {
+    let env = TestEnv::new();
+    let a = env.write("a.conf", "secret\n");
+
+    let mut w = RecordWriter::create(&env.dirs, "ember").unwrap();
+    let blob = w.capture(&a).unwrap().unwrap();
+    w.push(Entry::File { path: a, blob: Some(blob.clone()) });
+    let rec = w.finish().unwrap();
+
+    let applies = env.dirs.state.join("irida/applies");
+    let dir = applies.join(rec.id.to_string());
+    assert_eq!(mode(&applies), 0o700);
+    assert_eq!(mode(&dir), 0o700);
+    assert_eq!(mode(&dir.join("files")), 0o700);
+    assert_eq!(mode(&dir.join(&blob)), 0o600);
+    assert_eq!(mode(&dir.join("record.toml")), 0o600);
 }
