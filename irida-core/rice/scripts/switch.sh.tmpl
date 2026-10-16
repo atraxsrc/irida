@@ -112,12 +112,6 @@ grep -Eq "^[[:space:]]*(source|\.)[[:space:]].*cosmic-$SLUG-theme/zsh/$SLUG\.zsh
 echo "  zsh: active rice lines:"
 grep -En "^[[:space:]]*(source|\.)[[:space:]].*(cosmic-[a-z]+-theme/zsh/[a-z]+\.zsh|ricing/zsh/colors\.zsh)" ~/.zshrc | sed 's/^/    /' || echo "    none"
 
-# Updater banner
-if [ -x scripts/update_system.sh ]; then
-    ln -sfn "$R/scripts/update_system.sh" "$HOME/update_system.sh"
-    echo "  ~/update_system.sh -> $NAME"
-fi
-
 # Firefox userChrome/userContent, Claude Desktop theme file
 ./firefox/install.sh | sed '/^$/d; s/^/  firefox: /' || echo "  firefox: skipped (see above)"
 ./claude-desktop/install.sh | sed '/^$/d; s/^/  claude-desktop: /' || echo "  claude-desktop: skipped (see above)"
