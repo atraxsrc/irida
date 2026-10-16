@@ -94,3 +94,16 @@ fn settings_round_trip() {
     store.save_settings(&s).unwrap();
     assert_eq!(store.settings().unwrap(), s);
 }
+
+#[test]
+fn save_rejects_bad_slug() {
+    let env = TestEnv::new();
+    let store = Store::new(env.dirs.clone());
+    let mut p = palette("ember");
+    p.slug = "../x".into();
+    assert!(matches!(store.save(&p), Err(StoreError::BadSlug(_))));
+    assert!(matches!(store.save_version(&p), Err(StoreError::BadSlug(_))));
+    assert!(!env.dirs.data.join("irida/x").exists());
+    assert!(!env.dirs.data.join("irida/palettes/../x").exists());
+    assert!(!env.dirs.data.join("irida/palettes").exists());
+}
