@@ -145,7 +145,8 @@ pub enum Dialog {
     /// The targets Apply writes, with a toggle each.
     Apply(ApplySheet),
     /// An imported palette whose slug is taken: Replace or Keep both.
-    /// `replace_ok` is false when the palette there cannot be read.
+    /// `replace_ok` is false when the palette there cannot be read, or an
+    /// open unsaved draft has the slug.
     ImportCollision {
         palette: Palette,
         notes: Vec<String>,
@@ -1219,6 +1220,11 @@ impl State {
         matches!(self.current, Some(Current::Editable { saved: None, .. }))
     }
 
+    /// The open palette is an unsaved draft with this slug.
+    pub fn draft_is(&self, slug: &str) -> bool {
+        self.unsaved_draft() && self.open_is(slug)
+    }
+
     pub fn menu_enabled(&self, item: MenuItem) -> bool {
         match item {
             MenuItem::Switch => !self.entries.is_empty(),
@@ -1558,7 +1564,7 @@ impl State {
                 Vec::new()
             }
             // On Discard the edits go at once, so a save cannot bury the
-            // import.
+            // import, and so does what was typed for them.
             Leave::Import { palette, notes } => {
                 if let Some(Current::Editable {
                     saved: Some(saved),
@@ -1567,6 +1573,8 @@ impl State {
                 }) = &mut self.current
                 {
                     *working = saved.clone();
+                    self.expanded = None;
+                    self.fields.clear();
                 }
                 vec![Effect::SaveImport {
                     palette: *palette,
@@ -2380,20 +2388,23 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Err(effects) => effects,
         },
         Msg::Imported(Ok((palette, notes))) => {
-            match state.entries.iter().find(|e| e.slug == palette.slug) {
-                Some(entry) => {
-                    state.dialog = Some(Dialog::ImportCollision {
-                        replace_ok: entry.readable(),
-                        palette,
-                        notes,
-                    });
-                    Vec::new()
-                }
-                None => vec![Effect::SaveImport {
+            // An open draft's slug is taken too, and Replace never writes
+            // over a draft.
+            let draft = state.draft_is(&palette.slug);
+            let entry = state.entries.iter().find(|e| e.slug == palette.slug);
+            if entry.is_some() || draft {
+                state.dialog = Some(Dialog::ImportCollision {
+                    replace_ok: !draft && entry.is_some_and(|e| e.readable()),
+                    palette,
+                    notes,
+                });
+                Vec::new()
+            } else {
+                vec![Effect::SaveImport {
                     palette,
                     notes,
                     replace: false,
-                }],
+                }]
             }
         }
         Msg::Imported(Err(e)) => vec![state.toast(format!("Not imported: {e}"))],
@@ -4351,22 +4362,113 @@ mod tests {
     }
 
     #[test]
-    fn import_over_open_draft_asks_first() {
+    fn import_over_open_draft_keeps_both() {
         let tmp = TempDir::new().unwrap();
         let store = store_with(&tmp, &["noir"]);
         let mut state = start(&tmp);
         let draft = open_draft(&mut state, "Ember");
 
-        // No stored ember, so it saves as new, then asks about the draft.
-        import(&mut state);
-        assert_eq!(slugs(&store), ["ember", "noir"]);
+        // No stored ember, but the draft has its name: only Keep both.
+        assert!(import(&mut state).is_empty());
         assert!(
-            matches!(&state.dialog, Some(Dialog::Unsaved(Leave::Open(s))) if s == "ember"),
+            matches!(&state.dialog, Some(Dialog::ImportCollision { palette, replace_ok: false, .. })
+                if palette.slug == "ember"),
+            "{:?}",
+            state.dialog
+        );
+        assert_eq!(slugs(&store), ["noir"]);
+        assert!(drive(&mut state, Msg::ImportReplace).is_empty());
+        assert!(matches!(state.dialog, Some(Dialog::ImportCollision { .. })));
+        assert_eq!(slugs(&store), ["noir"]);
+
+        // Keep both saves it as Ember Two, then asks about the draft.
+        drive(&mut state, Msg::ImportKeepBoth);
+        assert_eq!(slugs(&store), ["embertwo", "noir"]);
+        assert!(
+            matches!(&state.dialog, Some(Dialog::Unsaved(Leave::Open(s))) if s == "embertwo"),
             "{:?}",
             state.dialog
         );
         assert_eq!(working(&state), &draft);
+
+        // The draft can still be saved under its own name.
+        drive(&mut state, Msg::CloseDialog);
+        drive(&mut state, Msg::Save);
+        assert!(state.dialog.is_none());
+        assert_eq!(slugs(&store), ["ember", "embertwo", "noir"]);
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert!(!state.dirty());
+    }
+
+    #[test]
+    fn import_over_open_draft_of_a_stored_name_keeps_both() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "noir"]);
+        let mut state = start(&tmp);
+        let draft = open_draft(&mut state, "Ember");
+
+        // The stored ember is readable, but Replace is not over the draft.
+        import(&mut state);
+        assert!(
+            matches!(
+                &state.dialog,
+                Some(Dialog::ImportCollision {
+                    replace_ok: false,
+                    ..
+                })
+            ),
+            "{:?}",
+            state.dialog
+        );
+        assert!(drive(&mut state, Msg::ImportReplace).is_empty());
+        assert_eq!(store.versions("ember").unwrap().len(), 1);
+
+        // Keep both asks about the draft once, and Discard opens the import.
+        drive(&mut state, Msg::ImportKeepBoth);
+        assert_eq!(slugs(&store), ["ember", "embertwo", "noir"]);
+        assert!(
+            matches!(&state.dialog, Some(Dialog::Unsaved(Leave::Open(s))) if s == "embertwo"),
+            "{:?}",
+            state.dialog
+        );
+        assert_eq!(working(&state), &draft);
+        drive(&mut state, Msg::UnsavedDiscard);
+        assert!(state.dialog.is_none());
+        assert_eq!(open_slug(&state), Some("embertwo"));
+        assert!(!state.dirty());
+    }
+
+    #[test]
+    fn import_replace_discard_clears_typed_hex() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember", "noir"]);
+        let mut state = start(&tmp);
+        let saved = working(&state).clone();
+        drive(
+            &mut state,
+            Msg::HexInput(Role::Accent, "#00FF00".to_string()),
+        );
+        drive(
+            &mut state,
+            Msg::HexInput(Role::Accent, "#00FF0".to_string()),
+        );
         assert!(state.dirty());
+        assert!(state.field(Field::Hex(Role::Accent)).is_some());
+
+        // Discard reverts the edits, and a failed import leaves no typed
+        // text over the reverted colours.
+        import(&mut state);
+        drive(&mut state, Msg::ImportReplace);
+        let effects = update(&mut state, Msg::UnsavedDiscard);
+        let [effect @ Effect::SaveImport { .. }] = effects.as_slice() else {
+            panic!("{effects:?}");
+        };
+        let msg = panicked(effect.clone(), &state.ctx, "boom".to_string());
+        drive(&mut state, msg);
+        assert!(last_toast(&state).starts_with("Not imported"));
+        assert_eq!(working(&state), &saved);
+        assert!(!state.dirty());
+        assert!(state.fields.is_empty());
     }
 
     #[test]
