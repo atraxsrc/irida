@@ -1,0 +1,38 @@
+name = "Ember"
+slug = "ember"
+mode = "dark"
+pair = "emberday"
+
+[roles]
+background = "#15171C"
+pane = "#1B1E24"
+container = "#22262E"
+text = "#D6D9E0"
+muted = "#7C8290"
+comment = "#5A6070"
+accent = "#E8713A"
+success = "#8FB58A"
+warning = "#D9A441"
+error = "#D85A5A"
+blue = "#7FA3C7"
+magenta = "#B08BC4"
+cyan = "#7FB7B3"
+
+[names]
+background = "Night"
+pane = "Pane"
+container = "Soot"
+text = "Fog"
+muted = "Muted"
+comment = "Comment"
+accent = "Ember"
+success = "Moss"
+warning = "Amber"
+error = "Brick"
+blue = "Slate blue"
+magenta = "Heather"
+cyan = "Verdigris"
+
+[pins]
+"normal.black" = "#2A2F38"
+"cosmic.neutral_10" = "#E6E8EE"
