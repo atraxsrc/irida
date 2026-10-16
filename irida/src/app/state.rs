@@ -18,7 +18,7 @@ use irida_core::palette::{Mode, Palette, Roles, slug_from_name, validate_name};
 use irida_core::reload::ReloadStatus;
 use irida_core::role::Role;
 use irida_core::slot::{Ansi, PinValue, Slot, Tone};
-use irida_core::store::{PairLookup, Settings, starters};
+use irida_core::store::{PairLookup, SNAPSHOT_NAME_MAX, Settings, VersionInfo, starters};
 use irida_core::wallpaper::name_from_file;
 
 /// One stored palette as the Switch list shows it.
@@ -27,6 +27,8 @@ pub struct EntrySummary {
     pub slug: String,
     /// The palette's name and mode, or why it cannot be read.
     pub palette: Result<(String, Mode), String>,
+    /// The slug its `pair` names, when it can be read.
+    pub pair: Option<String>,
 }
 
 impl EntrySummary {
@@ -144,6 +146,33 @@ pub enum Dialog {
     Exported(ExportSummary),
     /// New from wallpaper.
     Wallpaper(WallpaperDialog),
+    /// Pair with...: the palettes of the other mode. `confirm` is a chosen
+    /// palette that is paired already, waiting for a yes.
+    PairWith {
+        choices: Vec<PairChoice>,
+        confirm: Option<String>,
+    },
+    /// A snapshot name for saved version `n`.
+    Snapshot { n: u32, name: String },
+}
+
+/// A palette the open one can be paired with.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PairChoice {
+    pub slug: String,
+    pub name: String,
+    /// The name of the palette it is paired with now.
+    pub paired_with: Option<String>,
+}
+
+impl PairChoice {
+    /// "Dossier", or "Dossier, paired with Noir".
+    pub fn label(&self) -> String {
+        match &self.paired_with {
+            Some(other) => format!("{}, paired with {other}", self.name),
+            None => self.name.clone(),
+        }
+    }
 }
 
 /// The text a failed draft shows for a file that is not an image.
@@ -401,6 +430,7 @@ pub enum MenuItem {
     New,
     NewFromWallpaper,
     Duplicate,
+    Unpair,
     Import,
     Export,
     UndoLastApply,
@@ -408,11 +438,12 @@ pub enum MenuItem {
 }
 
 impl MenuItem {
-    pub const ALL: [MenuItem; 8] = [
+    pub const ALL: [MenuItem; 9] = [
         MenuItem::Switch,
         MenuItem::New,
         MenuItem::NewFromWallpaper,
         MenuItem::Duplicate,
+        MenuItem::Unpair,
         MenuItem::Import,
         MenuItem::Export,
         MenuItem::UndoLastApply,
@@ -425,6 +456,7 @@ impl MenuItem {
             MenuItem::New => "New",
             MenuItem::NewFromWallpaper => "New from wallpaper",
             MenuItem::Duplicate => "Duplicate",
+            MenuItem::Unpair => "Unpair",
             MenuItem::Import => "Import",
             MenuItem::Export => "Export as rice repo",
             MenuItem::UndoLastApply => "Undo last apply",
@@ -437,6 +469,7 @@ impl MenuItem {
             MenuItem::Switch => Msg::ShowSwitch,
             MenuItem::New => Msg::ShowNew,
             MenuItem::Duplicate => Msg::ShowDuplicate,
+            MenuItem::Unpair => Msg::Unpair,
             MenuItem::Delete => Msg::ShowDelete,
             MenuItem::Import => Msg::ShowImport,
             MenuItem::Export => Msg::ShowExport,
@@ -455,6 +488,69 @@ pub enum HeaderItem {
     TryLive,
     Apply,
 }
+
+/// The saved version Compare shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum VersionRef {
+    /// The last saved version, following each save.
+    Latest,
+    Version(u32),
+}
+
+/// How the preview is split; only one split at a time.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Split {
+    Off,
+    /// The open palette beside its pair.
+    Pair,
+    /// A saved version beside the working copy.
+    Saved(VersionRef),
+}
+
+/// One column of a split preview.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SplitColumn {
+    pub label: String,
+    /// `None` while it is read, or when it cannot be (`note` says which).
+    pub palette: Option<Palette>,
+    pub note: Option<String>,
+}
+
+/// The left column's version list in Compare.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VersionChoice {
+    /// Newest first, like "v3 Warm accent" and "v2".
+    pub labels: Vec<String>,
+    /// The shown version's place in `labels`.
+    pub selected: Option<usize>,
+    /// The shown version's snapshot name.
+    pub snapshot: Option<String>,
+}
+
+/// What a split preview shows.
+#[derive(Debug, Clone, PartialEq)]
+pub struct SplitView {
+    pub left: SplitColumn,
+    pub right: SplitColumn,
+    /// Compare's version list; `None` for the pair.
+    pub versions: Option<VersionChoice>,
+}
+
+/// "v3 Warm accent", or "v2" for a version without a snapshot name.
+pub fn version_label(v: &VersionInfo) -> String {
+    match &v.snapshot {
+        Some(name) => format!("v{} {name}", v.n),
+        None => format!("v{}", v.n),
+    }
+}
+
+/// A column label like "Ember (dark)".
+fn half_label(p: &Palette) -> String {
+    format!("{} ({})", p.name, p.mode)
+}
+
+/// What the Compare chip's tooltip says while it is disabled.
+pub const COMPARE_NEEDS_VERSION: &str = "Save a version first (Ctrl+S)";
 
 /// The error a hex field shows for anything but six hex digits.
 pub const HEX_ERROR: &str = "Use six hex digits, like #E8713A";
@@ -705,6 +801,54 @@ pub enum Msg {
     WallpaperMode(Mode),
     WallpaperName(String),
     WallpaperCreate,
+    // Compare, pairs and snapshots.
+    /// The open palette's saved versions, newest first.
+    Versions {
+        slug: String,
+        result: Result<Vec<VersionInfo>, String>,
+    },
+    /// The pair chip: show the pair, or choose one.
+    PairChip,
+    PairLoaded {
+        slug: String,
+        /// Boxed: a found pair is a whole palette.
+        lookup: Box<PairLookup>,
+    },
+    /// A palette chosen in Pair with...
+    PairChoose(String),
+    /// Yes, pair with the chosen palette although it is paired.
+    PairConfirm,
+    Linked {
+        slug: String,
+        with: String,
+        result: Result<(), String>,
+    },
+    Unpair,
+    Unlinked {
+        slug: String,
+        result: Result<(), String>,
+    },
+    /// The Compare chip.
+    Compare,
+    /// A version from Compare's list, by its place in it.
+    CompareVersion(usize),
+    VersionLoaded {
+        slug: String,
+        n: u32,
+        result: Result<Palette, String>,
+    },
+    ShowPinSnapshot,
+    SnapshotInput(String),
+    SnapshotConfirm,
+    /// Remove the shown version's snapshot name.
+    UnpinSnapshot,
+    /// A snapshot name was written (`Some`) or removed (`None`).
+    SnapshotSaved {
+        slug: String,
+        n: u32,
+        name: Option<String>,
+        result: Result<(), String>,
+    },
     /// An item a later version builds.
     NotYet(&'static str),
 }
@@ -758,6 +902,27 @@ pub enum Effect {
     FindWallpaper(PathBuf),
     /// Read an image and find its colours.
     DraftImage(PathBuf),
+    LoadVersions(String),
+    LoadVersion {
+        slug: String,
+        n: u32,
+    },
+    /// Read the pair of this working copy.
+    LoadPair(Palette),
+    LinkPair {
+        slug: String,
+        with: String,
+    },
+    UnlinkPair(String),
+    PinSnapshot {
+        slug: String,
+        n: u32,
+        name: String,
+    },
+    UnpinSnapshot {
+        slug: String,
+        n: u32,
+    },
     Toast(ToastItem),
     /// Put text on the clipboard.
     Copy(String),
@@ -807,6 +972,13 @@ pub struct State {
     after_save: Option<Leave>,
     /// A save is running; another Ctrl+S waits for its result.
     saving: bool,
+    pub split: Split,
+    /// The open palette's saved versions, newest first.
+    pub versions: Vec<VersionInfo>,
+    /// The open palette's pair, read when the pair split opened.
+    pair_palette: Option<Palette>,
+    /// A version Compare read, by number, or why it could not be read.
+    compare_version: Option<(u32, Result<Palette, String>)>,
 }
 
 /// Toasts kept in `State::toasts`.
@@ -829,6 +1001,10 @@ impl State {
             fields: BTreeMap::new(),
             after_save: None,
             saving: false,
+            split: Split::Off,
+            versions: Vec::new(),
+            pair_palette: None,
+            compare_version: None,
         };
         (state, vec![Effect::SeedStarters, Effect::LoadStore])
     }
@@ -871,10 +1047,14 @@ impl State {
         self.fields.insert(field, FieldEdit { text, error });
     }
 
-    /// Close the role editor, for a newly opened palette.
+    /// Close the role editor and any split, for a newly opened palette.
     fn reset_editor(&mut self) {
         self.expanded = None;
         self.fields.clear();
+        self.split = Split::Off;
+        self.versions.clear();
+        self.pair_palette = None;
+        self.compare_version = None;
     }
 
     /// An open wallpaper draft that has never been saved: it is not in the
@@ -893,6 +1073,180 @@ impl State {
             // Both work on the stored palette, which a draft does not have.
             MenuItem::Duplicate => self.editable() && !self.unsaved_draft(),
             MenuItem::Delete => self.current.is_some() && !self.unsaved_draft(),
+            MenuItem::Unpair => self
+                .stored_palette()
+                .is_some_and(|(_, working)| working.pair.is_some()),
+        }
+    }
+
+    /// The open palette's saved copy and working copy, when it is editable
+    /// and in the store (not a never-saved draft).
+    fn stored_palette(&self) -> Option<(&Palette, &Palette)> {
+        match &self.current {
+            Some(Current::Editable {
+                saved: Some(saved),
+                working,
+                ..
+            }) => Some((saved, working)),
+            _ => None,
+        }
+    }
+
+    /// A stored palette's name, else its slug.
+    fn entry_label(&self, slug: &str) -> String {
+        self.entries
+            .iter()
+            .find(|e| e.slug == slug)
+            .map_or(slug, EntrySummary::label)
+            .to_string()
+    }
+
+    /// The pair chip: "Pair: Ember Day", or "Pair with..." when unpaired.
+    pub fn pair_label(&self) -> String {
+        match self
+            .current
+            .as_ref()
+            .and_then(Current::working)
+            .and_then(|w| w.pair.as_deref())
+        {
+            Some(slug) => format!("Pair: {}", self.entry_label(slug)),
+            None => "Pair with...".to_string(),
+        }
+    }
+
+    /// Why a header item is disabled, when there is something to say.
+    pub fn header_tooltip(&self, item: HeaderItem) -> Option<&'static str> {
+        match item {
+            HeaderItem::Compare if self.editable() && !self.header_enabled(item) => {
+                Some(COMPARE_NEEDS_VERSION)
+            }
+            HeaderItem::Pair if self.unsaved_draft() => Some("Save it first (Ctrl+S)"),
+            _ => None,
+        }
+    }
+
+    /// The palettes of the other mode than `mode`, in list order.
+    fn pair_choices(&self, mode: Mode) -> Vec<PairChoice> {
+        self.entries
+            .iter()
+            .filter_map(|e| match &e.palette {
+                Ok((name, m)) if *m != mode => Some(PairChoice {
+                    slug: e.slug.clone(),
+                    name: name.clone(),
+                    paired_with: e.pair.as_deref().map(|p| self.entry_label(p)),
+                }),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Set `pair` on both copies of the open palette when it is `slug`, so
+    /// a later save keeps what the store now holds.
+    fn set_pair(&mut self, slug: &str, pair: Option<String>) {
+        if let Some(Current::Editable {
+            slug: open,
+            saved,
+            working,
+        }) = &mut self.current
+            && open == slug
+        {
+            if let Some(saved) = saved {
+                saved.pair = pair.clone();
+            }
+            working.pair = pair;
+        }
+    }
+
+    fn open_is(&self, slug: &str) -> bool {
+        self.current.as_ref().is_some_and(|c| c.slug() == slug)
+    }
+
+    /// The version number Compare shows.
+    fn shown_version(&self) -> Option<u32> {
+        match self.split {
+            Split::Saved(VersionRef::Latest) => self.versions.first().map(|v| v.n),
+            Split::Saved(VersionRef::Version(n)) => Some(n),
+            _ => None,
+        }
+    }
+
+    /// The split preview's two columns, when the preview is split.
+    pub fn split_view(&self) -> Option<SplitView> {
+        let Some(Current::Editable { saved, working, .. }) = &self.current else {
+            return None;
+        };
+        let working_column = |label: String| SplitColumn {
+            label,
+            palette: Some(working.clone()),
+            note: None,
+        };
+        match self.split {
+            Split::Off => None,
+            Split::Pair => {
+                let right = match &self.pair_palette {
+                    Some(p) => SplitColumn {
+                        label: half_label(p),
+                        palette: Some(p.clone()),
+                        note: None,
+                    },
+                    None => SplitColumn {
+                        label: working
+                            .pair
+                            .as_deref()
+                            .map_or_else(String::new, |s| self.entry_label(s)),
+                        palette: None,
+                        note: Some("Reading the pair".to_string()),
+                    },
+                };
+                Some(SplitView {
+                    left: working_column(half_label(working)),
+                    right,
+                    versions: None,
+                })
+            }
+            Split::Saved(which) => {
+                let n = self.shown_version()?;
+                let info = self.versions.iter().find(|v| v.n == n);
+                let (palette, note) = match which {
+                    VersionRef::Latest => (saved.clone(), None),
+                    VersionRef::Version(_) => match &self.compare_version {
+                        Some((k, Ok(p))) if *k == n => (Some(p.clone()), None),
+                        Some((k, Err(e))) if *k == n => (None, Some(e.clone())),
+                        _ => (None, Some(format!("Reading version {n}"))),
+                    },
+                };
+                let left = SplitColumn {
+                    label: info.map_or_else(|| format!("v{n}"), version_label),
+                    palette,
+                    note,
+                };
+                let versions = VersionChoice {
+                    labels: self.versions.iter().map(version_label).collect(),
+                    selected: self.versions.iter().position(|v| v.n == n),
+                    snapshot: info.and_then(|v| v.snapshot.clone()),
+                };
+                Some(SplitView {
+                    left,
+                    right: working_column("Working copy".to_string()),
+                    versions: Some(versions),
+                })
+            }
+        }
+    }
+
+    /// The snapshot name typed in the Snapshot dialog, trimmed, or why it
+    /// cannot be used (`Err("")` while it is empty).
+    pub fn snapshot_check(&self) -> Result<String, String> {
+        let Some(Dialog::Snapshot { name, .. }) = &self.dialog else {
+            return Err(String::new());
+        };
+        let name = name.trim();
+        if name.is_empty() {
+            Err(String::new())
+        } else if name.chars().count() > SNAPSHOT_NAME_MAX {
+            Err(format!("Use at most {SNAPSHOT_NAME_MAX} characters"))
+        } else {
+            Ok(name.to_string())
         }
     }
 
@@ -916,11 +1270,10 @@ impl State {
 
     pub fn header_enabled(&self, item: HeaderItem) -> bool {
         match item {
-            HeaderItem::Mode
-            | HeaderItem::Pair
-            | HeaderItem::Compare
-            | HeaderItem::TryLive
-            | HeaderItem::Apply => self.editable(),
+            HeaderItem::Mode | HeaderItem::TryLive | HeaderItem::Apply => self.editable(),
+            // Pairing works on the stored palette, which a draft is not yet.
+            HeaderItem::Pair => self.stored_palette().is_some(),
+            HeaderItem::Compare => self.stored_palette().is_some() && !self.versions.is_empty(),
         }
     }
 
@@ -975,7 +1328,8 @@ impl State {
         Effect::Toast(item)
     }
 
-    /// Open `p` for editing as saved, and remember it as the last palette.
+    /// Open `p` for editing as saved, read its versions, and remember it as
+    /// the last palette.
     fn open_editable(&mut self, p: Palette) -> Vec<Effect> {
         let slug = p.slug.clone();
         self.reset_editor();
@@ -984,7 +1338,9 @@ impl State {
             saved: Some(p.clone()),
             working: p,
         });
-        self.remember(slug)
+        let mut effects = vec![Effect::LoadVersions(slug.clone())];
+        effects.extend(self.remember(slug));
+        effects
     }
 
     /// Write `slug` as `settings.last_palette`, unless it is already there or
@@ -1204,6 +1560,9 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                         && *slug == p.slug
                     {
                         *saved = Some(p.clone());
+                        if !state.versions.iter().any(|v| v.n == n) {
+                            state.versions.insert(0, VersionInfo { n, snapshot: None });
+                        }
                     }
                     if !state.entries.iter().any(|e| e.slug == p.slug) {
                         effects.push(Effect::ListEntries);
@@ -1808,10 +2167,284 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             let p = draft_palette(&d.clusters, d.mode, &d.name);
             state.leave(Leave::Draft(p))
         }
+        Msg::Versions { slug, result } => {
+            if !state.open_is(&slug) {
+                return Vec::new();
+            }
+            let effects = match result {
+                Ok(versions) => {
+                    state.versions = versions;
+                    Vec::new()
+                }
+                Err(e) => {
+                    state.versions.clear();
+                    vec![state.toast(format!("Could not read the saved versions of {slug}: {e}"))]
+                }
+            };
+            // The shown version must still exist.
+            match state.split {
+                Split::Saved(_) if state.versions.is_empty() => state.split = Split::Off,
+                Split::Saved(VersionRef::Version(n))
+                    if !state.versions.iter().any(|v| v.n == n) =>
+                {
+                    state.split = Split::Saved(VersionRef::Latest);
+                }
+                _ => {}
+            }
+            effects
+        }
+        Msg::PairChip => {
+            if !state.header_enabled(HeaderItem::Pair) {
+                return Vec::new();
+            }
+            let Some((saved, working)) = state.stored_palette() else {
+                return Vec::new();
+            };
+            if working.pair.is_some() {
+                if state.split == Split::Pair {
+                    state.split = Split::Off;
+                    state.pair_palette = None;
+                    return Vec::new();
+                }
+                let effect = Effect::LoadPair(working.clone());
+                state.split = Split::Pair;
+                state.pair_palette = None;
+                return vec![effect];
+            }
+            // The store pairs by the saved mode.
+            if working.mode != saved.mode {
+                return vec![state.toast("Save the mode change first (Ctrl+S), then pair.")];
+            }
+            let mode = saved.mode;
+            let choices = state.pair_choices(mode);
+            if choices.is_empty() {
+                let other = match mode {
+                    Mode::Dark => Mode::Light,
+                    Mode::Light => Mode::Dark,
+                };
+                return vec![state.toast(format!(
+                    "There is no {other} palette to pair with. Make one with New."
+                ))];
+            }
+            state.dialog = Some(Dialog::PairWith {
+                choices,
+                confirm: None,
+            });
+            Vec::new()
+        }
+        Msg::PairLoaded { slug, lookup } => {
+            if !state.open_is(&slug) || state.split != Split::Pair {
+                return Vec::new();
+            }
+            let text = match *lookup {
+                PairLookup::Found(p) => {
+                    state.pair_palette = Some(p);
+                    return Vec::new();
+                }
+                PairLookup::None => "It has no pair to show.".to_string(),
+                PairLookup::SameMode(pair) => {
+                    format!("Its pair {pair} has the same mode, so there is no other half to show.")
+                }
+                PairLookup::Missing { slug, reason } => {
+                    format!("Its pair {slug} cannot be loaded ({reason}).")
+                }
+            };
+            state.split = Split::Off;
+            vec![state.toast(text)]
+        }
+        Msg::PairChoose(with) => {
+            let Some(Dialog::PairWith { choices, confirm }) = &mut state.dialog else {
+                return Vec::new();
+            };
+            let Some(choice) = choices.iter().find(|c| c.slug == with) else {
+                return Vec::new();
+            };
+            if choice.paired_with.is_some() {
+                *confirm = Some(with);
+                return Vec::new();
+            }
+            link(state, with)
+        }
+        Msg::PairConfirm => match &state.dialog {
+            Some(Dialog::PairWith {
+                confirm: Some(with),
+                ..
+            }) => {
+                let with = with.clone();
+                link(state, with)
+            }
+            _ => Vec::new(),
+        },
+        Msg::Linked { slug, with, result } => match result {
+            Ok(()) => {
+                // The entries still hold the pairs from before the link.
+                let name = state.entry_label(&slug);
+                let mut text = format!("Paired {name} with {}", state.entry_label(&with));
+                let old = state
+                    .entries
+                    .iter()
+                    .find(|e| e.slug == with)
+                    .and_then(|e| e.pair.clone())
+                    .filter(|old| *old != slug);
+                if let Some(old) = old {
+                    text.push_str(&format!(
+                        ". {} is no longer paired.",
+                        state.entry_label(&old)
+                    ));
+                }
+                state.set_pair(&slug, Some(with));
+                vec![state.toast(text), Effect::ListEntries]
+            }
+            Err(e) => vec![state.toast(format!("Not paired: {e}"))],
+        },
+        Msg::Unpair => {
+            state.menu_open = false;
+            if !state.menu_enabled(MenuItem::Unpair) {
+                return Vec::new();
+            }
+            let slug = state.current.as_ref().map(|c| c.slug().to_string());
+            slug.map(Effect::UnlinkPair).into_iter().collect()
+        }
+        Msg::Unlinked { slug, result } => match result {
+            Ok(()) => {
+                let partner = state
+                    .current
+                    .as_ref()
+                    .filter(|c| c.slug() == slug)
+                    .and_then(Current::working)
+                    .and_then(|w| w.pair.clone());
+                let mut text = format!("Unpaired {}", state.entry_label(&slug));
+                if let Some(p) = partner {
+                    text.push_str(&format!(" and {}", state.entry_label(&p)));
+                }
+                state.set_pair(&slug, None);
+                if state.open_is(&slug) && state.split == Split::Pair {
+                    state.split = Split::Off;
+                    state.pair_palette = None;
+                }
+                vec![state.toast(text), Effect::ListEntries]
+            }
+            Err(e) => vec![state.toast(format!("Not unpaired: {e}"))],
+        },
+        Msg::Compare => {
+            if !state.header_enabled(HeaderItem::Compare) {
+                return Vec::new();
+            }
+            if matches!(state.split, Split::Saved(_)) {
+                state.split = Split::Off;
+            } else {
+                state.split = Split::Saved(VersionRef::Latest);
+                state.pair_palette = None;
+            }
+            Vec::new()
+        }
+        Msg::CompareVersion(i) => {
+            if !matches!(state.split, Split::Saved(_)) {
+                return Vec::new();
+            }
+            let (Some(v), Some(current)) = (state.versions.get(i), &state.current) else {
+                return Vec::new();
+            };
+            let (n, slug) = (v.n, current.slug().to_string());
+            state.split = Split::Saved(VersionRef::Version(n));
+            if matches!(&state.compare_version, Some((k, Ok(_))) if *k == n) {
+                return Vec::new();
+            }
+            state.compare_version = None;
+            vec![Effect::LoadVersion { slug, n }]
+        }
+        Msg::VersionLoaded { slug, n, result } => {
+            if state.open_is(&slug) && state.split == Split::Saved(VersionRef::Version(n)) {
+                let result = result.map_err(|e| format!("Could not read version {n}: {e}"));
+                state.compare_version = Some((n, result));
+            }
+            Vec::new()
+        }
+        Msg::ShowPinSnapshot => {
+            let Some(n) = state.shown_version() else {
+                return Vec::new();
+            };
+            let name = state
+                .versions
+                .iter()
+                .find(|v| v.n == n)
+                .and_then(|v| v.snapshot.clone())
+                .unwrap_or_default();
+            state.dialog = Some(Dialog::Snapshot { n, name });
+            Vec::new()
+        }
+        Msg::SnapshotInput(text) => {
+            if let Some(Dialog::Snapshot { name, .. }) = &mut state.dialog {
+                *name = text;
+            }
+            Vec::new()
+        }
+        Msg::SnapshotConfirm => {
+            let (Some(Dialog::Snapshot { n, .. }), Ok(name)) =
+                (&state.dialog, state.snapshot_check())
+            else {
+                return Vec::new();
+            };
+            let n = *n;
+            let Some(slug) = state.current.as_ref().map(|c| c.slug().to_string()) else {
+                return Vec::new();
+            };
+            state.dialog = None;
+            vec![Effect::PinSnapshot { slug, n, name }]
+        }
+        Msg::UnpinSnapshot => {
+            let Some(n) = state.shown_version() else {
+                return Vec::new();
+            };
+            let named = state
+                .versions
+                .iter()
+                .any(|v| v.n == n && v.snapshot.is_some());
+            match &state.current {
+                Some(c) if named => vec![Effect::UnpinSnapshot {
+                    slug: c.slug().to_string(),
+                    n,
+                }],
+                _ => Vec::new(),
+            }
+        }
+        Msg::SnapshotSaved {
+            slug,
+            n,
+            name,
+            result,
+        } => match result {
+            Ok(()) => {
+                if state.open_is(&slug)
+                    && let Some(v) = state.versions.iter_mut().find(|v| v.n == n)
+                {
+                    v.snapshot = name.clone();
+                }
+                let text = match name {
+                    Some(name) => format!("Named version {n} {name}"),
+                    None => format!("Removed the name of version {n}"),
+                };
+                vec![state.toast(text)]
+            }
+            Err(e) if name.is_some() => vec![state.toast(format!("Snapshot not saved: {e}"))],
+            Err(e) => vec![state.toast(format!("Could not remove the snapshot name: {e}"))],
+        },
         Msg::NotYet(what) => {
             state.menu_open = false;
             vec![state.toast(format!("Coming soon: {what}"))]
         }
+    }
+}
+
+/// Pair the open palette with `with`, closing the dialog.
+fn link(state: &mut State, with: String) -> Vec<Effect> {
+    state.dialog = None;
+    match &state.current {
+        Some(c) => vec![Effect::LinkPair {
+            slug: c.slug().to_string(),
+            with,
+        }],
+        None => Vec::new(),
     }
 }
 
@@ -2336,8 +2969,10 @@ mod tests {
         store_with(&tmp, &["ember"]);
         let mut state = start(&tmp);
         state.menu_open = true;
-        let ui = drive(&mut state, Msg::NotYet("Compare"));
-        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: Compare"));
+        let ui = drive(&mut state, Msg::NotYet("Try it live"));
+        assert!(
+            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: Try it live")
+        );
         assert!(!state.menu_open);
     }
 
@@ -3391,5 +4026,284 @@ mod tests {
             drive(&mut state, msg);
         }
         assert!(state.dialog.is_none());
+    }
+
+    /// Open a new palette called `name` through New.
+    fn new_named(state: &mut State, name: &str, mode: Mode) {
+        drive(state, Msg::ShowNew);
+        drive(state, Msg::NameInput(name.to_string()));
+        drive(state, Msg::NameMode(mode));
+        drive(state, Msg::NameConfirm);
+        assert_eq!(open_slug(state), Some(slug_from_name(name).as_str()));
+    }
+
+    fn accent(p: &Option<Palette>) -> Rgb {
+        p.as_ref().expect("a palette").roles.get(Role::Accent)
+    }
+
+    #[test]
+    fn pair_split_needs_pair() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "emberday", "noir", "dossier"]);
+        store
+            .save_settings(&Settings {
+                last_palette: Some("ember".to_string()),
+                ..Settings::default()
+            })
+            .unwrap();
+        let mut state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert!(state.header_enabled(HeaderItem::Pair));
+        assert_eq!(state.pair_label(), "Pair: Ember Day");
+        assert!(state.menu_enabled(MenuItem::Unpair));
+        assert_eq!(state.split, Split::Off);
+        assert!(state.split_view().is_none());
+
+        // Ember is paired: the chip shows both halves.
+        drive(&mut state, Msg::PairChip);
+        assert_eq!(state.split, Split::Pair);
+        assert!(state.dialog.is_none());
+        let view = state.split_view().expect("a split");
+        assert_eq!(view.left.label, "Ember (dark)");
+        assert_eq!(view.left.palette, Some(starter("ember")));
+        assert_eq!(view.right.label, "Ember Day (light)");
+        assert_eq!(view.right.palette, Some(starter("emberday")));
+        assert!(view.versions.is_none());
+        // The labels follow the working copy.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        let view = state.split_view().unwrap();
+        assert_eq!(accent(&view.left.palette), red());
+        // The chip again closes it.
+        drive(&mut state, Msg::PairChip);
+        assert_eq!(state.split, Split::Off);
+        assert!(state.split_view().is_none());
+
+        // A new dark palette lists the light ones, each labelled as paired.
+        let ember_accent = starter("ember").roles.get(Role::Accent);
+        drive(&mut state, Msg::SetRole(Role::Accent, ember_accent));
+        assert!(!state.dirty());
+        new_named(&mut state, "Moss", Mode::Dark);
+        assert_eq!(state.split, Split::Off, "a new palette closes the split");
+        assert_eq!(state.pair_label(), "Pair with...");
+        assert!(!state.menu_enabled(MenuItem::Unpair));
+        drive(&mut state, Msg::PairChip);
+        assert_eq!(state.split, Split::Off);
+        let Some(Dialog::PairWith { choices, confirm }) = &state.dialog else {
+            panic!("{:?}", state.dialog);
+        };
+        assert_eq!(confirm, &None);
+        let labels: Vec<String> = choices.iter().map(PairChoice::label).collect();
+        assert_eq!(
+            labels,
+            ["Dossier, paired with Noir", "Ember Day, paired with Ember"]
+        );
+    }
+
+    #[test]
+    fn link_survives_save() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "emberday", "noir", "dossier"]);
+        let mut state = start(&tmp);
+        new_named(&mut state, "Moss", Mode::Dark);
+
+        // Dossier is paired with Noir, so choosing it asks first.
+        drive(&mut state, Msg::PairChip);
+        drive(&mut state, Msg::PairChoose("dossier".to_string()));
+        assert!(matches!(
+            &state.dialog,
+            Some(Dialog::PairWith { confirm: Some(slug), .. }) if slug == "dossier"
+        ));
+        assert_eq!(store.load("moss").unwrap().pair, None, "not yet");
+        drive(&mut state, Msg::PairConfirm);
+        assert!(state.dialog.is_none());
+        assert_eq!(store.load("moss").unwrap().pair.as_deref(), Some("dossier"));
+        assert_eq!(store.load("dossier").unwrap().pair.as_deref(), Some("moss"));
+        assert_eq!(store.load("noir").unwrap().pair, None);
+        assert_eq!(working(&state).pair.as_deref(), Some("dossier"));
+        assert!(!state.dirty(), "linking is not an unsaved edit");
+        assert!(last_toast(&state).starts_with("Paired Moss with Dossier"));
+        assert_eq!(state.pair_label(), "Pair: Dossier");
+
+        // An edit and Ctrl+S keep the pair.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::Save);
+        assert!(!state.dirty());
+        let moss = store.load("moss").unwrap();
+        assert_eq!(moss.pair.as_deref(), Some("dossier"));
+        assert_eq!(moss.roles.get(Role::Accent), red());
+        assert_eq!(
+            store.load_version("moss", 2).unwrap().pair.as_deref(),
+            Some("dossier")
+        );
+
+        // Unpair from the menu clears both sides, and a save keeps that.
+        state.menu_open = true;
+        drive(&mut state, MenuItem::Unpair.msg());
+        assert!(!state.menu_open);
+        assert_eq!(store.load("moss").unwrap().pair, None);
+        assert_eq!(store.load("dossier").unwrap().pair, None);
+        assert_eq!(working(&state).pair, None);
+        assert!(!state.dirty());
+        drive(
+            &mut state,
+            Msg::SetRole(Role::Accent, Rgb::from_hex("#00FF00").unwrap()),
+        );
+        drive(&mut state, Msg::Save);
+        assert_eq!(store.load("moss").unwrap().pair, None);
+
+        // A palette nobody is paired with links without asking.
+        drive(&mut state, Msg::PairChip);
+        drive(&mut state, Msg::PairChoose("dossier".to_string()));
+        assert!(state.dialog.is_none());
+        assert_eq!(store.load("dossier").unwrap().pair.as_deref(), Some("moss"));
+    }
+
+    #[test]
+    fn compare_versions() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        new_named(&mut state, "Moss", Mode::Dark);
+        let green = Rgb::from_hex("#00FF00").unwrap();
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::Save);
+        drive(&mut state, Msg::SetRole(Role::Accent, green));
+        assert!(state.header_enabled(HeaderItem::Compare));
+        assert_eq!(state.header_tooltip(HeaderItem::Compare), None);
+
+        // Compare shows version 2 next to the working copy.
+        drive(&mut state, Msg::Compare);
+        assert_eq!(state.split, Split::Saved(VersionRef::Latest));
+        let view = state.split_view().expect("a split");
+        assert_eq!(view.left.label, "v2");
+        assert_eq!(accent(&view.left.palette), red());
+        assert_eq!(view.right.label, "Working copy");
+        assert_eq!(accent(&view.right.palette), green);
+        let choice = view.versions.expect("a version list");
+        assert_eq!(choice.labels, ["v2", "v1"]);
+        assert_eq!(choice.selected, Some(0));
+        assert_eq!(choice.snapshot, None);
+
+        // Choosing version 1 shows it.
+        drive(&mut state, Msg::CompareVersion(1));
+        assert_eq!(state.split, Split::Saved(VersionRef::Version(1)));
+        let view = state.split_view().unwrap();
+        assert_eq!(view.left.label, "v1");
+        assert_eq!(
+            view.left.palette,
+            Some(store.load_version("moss", 1).unwrap())
+        );
+        assert_eq!(
+            accent(&view.left.palette),
+            starter("ember").roles.get(Role::Accent)
+        );
+        assert_eq!(view.versions.unwrap().selected, Some(1));
+
+        // Pinning names it.
+        drive(&mut state, Msg::ShowPinSnapshot);
+        assert!(matches!(
+            &state.dialog,
+            Some(Dialog::Snapshot { n: 1, name }) if name.is_empty()
+        ));
+        drive(&mut state, Msg::SnapshotInput("   ".to_string()));
+        assert_eq!(state.snapshot_check(), Err(String::new()));
+        drive(&mut state, Msg::SnapshotConfirm);
+        assert!(state.dialog.is_some(), "an empty name is refused");
+        drive(&mut state, Msg::SnapshotInput("x".repeat(41)));
+        assert!(state.snapshot_check().is_err());
+        drive(&mut state, Msg::SnapshotInput(" Warm accent ".to_string()));
+        assert_eq!(state.snapshot_check(), Ok("Warm accent".to_string()));
+        drive(&mut state, Msg::SnapshotConfirm);
+        assert!(state.dialog.is_none());
+        assert_eq!(
+            store.versions("moss").unwrap()[1].snapshot.as_deref(),
+            Some("Warm accent")
+        );
+        let view = state.split_view().unwrap();
+        assert_eq!(view.left.label, "v1 Warm accent");
+        let choice = view.versions.unwrap();
+        assert_eq!(choice.labels, ["v2", "v1 Warm accent"]);
+        assert_eq!(choice.snapshot.as_deref(), Some("Warm accent"));
+
+        // Removing the name keeps the version.
+        drive(&mut state, Msg::UnpinSnapshot);
+        assert_eq!(store.versions("moss").unwrap()[1].snapshot, None);
+        assert_eq!(state.split_view().unwrap().left.label, "v1");
+        assert_eq!(state.split, Split::Saved(VersionRef::Version(1)));
+
+        // Compare again closes it; opened again it follows each save.
+        drive(&mut state, Msg::Compare);
+        assert_eq!(state.split, Split::Off);
+        drive(&mut state, Msg::Compare);
+        drive(&mut state, Msg::Save);
+        let view = state.split_view().unwrap();
+        assert_eq!(view.left.label, "v3");
+        assert_eq!(accent(&view.left.palette), green);
+        assert_eq!(view.versions.unwrap().labels, ["v3", "v2", "v1"]);
+    }
+
+    #[test]
+    fn one_split_at_a_time() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "emberday"]);
+        let mut state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+        drive(&mut state, Msg::PairChip);
+        assert_eq!(state.split, Split::Pair);
+        drive(&mut state, Msg::Compare);
+        assert_eq!(state.split, Split::Saved(VersionRef::Latest));
+        let view = state.split_view().unwrap();
+        assert_eq!(view.left.label, "v1");
+        assert_eq!(view.right.label, "Working copy");
+        // And back: the pair replaces the comparison.
+        drive(&mut state, Msg::PairChip);
+        assert_eq!(state.split, Split::Pair);
+        assert_eq!(state.split_view().unwrap().right.label, "Ember Day (light)");
+        // Unpairing closes the pair split.
+        drive(&mut state, Msg::Unpair);
+        assert_eq!(state.split, Split::Off);
+        assert_eq!(store.load("emberday").unwrap().pair, None);
+        // Opening another palette closes any split.
+        drive(&mut state, Msg::Compare);
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("emberday".to_string()));
+        assert_eq!(open_slug(&state), Some("emberday"));
+        assert_eq!(state.split, Split::Off);
+    }
+
+    #[test]
+    fn compare_disabled_without_versions() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        drive(&mut state, Msg::WallpaperName("Two Tone".to_string()));
+        drive(&mut state, Msg::WallpaperCreate);
+        assert!(matches!(
+            state.current,
+            Some(Current::Editable { saved: None, .. })
+        ));
+        assert!(!state.header_enabled(HeaderItem::Compare));
+        assert_eq!(
+            state.header_tooltip(HeaderItem::Compare),
+            Some("Save a version first (Ctrl+S)")
+        );
+        assert!(!state.header_enabled(HeaderItem::Pair));
+        assert!(update(&mut state, Msg::Compare).is_empty());
+        assert!(update(&mut state, Msg::PairChip).is_empty());
+        assert_eq!(state.split, Split::Off);
+        assert!(state.dialog.is_none());
+        // Its first save makes a version to compare with.
+        drive(&mut state, Msg::Save);
+        assert!(state.header_enabled(HeaderItem::Compare));
+        assert!(state.header_enabled(HeaderItem::Pair));
+
+        // A stored palette with no saved version cannot be compared either.
+        let tmp = TempDir::new().unwrap();
+        Store::new(Dirs::under(tmp.path()))
+            .save(&starter("noir"))
+            .unwrap();
+        let state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("noir"));
+        assert!(!state.header_enabled(HeaderItem::Compare));
+        assert!(state.header_enabled(HeaderItem::Pair));
     }
 }

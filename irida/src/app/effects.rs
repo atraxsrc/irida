@@ -28,16 +28,17 @@ fn slug_mismatch(folder: &str, p: &Palette) -> Option<String> {
 }
 
 fn summary(entry: StoreEntry) -> EntrySummary {
-    let palette = match entry.result {
+    let (palette, pair) = match entry.result {
         Ok(p) => match slug_mismatch(&entry.slug, &p) {
-            Some(e) => Err(e),
-            None => Ok((p.name, p.mode)),
+            Some(e) => (Err(e), None),
+            None => (Ok((p.name, p.mode)), p.pair),
         },
-        Err(e) => Err(e.to_string()),
+        Err(e) => (Err(e.to_string()), None),
     };
     EntrySummary {
         slug: entry.slug,
         palette,
+        pair,
     }
 }
 
@@ -272,6 +273,42 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
             &system,
         )),
         Effect::DraftImage(path) => draft_image(path),
+        Effect::LoadVersions(slug) => Msg::Versions {
+            result: store.versions(&slug).map_err(|e| e.to_string()),
+            slug,
+        },
+        Effect::LoadVersion { slug, n } => Msg::VersionLoaded {
+            result: store.load_version(&slug, n).map_err(|e| e.to_string()),
+            slug,
+            n,
+        },
+        Effect::LoadPair(palette) => Msg::PairLoaded {
+            lookup: Box::new(store.pair_of(&palette)),
+            slug: palette.slug,
+        },
+        Effect::LinkPair { slug, with } => Msg::Linked {
+            result: store.link_pair(&slug, &with).map_err(|e| e.to_string()),
+            slug,
+            with,
+        },
+        Effect::UnlinkPair(slug) => Msg::Unlinked {
+            result: store.unlink_pair(&slug).map_err(|e| e.to_string()),
+            slug,
+        },
+        Effect::PinSnapshot { slug, n, name } => Msg::SnapshotSaved {
+            result: store
+                .pin_snapshot(&slug, n, &name)
+                .map_err(|e| e.to_string()),
+            slug,
+            n,
+            name: Some(name),
+        },
+        Effect::UnpinSnapshot { slug, n } => Msg::SnapshotSaved {
+            result: store.unpin_snapshot(&slug, n).map_err(|e| e.to_string()),
+            slug,
+            n,
+            name: None,
+        },
         Effect::Toast(_)
         | Effect::Copy(_)
         | Effect::ChooseFolder(_)

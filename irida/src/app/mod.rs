@@ -2,6 +2,7 @@
 //! `state::update`, and runs the effects it returns.
 
 mod apply_sheet;
+mod compare;
 mod effects;
 mod header;
 mod preview;
@@ -265,8 +266,11 @@ impl Application for App {
                         .spacing(12)
                         .width(Length::FillPortion(3))
                         .push(
-                            widget::scrollable(preview::view(scene::scene(working)))
-                                .height(Length::Fill),
+                            widget::scrollable(match self.state.split_view() {
+                                Some(split) => compare::view(split),
+                                None => preview::view(scene::scene(working)),
+                            })
+                            .height(Length::Fill),
                         )
                         .push(roles::notes(working)),
                 )

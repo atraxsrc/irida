@@ -6,8 +6,10 @@ use cosmic::iced::Length;
 use cosmic::widget::{self, button, popover, text};
 use irida_core::palette::Mode;
 
-use super::state::{Dialog, ExportSummary, HeaderItem, Leave, MenuItem, Msg, NameFor, State};
-use super::{apply_sheet, wallpaper};
+use super::state::{
+    Dialog, ExportSummary, HeaderItem, Leave, MenuItem, Msg, NameFor, Split, State,
+};
+use super::{apply_sheet, compare, wallpaper};
 
 /// The palette name with its menu.
 pub fn start(state: &State) -> Vec<Element<'_, Msg>> {
@@ -46,6 +48,27 @@ fn chip(label: String, enabled: bool, msg: Msg) -> Element<'static, Msg> {
         .into()
 }
 
+/// A header chip that looks pressed while `on`, with the tooltip saying why
+/// it is disabled.
+fn toggle_chip(
+    state: &State,
+    item: HeaderItem,
+    label: String,
+    on: bool,
+    msg: Msg,
+) -> Element<'static, Msg> {
+    let b = if on {
+        button::suggested(label)
+    } else {
+        button::standard(label)
+    };
+    let b = b.on_press_maybe(state.header_enabled(item).then_some(msg));
+    match state.header_tooltip(item) {
+        Some(tip) => widget::tooltip(b, text::body(tip), widget::tooltip::Position::Bottom).into(),
+        None => b.into(),
+    }
+}
+
 /// The mode chip, the pair chip, Compare, the try-live toggle and Apply.
 pub fn end(state: &State) -> Vec<Element<'_, Msg>> {
     let mode = state
@@ -70,15 +93,19 @@ pub fn end(state: &State) -> Vec<Element<'_, Msg>> {
             state.header_enabled(HeaderItem::Mode),
             Msg::SetMode(other),
         ),
-        chip(
-            "Pair".to_string(),
-            state.header_enabled(HeaderItem::Pair),
-            Msg::NotYet("Pair"),
+        toggle_chip(
+            state,
+            HeaderItem::Pair,
+            state.pair_label(),
+            state.split == Split::Pair,
+            Msg::PairChip,
         ),
-        chip(
+        toggle_chip(
+            state,
+            HeaderItem::Compare,
             "Compare".to_string(),
-            state.header_enabled(HeaderItem::Compare),
-            Msg::NotYet("Compare"),
+            matches!(state.split, Split::Saved(_)),
+            Msg::Compare,
         ),
         live.into(),
         button::suggested("Apply")
@@ -146,6 +173,10 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
         }
         Dialog::Exported(summary) => exported(summary),
         Dialog::Wallpaper(d) => wallpaper::view(state, d),
+        Dialog::PairWith { choices, confirm } => {
+            compare::pair_dialog(state, choices, confirm.as_deref())
+        }
+        Dialog::Snapshot { n, name } => compare::snapshot_dialog(state, *n, name),
     };
     Some(d.into())
 }
