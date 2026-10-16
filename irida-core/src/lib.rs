@@ -3,6 +3,7 @@ pub mod color;
 pub mod contrast;
 pub mod derive;
 pub mod dirs;
+pub mod draft;
 pub mod export;
 pub mod export_docs;
 pub mod import;
