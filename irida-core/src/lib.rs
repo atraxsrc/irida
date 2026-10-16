@@ -4,5 +4,7 @@ pub mod palette;
 pub mod ramp;
 pub mod role;
 pub mod derive;
+pub mod dirs;
 pub mod slot;
+pub mod store;
 pub mod term;
