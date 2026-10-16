@@ -15,6 +15,7 @@ use crate::write::atomic_write;
 #[derive(Debug)]
 pub enum StoreError {
     NotFound(String),
+    BadSlug(String),
     Unreadable { path: PathBuf, message: String },
     Io { path: PathBuf, source: io::Error },
 }
@@ -23,6 +24,7 @@ impl fmt::Display for StoreError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             StoreError::NotFound(what) => write!(f, "not found: {what}"),
+            StoreError::BadSlug(slug) => write!(f, "invalid palette slug: {slug:?}"),
             StoreError::Unreadable { path, message } => {
                 write!(f, "{}: {message}", path.display())
             }
@@ -52,6 +54,10 @@ pub struct Store {
 
 fn io_err(path: &Path, source: io::Error) -> StoreError {
     StoreError::Io { path: path.to_path_buf(), source }
+}
+
+fn check_slug(slug: &str) -> Result<(), StoreError> {
+    validate_slug(slug).map_err(|_| StoreError::BadSlug(slug.to_string()))
 }
 
 fn read_palette(path: &Path) -> Result<Palette, StoreError> {
@@ -111,6 +117,7 @@ impl Store {
     }
 
     pub fn save(&self, p: &Palette) -> Result<(), StoreError> {
+        check_slug(&p.slug)?;
         write_file(&self.palette_dir(&p.slug).join("palette.toml"), &p.to_toml())
     }
 
@@ -131,6 +138,7 @@ impl Store {
     }
 
     pub fn save_version(&self, p: &Palette) -> Result<u32, StoreError> {
+        check_slug(&p.slug)?;
         let n = self.version_numbers(&p.slug)?.into_iter().max().unwrap_or(0) + 1;
         let text = p.to_toml();
         let dir = self.palette_dir(&p.slug);
