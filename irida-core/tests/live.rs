@@ -291,6 +291,45 @@ fn stale_marker_cleared() {
 }
 
 #[test]
+fn odd_marker_still_offers_revert() {
+    let env = TestEnv::new();
+    let cava = put_cava(&env);
+    let mut s = LiveSession::start(&ctx(&env), "ember").unwrap();
+    session_apply(&mut s, &env, &palette("ember"));
+    let id = s.record_id().unwrap();
+    // A marker from a newer Irida, with a key this one does not know, and
+    // one that lost its palette name.
+    for text in [
+        format!("palette = \"ember\"\nrecord = {id}\nstarted = 5\n"),
+        format!("record = {id}\n"),
+    ] {
+        put_marker(&env, &text);
+        let p = live::pending(&env.dirs).expect(&text);
+        assert_eq!(p.record_id(), Some(id), "{text}");
+        assert_eq!(p.palette(), "ember", "{text}");
+        assert!(marker(&env).exists(), "{text}");
+    }
+    live::pending(&env.dirs)
+        .unwrap()
+        .revert(&ctx(&env))
+        .unwrap();
+    assert_eq!(read(&cava), "x\n");
+}
+
+#[test]
+fn refreshed_names_the_markers_record() {
+    let env = TestEnv::new();
+    put_cava(&env);
+    let s = LiveSession::start(&ctx(&env), "ember").unwrap();
+    let mut applied = s.clone();
+    session_apply(&mut applied, &env, &palette("ember"));
+    let id = applied.record_id().unwrap();
+    // `s` never saw its first apply finish.
+    assert_eq!(s.record_id(), None);
+    assert_eq!(s.refreshed(&env.dirs).record_id(), Some(id));
+}
+
+#[test]
 fn prune_spares_open_session() {
     let env = TestEnv::new();
     put_cava(&env);

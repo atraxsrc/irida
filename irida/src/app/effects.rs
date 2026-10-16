@@ -1,6 +1,7 @@
 //! The effect runner: the app's IO, synchronous and free of libcosmic
 //! types. Every IO effect returns its result as `Msg`s.
 
+use std::panic::AssertUnwindSafe;
 use std::path::{Path, PathBuf};
 
 use irida_core::apply::{
@@ -370,6 +371,108 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
     vec![msg]
 }
 
+/// `perform`, with a panic turned into the effect's own failure Msg, so
+/// what waits for that Msg (a save, a live step) never waits for ever.
+pub fn perform_caught(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
+    caught(effect, ctx, perform)
+}
+
+fn caught(effect: Effect, ctx: &Ctx, run: impl FnOnce(Effect, &Ctx) -> Vec<Msg>) -> Vec<Msg> {
+    let copy = effect.clone();
+    match std::panic::catch_unwind(AssertUnwindSafe(|| run(effect, ctx))) {
+        Ok(msgs) => msgs,
+        Err(payload) => {
+            let why = payload
+                .downcast_ref::<&str>()
+                .map(|s| s.to_string())
+                .or_else(|| payload.downcast_ref::<String>().cloned())
+                .unwrap_or_else(|| "unknown error".to_string());
+            vec![panicked(copy, ctx, format!("Irida hit a bug ({why})"))]
+        }
+    }
+}
+
+/// The Msg an effect gives when it fails with `error`; a read with no
+/// failure of its own shows `error` in a toast.
+pub(crate) fn panicked(effect: Effect, ctx: &Ctx, error: String) -> Msg {
+    let failure = || ApplyFailure::Other(error.clone());
+    match effect {
+        Effect::SeedStarters => Msg::Seeded(Err(error)),
+        Effect::OpenPalette(slug) => Msg::Opened {
+            slug,
+            result: Err(OpenFailure { error, text: None }),
+        },
+        Effect::SaveVersion { .. } => Msg::Saved(Err(error)),
+        Effect::Create(_) | Effect::Duplicate { .. } => Msg::Created(Err(error)),
+        Effect::Delete(slug) => Msg::Deleted {
+            slug,
+            result: Err(error),
+        },
+        Effect::SaveSettings(_) => Msg::SettingsSaved(Err(error)),
+        Effect::Apply { .. } => Msg::Applied(Err(failure())),
+        Effect::Undo => Msg::Undone(Err(error)),
+        Effect::Import(_) => Msg::Imported(Err(error)),
+        Effect::SaveImport { notes, .. } => Msg::ImportSaved {
+            result: Err(error),
+            notes,
+        },
+        Effect::Export { .. } => Msg::Exported(Err(error)),
+        Effect::DraftImage(path) => Msg::DraftFailed { path, error },
+        Effect::LoadVersions(slug) => Msg::Versions {
+            slug,
+            result: Err(error),
+        },
+        Effect::LoadVersion { slug, n } => Msg::VersionLoaded {
+            slug,
+            n,
+            result: Err(error),
+        },
+        Effect::LinkPair { slug, with } => Msg::Linked {
+            slug,
+            with,
+            result: Err(error),
+        },
+        Effect::UnlinkPair(slug) => Msg::Unlinked {
+            slug,
+            result: Err(error),
+        },
+        Effect::PinSnapshot { slug, n, name } => Msg::SnapshotSaved {
+            slug,
+            n,
+            name: Some(name),
+            result: Err(error),
+        },
+        Effect::UnpinSnapshot { slug, n } => Msg::SnapshotSaved {
+            slug,
+            n,
+            name: None,
+            result: Err(error),
+        },
+        Effect::StartLive(_) => Msg::LiveStarted(Err(error)),
+        // The apply may have stopped after its record was made, so the
+        // session goes on with the record its marker names.
+        Effect::LiveApply { session, .. } => Msg::LiveApplied {
+            session: session.refreshed(&ctx.dirs),
+            result: Err(failure()),
+        },
+        Effect::KeepLive(_) => Msg::LiveKept(Err(error)),
+        Effect::RevertLive(_) => Msg::LiveReverted(Err(error)),
+        Effect::LoadStore
+        | Effect::ListEntries
+        | Effect::LoadApplySheet { .. }
+        | Effect::FindWallpaper(_)
+        | Effect::LoadPair(_)
+        | Effect::FindPendingLive
+        | Effect::LoadLiveTargets(_)
+        | Effect::Toast(_)
+        | Effect::Copy(_)
+        | Effect::ChooseFolder(_)
+        | Effect::ChooseImage
+        | Effect::StartTimer(..)
+        | Effect::Exit => Msg::Failed(error),
+    }
+}
+
 /// Run `effects` as the app does, then every Msg they give, until no IO
 /// effect is left; returns the window effects (toasts, exit) in order.
 #[cfg(test)]
@@ -699,5 +802,22 @@ mod tests {
             matches!(msgs.as_slice(), [Msg::WallpaperFound(Some(p))] if *p == image),
             "{msgs:?}"
         );
+    }
+    #[test]
+    fn a_panic_gives_the_effects_own_failure() {
+        let tmp = TempDir::new().unwrap();
+        let ctx = ctx(&tmp);
+        let msgs = caught(Effect::Undo, &ctx, |_, _| panic!("boom"));
+        assert!(
+            matches!(msgs.as_slice(), [Msg::Undone(Err(e))] if e.contains("boom")),
+            "{msgs:?}"
+        );
+        let msgs = caught(Effect::ListEntries, &ctx, |_, _| panic!("{}", 7));
+        assert!(
+            matches!(msgs.as_slice(), [Msg::Failed(e)] if e.contains('7')),
+            "{msgs:?}"
+        );
+        let msgs = caught(Effect::Undo, &ctx, perform);
+        assert!(matches!(msgs.as_slice(), [Msg::Undone(Err(_))]), "{msgs:?}");
     }
 }

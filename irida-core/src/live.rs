@@ -7,7 +7,7 @@ use std::fs;
 use std::io;
 use std::path::PathBuf;
 
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
 use crate::apply::{
     ApplyError, ApplyReport, ApplyRequest, Ctx, KEEP_RECORDS, UndoError, UndoReport, apply_into,
@@ -19,13 +19,13 @@ use crate::store::Settings;
 use crate::target::{is_detected, load_targets};
 use crate::write::atomic_write;
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 struct Marker {
-    /// The palette slug the session started with.
+    /// The palette slug the session started with; empty when the marker
+    /// does not say.
     palette: String,
     /// The session's record, once its first apply has created it.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     record: Option<u32>,
 }
 
@@ -33,16 +33,28 @@ fn marker_path(dirs: &Dirs) -> PathBuf {
     dirs.state.join("irida/live.toml")
 }
 
-/// The marker; `None` when there is none, an error when it cannot be read or parsed.
+/// The marker; `None` when there is none, an error when it cannot be read or
+/// is not TOML. Read leniently, since losing the record it names loses the
+/// Revert: other keys are ignored, and a record that is not a number names
+/// none.
 fn read_marker(dirs: &Dirs) -> io::Result<Option<Marker>> {
     let text = match fs::read_to_string(marker_path(dirs)) {
         Ok(text) => text,
         Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(None),
         Err(e) => return Err(e),
     };
-    toml::from_str(&text)
-        .map(Some)
-        .map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))
+    let table: toml::Table =
+        toml::from_str(&text).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    let record = table
+        .get("record")
+        .and_then(toml::Value::as_integer)
+        .and_then(|n| u32::try_from(n).ok());
+    let palette = table
+        .get("palette")
+        .and_then(toml::Value::as_str)
+        .unwrap_or_default()
+        .to_string();
+    Ok(Some(Marker { palette, record }))
 }
 
 fn write_marker(dirs: &Dirs, marker: &Marker) -> io::Result<()> {
@@ -107,6 +119,15 @@ impl LiveSession {
     /// The session's record, once an apply has succeeded.
     pub fn record_id(&self) -> Option<u32> {
         self.record
+    }
+
+    /// This session as its marker names it now: an apply that stopped part
+    /// way (a panic) may have made the record this copy does not know.
+    pub fn refreshed(mut self, dirs: &Dirs) -> LiveSession {
+        if self.record.is_none() {
+            self.record = marker_record(dirs);
+        }
+        self
     }
 
     fn save_marker(&self, dirs: &Dirs, record: Option<u32>) -> io::Result<()> {
@@ -234,8 +255,8 @@ fn reload_live(ctx: &Ctx) {
 }
 
 /// The session a previous run left open, to offer Revert. A marker that
-/// names no record, names one that is missing, or cannot be read is deleted
-/// and gives `None`: nothing of that session is on disk.
+/// names no record, names one that is missing, or is not TOML is deleted
+/// and gives `None`: nothing of that session can be found on disk.
 pub fn pending(dirs: &Dirs) -> Option<LiveSession> {
     let marker = match read_marker(dirs) {
         Ok(Some(marker)) => marker,
@@ -246,10 +267,18 @@ pub fn pending(dirs: &Dirs) -> Option<LiveSession> {
         }
     };
     match marker.record {
-        Some(id) if record::exists(dirs, id) => Some(LiveSession {
-            palette: marker.palette,
-            record: Some(id),
-        }),
+        Some(id) if record::exists(dirs, id) => {
+            let palette = match marker.palette {
+                p if p.is_empty() => record::load(dirs, id)
+                    .map(|r| r.palette)
+                    .unwrap_or_default(),
+                p => p,
+            };
+            Some(LiveSession {
+                palette,
+                record: Some(id),
+            })
+        }
         Some(id) => {
             // A folder without record.toml: the first apply stopped before
             // its first write.
