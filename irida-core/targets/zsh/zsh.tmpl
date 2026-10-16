@@ -1,0 +1,78 @@
+{% if export -%}
+# {{ name }} zsh layer: colours, aliases, prompt.
+#
+# Source it at the END of your own ~/.zshrc, after oh-my-zsh.sh:
+#   source /path/to/cosmic-{{ slug }}-theme/zsh/{{ slug }}.zsh
+#
+# Keep machine-specific or private lines (PATH, scaling, nvm, ...) in your
+# own ~/.zshrc, not here.
+#
+#  pane:    {{ pane }}   fg:      {{ text }}   (terminal pane; window bg {{ background }})
+#  {{ "%-8s"|format((names.accent|lower|split|first|default("accent")) ~ ":") }} {{ accent }}   {{ "%-8s"|format((names.success|lower|split|first|default("success")) ~ ":") }} {{ success }}
+#  {{ "%-8s"|format((names.warning|lower|split|first|default("warning")) ~ ":") }} {{ warning }}   {{ "%-8s"|format((names.error|lower|split|first|default("error")) ~ ":") }} {{ error }}
+#  {{ "%-8s"|format((names.blue|lower|split|first|default("blue")) ~ ":") }} {{ blue }}   {{ "%-8s"|format((names.magenta|lower|split|first|default("magenta")) ~ ":") }} {{ magenta }}   {{ "%-8s"|format((names.cyan|lower|split|first|default("cyan")) ~ ":") }} {{ cyan }}
+#  muted:   {{ muted }}   comment: {{ comment }}
+
+{% endif -%}
+# ── File colours (ls, lsd file names, completion menu) ─────────────────────────
+
+export LS_COLORS="di=1;{{ blue|ansi }}:ln=3;{{ cyan|ansi }}:ex=1;{{ success|ansi }}:*.zip=4;{{ warning|ansi }}:*.tar=4;{{ warning|ansi }}:*.gz=4;{{ warning|ansi }}:*.xz=4;{{ warning|ansi }}:*.7z=4;{{ warning|ansi }}:*.deb=4;{{ warning|ansi }}:*.png={{ magenta|ansi }}:*.jpg={{ magenta|ansi }}:*.jpeg={{ magenta|ansi }}:*.webp={{ magenta|ansi }}:*.gif={{ magenta|ansi }}:*.mp4=3;{{ magenta|ansi }}:*.mkv=3;{{ magenta|ansi }}:*.rs={{ success|ansi }}:*.py={{ success|ansi }}:*.js={{ success|ansi }}:*.ts={{ success|ansi }}:*.sh={{ success|ansi }}:*.md={{ text|ansi }}:*.txt={{ text|ansi }}:or=9;{{ error|ansi }}"
+
+# oh-my-zsh reads LS_COLORS before this file loads, so refresh the menu colours
+zstyle ':completion:*' list-colors ${(s.:.)LS_COLORS}
+
+# ── zsh-autosuggestions / zsh-syntax-highlighting ──────────────────────────────
+
+ZSH_AUTOSUGGEST_HIGHLIGHT_STYLE='fg={{ mix(comment, pane, 0.30) }}'
+
+typeset -gA ZSH_HIGHLIGHT_STYLES
+ZSH_HIGHLIGHT_STYLES[command]='fg={{ accent }}'
+ZSH_HIGHLIGHT_STYLES[builtin]='fg={{ accent }}'
+ZSH_HIGHLIGHT_STYLES[alias]='fg={{ accent }}'
+ZSH_HIGHLIGHT_STYLES[function]='fg={{ accent }}'
+ZSH_HIGHLIGHT_STYLES[hashed-command]='fg={{ accent }}'
+ZSH_HIGHLIGHT_STYLES[suffix-alias]='fg={{ accent }},underline'
+ZSH_HIGHLIGHT_STYLES[precommand]='fg={{ success }},underline'
+ZSH_HIGHLIGHT_STYLES[reserved-word]='fg={{ text }},bold'
+ZSH_HIGHLIGHT_STYLES[unknown-token]='fg={{ error }},bold,underline'
+ZSH_HIGHLIGHT_STYLES[path]='fg={{ text }},underline'
+ZSH_HIGHLIGHT_STYLES[globbing]='fg={{ warning }}'
+ZSH_HIGHLIGHT_STYLES[history-expansion]='fg={{ warning }}'
+ZSH_HIGHLIGHT_STYLES[single-hyphen-option]='fg={{ muted }}'
+ZSH_HIGHLIGHT_STYLES[double-hyphen-option]='fg={{ muted }}'
+ZSH_HIGHLIGHT_STYLES[single-quoted-argument]='fg={{ success }}'
+ZSH_HIGHLIGHT_STYLES[double-quoted-argument]='fg={{ success }}'
+ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument]='fg={{ success }}'
+ZSH_HIGHLIGHT_STYLES[commandseparator]='fg={{ muted }}'
+ZSH_HIGHLIGHT_STYLES[redirection]='fg={{ muted }}'
+ZSH_HIGHLIGHT_STYLES[comment]='fg={{ comment }}'
+{% if export %}
+# ── Aliases (only when the tool is installed) ──────────────────────────────────
+
+if (( $+commands[lsd] )); then
+    alias ls='lsd'
+    alias la='lsd -a'
+    alias ll='lsd -l'
+    alias lla='lsd -la'
+fi
+
+# Debian/Ubuntu ship bat as batcat
+if (( $+commands[batcat] )); then
+    alias cat='batcat'
+elif (( $+commands[bat] )); then
+    alias cat='bat'
+fi
+
+(( $+commands[cosmic-edit] )) && alias edit='cosmic-edit'
+
+if (( $+commands[nvim] )); then
+    alias vi='nvim'
+    alias vim='nvim'
+    alias v='nvim'
+fi
+
+# ── Prompt ─────────────────────────────────────────────────────────────────────
+
+# needs ZSH_THEME="" in ~/.zshrc
+(( $+commands[starship] )) && eval "$(starship init zsh)"
+{% endif %}
