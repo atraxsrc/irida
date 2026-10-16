@@ -1,11 +1,16 @@
 //! The effect runner: the app's IO, synchronous and free of libcosmic
 //! types. Every IO effect returns its result as `Msg`s.
 
-use irida_core::apply::Ctx;
-use irida_core::palette::Palette;
-use irida_core::store::{Store, StoreEntry, StoreError};
+use std::path::Path;
 
-use super::state::{Effect, EntrySummary, Msg, OpenFailure};
+use irida_core::apply::{self, ApplyError, ApplyRequest, Ctx, UndoError, target_status};
+use irida_core::export::{ExportRequest, export};
+use irida_core::import::import_rice_with_notes;
+use irida_core::palette::Palette;
+use irida_core::store::{PairLookup, Settings, Store, StoreEntry, StoreError};
+
+use super::state::{ApplyFailure, Effect, EntrySummary, ExportSummary, Msg, OpenFailure, UndoDone};
+use crate::output::format_export;
 
 /// The palette's slug field must name its own folder; otherwise saving it
 /// would write another palette's folder.
@@ -70,6 +75,114 @@ fn save(store: &Store, p: &Palette, fresh: bool) -> Result<u32, String> {
     store.save_version(p).map_err(|e| e.to_string())
 }
 
+fn apply_failure(e: ApplyError) -> ApplyFailure {
+    match e {
+        ApplyError::Write {
+            path,
+            source,
+            rolled_back,
+        } => ApplyFailure::Write {
+            path,
+            reason: source.to_string(),
+            rolled_back,
+        },
+        ApplyError::Render { target, message } => ApplyFailure::Render { target, message },
+        ApplyError::NothingToApply(_) => ApplyFailure::NothingToApply,
+        e @ (ApplyError::UnknownTarget(_) | ApplyError::Record(_)) => {
+            ApplyFailure::Other(e.to_string())
+        }
+    }
+}
+
+fn apply_palette(ctx: &Ctx, palette: &Palette, pair: Option<&Palette>, settings: &Settings) -> Msg {
+    let req = ApplyRequest {
+        palette,
+        pair,
+        only: None,
+        live_only: false,
+    };
+    Msg::Applied(apply::apply(ctx, settings, &req).map_err(apply_failure))
+}
+
+fn undo(ctx: &Ctx) -> Result<UndoDone, String> {
+    match apply::undo(ctx) {
+        Ok(r) => Ok(UndoDone {
+            record_id: r.record_id,
+            failures: r
+                .failures
+                .iter()
+                .map(|(path, e)| {
+                    format!(
+                        "Could not restore {}: {e}; run Undo last apply again.",
+                        path.display()
+                    )
+                })
+                .collect(),
+        }),
+        Err(UndoError::NothingToUndo) => Err("Nothing to undo".to_string()),
+        Err(e @ UndoError::LiveSessionOpen) => Err(e.to_string()),
+        Err(UndoError::Io(e)) => Err(format!("Could not undo: {e}")),
+    }
+}
+
+/// Save an imported palette. `replace` adds a version to the palette with
+/// its slug, which must be readable, keeping the pair and notes a repo
+/// cannot carry.
+fn save_import(store: &Store, mut p: Palette, replace: bool) -> Result<Palette, String> {
+    if replace {
+        let existing = store.load(&p.slug).map_err(|e| {
+            format!(
+                "{} cannot be read, so it is not replaced ({e}); use Keep both",
+                p.slug
+            )
+        })?;
+        p.pair = existing.pair;
+        p.notes = existing.notes;
+    }
+    save(store, &p, !replace).map(|_| p)
+}
+
+fn export_to(
+    store: &Store,
+    ctx: &Ctx,
+    p: &Palette,
+    folder: &Path,
+) -> Result<ExportSummary, String> {
+    let (pair, note) = match store.pair_of(p) {
+        PairLookup::Found(pair) => (Some(pair), None),
+        PairLookup::None => (None, None),
+        PairLookup::SameMode(slug) => (
+            None,
+            Some(format!(
+                "Its pair {slug} has the same mode, so {} was exported alone.",
+                p.name
+            )),
+        ),
+        PairLookup::Missing { slug, reason } => (
+            None,
+            Some(format!(
+                "Its pair {slug} cannot be loaded ({reason}), so {} was exported alone.",
+                p.name
+            )),
+        ),
+    };
+    let req = ExportRequest {
+        palette: p,
+        pair: pair.as_ref(),
+        folder,
+    };
+    let report = export(&ctx.dirs, &req).map_err(|e| e.to_string())?;
+    let mut text = format_export(&report, p);
+    if let Some(note) = note {
+        text.push_str(&note);
+        text.push('\n');
+    }
+    Ok(ExportSummary {
+        lines: report.lines,
+        text,
+    })
+}
+
 pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
     let store = Store::new(ctx.dirs.clone());
     let msg = match effect {
@@ -97,7 +210,34 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
         Effect::SaveSettings(s) => {
             Msg::SettingsSaved(store.save_settings(&s).map_err(|e| e.to_string()))
         }
-        Effect::Toast(_) | Effect::Copy(_) | Effect::Exit => return Vec::new(),
+        Effect::LoadApplySheet { palette, settings } => Msg::ApplySheetLoaded {
+            targets: target_status(ctx, &settings),
+            pair: Box::new(store.pair_of(&palette)),
+            slug: palette.slug,
+        },
+        Effect::Apply {
+            palette,
+            pair,
+            settings,
+        } => apply_palette(ctx, &palette, pair.as_ref(), &settings),
+        Effect::Undo => Msg::Undone(undo(ctx)),
+        Effect::Import(path) => {
+            Msg::Imported(import_rice_with_notes(&path).map_err(|e| e.to_string()))
+        }
+        Effect::SaveImport {
+            palette,
+            notes,
+            replace,
+        } => Msg::ImportSaved {
+            result: save_import(&store, palette, replace),
+            notes,
+        },
+        Effect::Export { palette, folder } => {
+            Msg::Exported(export_to(&store, ctx, &palette, &folder))
+        }
+        Effect::Toast(_) | Effect::Copy(_) | Effect::ChooseFolder(_) | Effect::Exit => {
+            return Vec::new();
+        }
     };
     vec![msg]
 }
@@ -144,6 +284,7 @@ mod tests {
     use tempfile::TempDir;
 
     use super::*;
+    use crate::app::state::FolderFor;
 
     fn ctx(tmp: &TempDir) -> Ctx {
         Ctx {
@@ -231,10 +372,43 @@ mod tests {
     }
 
     #[test]
+    fn undo_apply_and_import_failures_are_plain() {
+        let tmp = TempDir::new().unwrap();
+        let ctx = ctx(&tmp);
+        let msgs = perform(Effect::Undo, &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::Undone(Err(e))] if e == "Nothing to undo"),
+            "{msgs:?}"
+        );
+        let msgs = perform(
+            Effect::Apply {
+                palette: ember(),
+                pair: None,
+                settings: Settings::default(),
+            },
+            &ctx,
+        );
+        assert!(
+            matches!(
+                msgs.as_slice(),
+                [Msg::Applied(Err(ApplyFailure::NothingToApply))]
+            ),
+            "{msgs:?}"
+        );
+        let msgs = perform(Effect::Import(tmp.path().to_path_buf()), &ctx);
+        assert!(
+            matches!(msgs.as_slice(), [Msg::Imported(Err(_))]),
+            "{msgs:?}"
+        );
+    }
+
+    #[test]
     fn window_effects_are_not_performed() {
         let tmp = TempDir::new().unwrap();
         assert!(perform(Effect::Exit, &ctx(&tmp)).is_empty());
         assert!(!Effect::Exit.is_io());
         assert!(Effect::LoadStore.is_io());
+        assert!(!Effect::ChooseFolder(FolderFor::Import).is_io());
+        assert!(perform(Effect::ChooseFolder(FolderFor::Export), &ctx(&tmp)).is_empty());
     }
 }

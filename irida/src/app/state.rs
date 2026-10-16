@@ -8,14 +8,16 @@ use std::path::PathBuf;
 use cosmic::cosmic_theme::palette::{FromColor, Hsv, Srgb};
 use cosmic::iced::Color;
 use cosmic::widget::color_picker::{ColorPickerModel, ColorPickerUpdate};
-use irida_core::apply::Ctx;
+use irida_core::apply::{ApplyReport, Ctx, TargetInfo, TargetStatus};
 use irida_core::color::Rgb;
 use irida_core::contrast::{RoleContrast, check};
 use irida_core::derive::derive;
+use irida_core::export::ExportLine;
 use irida_core::palette::{Mode, Palette, slug_from_name, validate_name};
+use irida_core::reload::ReloadStatus;
 use irida_core::role::Role;
 use irida_core::slot::{Ansi, PinValue, Slot, Tone};
-use irida_core::store::{Settings, starters};
+use irida_core::store::{PairLookup, Settings, starters};
 
 /// One stored palette as the Switch list shows it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -122,6 +124,202 @@ pub enum Dialog {
     Delete { slug: String, label: String },
     /// Save, Discard or Cancel before `Leave` happens.
     Unsaved(Leave),
+    /// The targets Apply writes, with a toggle each.
+    Apply(ApplySheet),
+    /// An imported palette whose slug is taken: Replace or Keep both.
+    /// `replace_ok` is false when the palette there cannot be read.
+    ImportCollision {
+        palette: Palette,
+        notes: Vec<String>,
+        replace_ok: bool,
+    },
+    /// What an export wrote.
+    Exported(ExportSummary),
+}
+
+/// What a folder is chosen for.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FolderFor {
+    Import,
+    Export,
+}
+
+impl FolderFor {
+    /// The file chooser's title.
+    pub fn title(self) -> &'static str {
+        match self {
+            FolderFor::Import => "Import a rice repo",
+            FolderFor::Export => "Export as rice repo",
+        }
+    }
+}
+
+/// The Apply sheet: every target, and what is applied.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApplySheet {
+    pub targets: Vec<TargetInfo>,
+    /// The other half of a pair, applied with the palette.
+    pub pair: Option<Palette>,
+    /// What is applied, like "Applies Ember and Ember Day".
+    pub applies: String,
+    /// Why a named pair is left out.
+    pub pair_note: Option<String>,
+}
+
+/// The Apply sheet's targets in its three groups, each sorted by name.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SheetGroups {
+    /// Installed, working targets with whether they are turned on.
+    pub toggles: Vec<(String, bool)>,
+    /// Installed targets that cannot be applied, with the error.
+    pub broken: Vec<(String, String)>,
+    pub not_installed: Vec<String>,
+}
+
+impl SheetGroups {
+    /// "Not installed: a, b", or `None` when every target is installed.
+    pub fn not_installed_line(&self) -> Option<String> {
+        (!self.not_installed.is_empty())
+            .then(|| format!("Not installed: {}", self.not_installed.join(", ")))
+    }
+}
+
+/// Group `targets` for the sheet; whether a target is on comes from
+/// `settings`, which a toggle changes at once.
+pub fn sheet_groups(targets: &[TargetInfo], settings: &Settings) -> SheetGroups {
+    let mut groups = SheetGroups {
+        toggles: Vec::new(),
+        broken: Vec::new(),
+        not_installed: Vec::new(),
+    };
+    for t in targets {
+        if !t.detected {
+            groups.not_installed.push(t.name.clone());
+        } else if let Some(e) = &t.broken {
+            groups.broken.push((t.name.clone(), e.clone()));
+        } else {
+            let on = !settings.disabled.contains(&t.name);
+            groups.toggles.push((t.name.clone(), on));
+        }
+    }
+    groups
+}
+
+/// Why an apply failed, in a form messages can carry.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ApplyFailure {
+    Write {
+        path: PathBuf,
+        reason: String,
+        rolled_back: bool,
+    },
+    Render {
+        target: String,
+        message: String,
+    },
+    NothingToApply,
+    Other(String),
+}
+
+impl ApplyFailure {
+    /// The toast for this failure.
+    pub fn text(&self) -> String {
+        match self {
+            ApplyFailure::Write {
+                path,
+                reason,
+                rolled_back: true,
+            } => format!(
+                "Could not write {}: {reason}. Nothing was changed.",
+                path.display()
+            ),
+            ApplyFailure::Write {
+                path,
+                reason,
+                rolled_back: false,
+            } => format!(
+                "Could not write {}: {reason}; run Undo last apply to finish.",
+                path.display()
+            ),
+            ApplyFailure::Render { target, message } => {
+                format!("{target}: {message}. Nothing was changed.")
+            }
+            ApplyFailure::NothingToApply => {
+                "Nothing to apply: turn on an installed app.".to_string()
+            }
+            ApplyFailure::Other(e) => format!("Could not apply: {e}"),
+        }
+    }
+
+    /// Undo is offered when a failed rollback left files to put back.
+    fn needs_undo(&self) -> bool {
+        matches!(
+            self,
+            ApplyFailure::Write {
+                rolled_back: false,
+                ..
+            }
+        )
+    }
+}
+
+/// The toast after an apply: how many apps, one line per app that needs a
+/// restart or failed to reload, then the warnings.
+pub fn applied_text(report: &ApplyReport) -> String {
+    let applied = report
+        .targets
+        .iter()
+        .filter(|t| matches!(t.status, TargetStatus::Applied(_)))
+        .count();
+    let mut lines = vec![match applied {
+        1 => "Applied to 1 app".to_string(),
+        n => format!("Applied to {n} apps"),
+    }];
+    for t in &report.targets {
+        match &t.status {
+            TargetStatus::Applied(ReloadStatus::Restart(hint)) => {
+                lines.push(format!("{}: {hint}", t.name));
+            }
+            TargetStatus::Applied(ReloadStatus::Failed(reason)) => lines.push(format!(
+                "Could not reload {} ({reason}); restart it to see the colours.",
+                t.name
+            )),
+            _ => {}
+        }
+    }
+    for t in &report.targets {
+        lines.extend(t.warnings.iter().cloned());
+    }
+    lines.join("\n")
+}
+
+/// What an undo did.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UndoDone {
+    pub record_id: u32,
+    /// One line per file that could not be restored.
+    pub failures: Vec<String>,
+}
+
+/// What an export wrote, and the text the result dialog shows.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ExportSummary {
+    pub lines: Vec<ExportLine>,
+    pub text: String,
+}
+
+/// The number words Keep both appends.
+const KEEP_BOTH: [&str; 9] = [
+    "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten",
+];
+
+/// `"<name> Two"` up to `"<name> Ten"`: the first whose slug is not
+/// `taken`.
+pub fn keep_both_name(name: &str, taken: impl Fn(&str) -> bool) -> Option<String> {
+    KEEP_BOTH
+        .iter()
+        .map(|w| format!("{name} {w}"))
+        .find(|n| !taken(&slug_from_name(n)))
 }
 
 /// The palette menu's items, in menu order.
@@ -168,7 +366,10 @@ impl MenuItem {
             MenuItem::New => Msg::ShowNew,
             MenuItem::Duplicate => Msg::ShowDuplicate,
             MenuItem::Delete => Msg::ShowDelete,
-            other => Msg::NotYet(other.label()),
+            MenuItem::Import => Msg::ShowImport,
+            MenuItem::Export => Msg::ShowExport,
+            MenuItem::UndoLastApply => Msg::UndoLastApply,
+            MenuItem::NewFromWallpaper => Msg::NotYet(self.label()),
         }
     }
 }
@@ -383,6 +584,35 @@ pub enum Msg {
     UnsavedDiscard,
     CloseDialog,
     CloseRequested,
+    // Apply, undo, import and export.
+    /// Open the Apply sheet.
+    ShowApply,
+    ApplySheetLoaded {
+        slug: String,
+        targets: Vec<TargetInfo>,
+        /// Boxed: a found pair is a whole palette.
+        pair: Box<PairLookup>,
+    },
+    /// Turn a target on or off in the sheet.
+    SetTarget(String, bool),
+    ConfirmApply,
+    Applied(Result<ApplyReport, ApplyFailure>),
+    /// The toast's Undo and the menu's Undo last apply.
+    UndoLastApply,
+    Undone(Result<UndoDone, String>),
+    ShowImport,
+    ShowExport,
+    /// The file chooser's folder, or why it could not open.
+    Folder(FolderFor, Result<PathBuf, String>),
+    /// A rice repo read as a palette, with its notes.
+    Imported(Result<(Palette, Vec<String>), String>),
+    ImportReplace,
+    ImportKeepBoth,
+    ImportSaved {
+        result: Result<Palette, String>,
+        notes: Vec<String>,
+    },
+    Exported(Result<ExportSummary, String>),
     /// An item a later version builds.
     NotYet(&'static str),
 }
@@ -406,16 +636,46 @@ pub enum Effect {
     },
     Delete(String),
     SaveSettings(Settings),
+    /// Read the targets and the pair for the Apply sheet.
+    LoadApplySheet {
+        palette: Palette,
+        settings: Settings,
+    },
+    Apply {
+        palette: Palette,
+        pair: Option<Palette>,
+        settings: Settings,
+    },
+    Undo,
+    /// Read a rice repo.
+    Import(PathBuf),
+    /// Save an imported palette: as a new palette (refusing a slug that
+    /// exists), or with `replace` as a new version of the readable palette
+    /// with its slug, keeping that palette's pair and notes.
+    SaveImport {
+        palette: Palette,
+        notes: Vec<String>,
+        replace: bool,
+    },
+    Export {
+        palette: Palette,
+        folder: PathBuf,
+    },
     Toast(ToastItem),
     /// Put text on the clipboard.
     Copy(String),
+    /// Ask for a folder with the file chooser.
+    ChooseFolder(FolderFor),
     Exit,
 }
 
 impl Effect {
     /// Whether `perform` runs it (rather than the window).
     pub fn is_io(&self) -> bool {
-        !matches!(self, Effect::Toast(_) | Effect::Copy(_) | Effect::Exit)
+        !matches!(
+            self,
+            Effect::Toast(_) | Effect::Copy(_) | Effect::ChooseFolder(_) | Effect::Exit
+        )
     }
 }
 
@@ -556,9 +816,18 @@ impl State {
     }
 
     fn toast(&mut self, text: impl Into<String>) -> Effect {
+        self.toast_with(text, None)
+    }
+
+    /// A toast with an Undo button that sends `Msg::UndoLastApply`.
+    fn toast_undo(&mut self, text: impl Into<String>) -> Effect {
+        self.toast_with(text, Some(("Undo".to_string(), Msg::UndoLastApply)))
+    }
+
+    fn toast_with(&mut self, text: impl Into<String>, action: Option<(String, Msg)>) -> Effect {
         let item = ToastItem {
             text: text.into(),
-            action: None,
+            action,
         };
         self.toasts.push(item.clone());
         if self.toasts.len() > TOASTS_KEPT {
@@ -664,6 +933,52 @@ impl State {
             roles,
             names: Default::default(),
             pins: Default::default(),
+        }
+    }
+
+    /// The working copy when it can be applied or exported, else the
+    /// effects saying why not: a toast, or nothing when no palette can be
+    /// edited (`doing` is "applied" or "exported").
+    fn checked_working(&mut self, doing: &str) -> Result<Palette, Vec<Effect>> {
+        let Some(working) = self.current.as_ref().and_then(Current::working) else {
+            return Err(Vec::new());
+        };
+        match working.validate() {
+            Ok(()) => Ok(working.clone()),
+            Err(e) => Err(vec![self.toast(format!("Not {doing}: {e}"))]),
+        }
+    }
+
+    /// The Apply sheet for `working` with `targets` and its pair lookup.
+    fn apply_sheet(working: &Palette, targets: Vec<TargetInfo>, pair: PairLookup) -> ApplySheet {
+        let name = &working.name;
+        let alone = format!("Applies {name}");
+        let (pair, applies, pair_note) = match pair {
+            PairLookup::Found(p) => {
+                let applies = format!("Applies {name} and {}", p.name);
+                (Some(p), applies, None)
+            }
+            PairLookup::None => (None, alone, None),
+            PairLookup::SameMode(slug) => (
+                None,
+                alone,
+                Some(format!(
+                    "Its pair {slug} has the same mode, so {name} is applied alone."
+                )),
+            ),
+            PairLookup::Missing { slug, reason } => (
+                None,
+                alone,
+                Some(format!(
+                    "Its pair {slug} cannot be loaded ({reason}), so {name} is applied alone."
+                )),
+            ),
+        };
+        ApplySheet {
+            targets,
+            pair,
+            applies,
+            pair_note,
         }
     }
 
@@ -1068,6 +1383,187 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::CloseRequested => state.leave(Leave::Exit),
+        Msg::ShowApply => {
+            if !state.header_enabled(HeaderItem::Apply) {
+                return Vec::new();
+            }
+            match state.checked_working("applied") {
+                Ok(palette) => vec![Effect::LoadApplySheet {
+                    palette,
+                    settings: state.settings.clone(),
+                }],
+                Err(effects) => effects,
+            }
+        }
+        Msg::ApplySheetLoaded {
+            slug,
+            targets,
+            pair,
+        } => {
+            // The palette changed while the targets were read.
+            let Some(Current::Editable { working, .. }) = &state.current else {
+                return Vec::new();
+            };
+            if working.slug != slug || state.dialog.is_some() {
+                return Vec::new();
+            }
+            state.dialog = Some(Dialog::Apply(State::apply_sheet(working, targets, *pair)));
+            Vec::new()
+        }
+        Msg::SetTarget(name, on) => {
+            let Some(Dialog::Apply(sheet)) = &state.dialog else {
+                return Vec::new();
+            };
+            let groups = sheet_groups(&sheet.targets, &state.settings);
+            if !groups.toggles.iter().any(|(n, _)| *n == name) {
+                return Vec::new();
+            }
+            let changed = if on {
+                state.settings.disabled.remove(&name)
+            } else {
+                state.settings.disabled.insert(name)
+            };
+            if !changed {
+                return Vec::new();
+            }
+            // The user changed a setting, so an unreadable file is replaced.
+            state.settings_unreadable = false;
+            vec![Effect::SaveSettings(state.settings.clone())]
+        }
+        Msg::ConfirmApply => {
+            let sheet = match state.dialog.take() {
+                Some(Dialog::Apply(sheet)) => sheet,
+                other => {
+                    state.dialog = other;
+                    return Vec::new();
+                }
+            };
+            match state.checked_working("applied") {
+                Ok(palette) => vec![Effect::Apply {
+                    palette,
+                    pair: sheet.pair,
+                    settings: state.settings.clone(),
+                }],
+                Err(effects) => effects,
+            }
+        }
+        Msg::Applied(Ok(report)) => vec![state.toast_undo(applied_text(&report))],
+        Msg::Applied(Err(failure)) => {
+            let text = failure.text();
+            if failure.needs_undo() {
+                vec![state.toast_undo(text)]
+            } else {
+                vec![state.toast(text)]
+            }
+        }
+        Msg::UndoLastApply => {
+            state.menu_open = false;
+            vec![Effect::Undo]
+        }
+        Msg::Undone(Ok(done)) => {
+            let mut lines = vec![format!("Restored apply {}", done.record_id)];
+            lines.extend(done.failures);
+            vec![state.toast(lines.join("\n"))]
+        }
+        Msg::Undone(Err(e)) => vec![state.toast(e)],
+        Msg::ShowImport => {
+            state.menu_open = false;
+            vec![Effect::ChooseFolder(FolderFor::Import)]
+        }
+        Msg::ShowExport => {
+            state.menu_open = false;
+            if !state.menu_enabled(MenuItem::Export) {
+                return Vec::new();
+            }
+            match state.checked_working("exported") {
+                Ok(_) => vec![Effect::ChooseFolder(FolderFor::Export)],
+                Err(effects) => effects,
+            }
+        }
+        Msg::Folder(_, Err(e)) => vec![state.toast(format!("Could not choose a folder: {e}"))],
+        Msg::Folder(FolderFor::Import, Ok(path)) => vec![Effect::Import(path)],
+        Msg::Folder(FolderFor::Export, Ok(folder)) => match state.checked_working("exported") {
+            Ok(palette) => vec![Effect::Export { palette, folder }],
+            Err(effects) => effects,
+        },
+        Msg::Imported(Ok((palette, notes))) => {
+            match state.entries.iter().find(|e| e.slug == palette.slug) {
+                Some(entry) => {
+                    state.dialog = Some(Dialog::ImportCollision {
+                        replace_ok: entry.readable(),
+                        palette,
+                        notes,
+                    });
+                    Vec::new()
+                }
+                None => vec![Effect::SaveImport {
+                    palette,
+                    notes,
+                    replace: false,
+                }],
+            }
+        }
+        Msg::Imported(Err(e)) => vec![state.toast(format!("Not imported: {e}"))],
+        Msg::ImportReplace => match state.dialog.take() {
+            Some(Dialog::ImportCollision {
+                palette,
+                notes,
+                replace_ok: true,
+            }) => vec![Effect::SaveImport {
+                palette,
+                notes,
+                replace: true,
+            }],
+            other => {
+                state.dialog = other;
+                Vec::new()
+            }
+        },
+        Msg::ImportKeepBoth => match state.dialog.take() {
+            Some(Dialog::ImportCollision {
+                mut palette, notes, ..
+            }) => {
+                let entries = &state.entries;
+                let name =
+                    keep_both_name(&palette.name, |slug| entries.iter().any(|e| e.slug == slug));
+                let Some(name) = name else {
+                    let text = format!(
+                        "Not imported: {0} Two to {0} Ten all exist. Delete one, or import under another name.",
+                        palette.name
+                    );
+                    return vec![state.toast(text)];
+                };
+                palette.slug = slug_from_name(&name);
+                palette.name = name;
+                vec![Effect::SaveImport {
+                    palette,
+                    notes,
+                    replace: false,
+                }]
+            }
+            other => {
+                state.dialog = other;
+                Vec::new()
+            }
+        },
+        Msg::ImportSaved {
+            result: Ok(p),
+            notes,
+        } => {
+            let mut lines = vec![format!("Imported {}", p.name)];
+            lines.extend(notes);
+            let mut effects = vec![state.toast(lines.join("\n")), Effect::ListEntries];
+            effects.extend(state.leave(Leave::Open(p.slug)));
+            effects
+        }
+        Msg::ImportSaved { result: Err(e), .. } => {
+            vec![state.toast(format!("Not imported: {e}"))]
+        }
+        Msg::Exported(Ok(summary)) => {
+            state.dialog = Some(Dialog::Exported(summary));
+            Vec::new()
+        }
+        Msg::Exported(Err(e)) => vec![state.toast(format!("Not exported: {e}"))],
         Msg::NotYet(what) => {
             state.menu_open = false;
             vec![state.toast(format!("Coming soon: {what}"))]
@@ -1077,9 +1573,12 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::fs;
 
+    use irida_core::apply::{SkipReason, TargetResult};
     use irida_core::dirs::Dirs;
+    use irida_core::export::{BY_HAND, ExportStatus};
     use irida_core::store::Store;
     use tempfile::TempDir;
 
@@ -1593,8 +2092,10 @@ mod tests {
         store_with(&tmp, &["ember"]);
         let mut state = start(&tmp);
         state.menu_open = true;
-        let ui = drive(&mut state, MenuItem::Import.msg());
-        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: Import"));
+        let ui = drive(&mut state, MenuItem::NewFromWallpaper.msg());
+        assert!(
+            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: New from wallpaper")
+        );
         assert!(!state.menu_open);
     }
 
@@ -1917,5 +2418,416 @@ mod tests {
             role_slots(Role::Pane, Mode::Light),
             [Slot::Background, Slot::CosmicGray2]
         );
+    }
+
+    const A_TOML: &str = "name = \"a\"\ndetect = {}\n\n[[file]]\npath = \"~/.config/a/a.conf\"\nwrite = \"file\"\ntemplate = \"a.tmpl\"\n";
+
+    /// A user target folder holding these files.
+    fn put_target(tmp: &TempDir, name: &str, files: &[(&str, &str)]) {
+        let dir = Dirs::under(tmp.path())
+            .config
+            .join("irida/targets")
+            .join(name);
+        fs::create_dir_all(&dir).unwrap();
+        for (file, text) in files {
+            fs::write(dir.join(file), text).unwrap();
+        }
+    }
+
+    /// User target `a`: one file write, no reload.
+    fn put_a(tmp: &TempDir) {
+        put_target(
+            tmp,
+            "a",
+            &[
+                ("target.toml", A_TOML),
+                ("a.tmpl", "accent = {{ accent }}\n"),
+            ],
+        );
+    }
+
+    fn sheet(state: &State) -> &ApplySheet {
+        match &state.dialog {
+            Some(Dialog::Apply(s)) => s,
+            other => panic!("no Apply sheet: {other:?}"),
+        }
+    }
+
+    const BUILTINS: [&str; 8] = [
+        "btop",
+        "cava",
+        "cosmic-desktop",
+        "cosmic-term",
+        "fastfetch",
+        "lsd",
+        "nvim",
+        "zsh",
+    ];
+
+    #[test]
+    fn sheet_groups_targets() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember", "emberday"]);
+        put_a(&tmp);
+        put_target(
+            &tmp,
+            "bad",
+            &[("target.toml", "name = \"bad\"\nbogus = 1\n")],
+        );
+        let mut state = start(&tmp);
+        assert_eq!(open_slug(&state), Some("ember"));
+        let before = snapshot(&tmp);
+        let ui = drive(&mut state, Msg::ShowApply);
+        assert!(ui.is_empty(), "{ui:?}");
+        assert_eq!(snapshot(&tmp), before, "opening the sheet writes nothing");
+        let first = sheet(&state);
+        assert_eq!(first.applies, "Applies Ember and Ember Day");
+        assert_eq!(
+            first.pair.as_ref().map(|p| p.slug.as_str()),
+            Some("emberday")
+        );
+        assert_eq!(first.pair_note, None);
+        let groups = sheet_groups(&first.targets, &state.settings);
+        assert_eq!(groups.toggles, [("a".to_string(), true)]);
+        assert_eq!(groups.broken.len(), 1, "{:?}", groups.broken);
+        assert_eq!(groups.broken[0].0, "bad");
+        assert!(groups.broken[0].1.contains("bogus"), "{:?}", groups.broken);
+        assert_eq!(groups.not_installed, BUILTINS);
+        assert_eq!(
+            groups.not_installed_line().as_deref(),
+            Some(format!("Not installed: {}", BUILTINS.join(", ")).as_str())
+        );
+
+        // A pair that is not in the store is left out, and the sheet says so.
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::ShowApply);
+        let alone = sheet(&state);
+        assert_eq!(alone.applies, "Applies Ember");
+        assert!(alone.pair.is_none());
+        assert!(
+            alone
+                .pair_note
+                .as_deref()
+                .is_some_and(|n| n.contains("emberday")),
+            "{:?}",
+            alone.pair_note
+        );
+        let groups = sheet_groups(&alone.targets, &state.settings);
+        assert!(groups.toggles.is_empty() && groups.broken.is_empty());
+        assert_eq!(groups.not_installed, BUILTINS);
+    }
+
+    #[test]
+    fn toggle_persists() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        put_a(&tmp);
+        // An unreadable settings file is replaced once a toggle changes a setting.
+        let path = Dirs::under(tmp.path()).config.join("irida/settings.toml");
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        fs::write(&path, "disabled = 3\n").unwrap();
+        let mut state = start(&tmp);
+        assert!(state.settings_unreadable);
+        drive(&mut state, Msg::ShowApply);
+        drive(&mut state, Msg::SetTarget("a".to_string(), false));
+        assert!(!state.settings_unreadable);
+        assert_eq!(
+            store.settings().unwrap().disabled,
+            BTreeSet::from(["a".to_string()])
+        );
+        let groups = sheet_groups(&sheet(&state).targets, &state.settings);
+        assert_eq!(groups.toggles, [("a".to_string(), false)]);
+
+        // A target that is not a toggle cannot be turned off.
+        drive(&mut state, Msg::SetTarget("zsh".to_string(), false));
+        assert_eq!(store.settings().unwrap().disabled.len(), 1);
+
+        drive(&mut state, Msg::SetTarget("a".to_string(), true));
+        assert!(store.settings().unwrap().disabled.is_empty());
+    }
+
+    #[test]
+    fn apply_then_undo() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        put_a(&tmp);
+        let conf = Dirs::under(tmp.path()).home.join(".config/a/a.conf");
+        fs::create_dir_all(conf.parent().unwrap()).unwrap();
+        fs::write(&conf, "mine\n").unwrap();
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::ShowApply);
+        let ui = drive(&mut state, Msg::ConfirmApply);
+        assert!(state.dialog.is_none());
+        let accent = working(&state).roles.get(Role::Accent).to_hex();
+        assert_eq!(
+            fs::read_to_string(&conf).unwrap(),
+            format!("accent = {accent}\n")
+        );
+        let [Effect::Toast(t)] = ui.as_slice() else {
+            panic!("{ui:?}");
+        };
+        let mut lines = t.text.lines();
+        assert_eq!(lines.next(), Some("Applied to 1 app"));
+        // The replaced file is named, as a warning.
+        assert!(
+            lines.next().is_some_and(|l| l.contains("a.conf")),
+            "{}",
+            t.text
+        );
+        let Some((label, msg)) = t.action.clone() else {
+            panic!("no Undo action");
+        };
+        assert_eq!(label, "Undo");
+        assert!(matches!(msg, Msg::UndoLastApply));
+
+        let ui = drive(&mut state, msg);
+        assert!(
+            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text.starts_with("Restored apply ")),
+            "{ui:?}"
+        );
+        assert_eq!(fs::read_to_string(&conf).unwrap(), "mine\n");
+
+        // The menu item sends the same Msg; nothing is left to undo.
+        state.menu_open = true;
+        drive(&mut state, MenuItem::UndoLastApply.msg());
+        assert!(!state.menu_open);
+        assert_eq!(last_toast(&state), "Nothing to undo");
+    }
+
+    #[test]
+    fn apply_texts() {
+        let report = ApplyReport {
+            record_id: 4,
+            targets: vec![
+                TargetResult {
+                    name: "btop".to_string(),
+                    status: TargetStatus::Applied(ReloadStatus::Restart(
+                        "restart btop to see it".to_string(),
+                    )),
+                    warnings: vec![],
+                },
+                TargetResult {
+                    name: "cava".to_string(),
+                    status: TargetStatus::Applied(ReloadStatus::Failed("exit 1".to_string())),
+                    warnings: vec!["a warning".to_string()],
+                },
+                TargetResult {
+                    name: "lsd".to_string(),
+                    status: TargetStatus::Skipped(SkipReason::NotInstalled),
+                    warnings: vec![],
+                },
+            ],
+        };
+        assert_eq!(
+            applied_text(&report),
+            "Applied to 2 apps\n\
+             btop: restart btop to see it\n\
+             Could not reload cava (exit 1); restart it to see the colours.\n\
+             a warning"
+        );
+        let write = |rolled_back| ApplyFailure::Write {
+            path: PathBuf::from("/x/a.conf"),
+            reason: "disk full".to_string(),
+            rolled_back,
+        };
+        assert_eq!(
+            write(true).text(),
+            "Could not write /x/a.conf: disk full. Nothing was changed."
+        );
+        assert_eq!(
+            write(false).text(),
+            "Could not write /x/a.conf: disk full; run Undo last apply to finish."
+        );
+        let render = ApplyFailure::Render {
+            target: "nvim".to_string(),
+            message: "undefined value".to_string(),
+        };
+        assert_eq!(render.text(), "nvim: undefined value. Nothing was changed.");
+        assert_eq!(
+            ApplyFailure::NothingToApply.text(),
+            "Nothing to apply: turn on an installed app."
+        );
+    }
+
+    #[test]
+    fn nothing_to_apply_toasts() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::ShowApply);
+        let ui = drive(&mut state, Msg::ConfirmApply);
+        assert!(
+            matches!(ui.as_slice(), [Effect::Toast(t)]
+                if t.text == "Nothing to apply: turn on an installed app." && t.action.is_none()),
+            "{ui:?}"
+        );
+    }
+
+    fn ember_rice() -> PathBuf {
+        PathBuf::from(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../irida-core/tests/fixtures/rices/cosmic-ember-theme"
+        ))
+    }
+
+    fn slugs(store: &Store) -> Vec<String> {
+        store.list().into_iter().map(|e| e.slug).collect()
+    }
+
+    fn import(state: &mut State) -> Vec<Effect> {
+        drive(state, Msg::Folder(FolderFor::Import, Ok(ember_rice())))
+    }
+
+    #[test]
+    fn import_collision_keep_both() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["noir"]);
+        let mut state = start(&tmp);
+        state.menu_open = true;
+        let ui = drive(&mut state, MenuItem::Import.msg());
+        assert!(
+            matches!(ui.as_slice(), [Effect::ChooseFolder(FolderFor::Import)]),
+            "{ui:?}"
+        );
+        assert!(!state.menu_open);
+        assert_eq!(FolderFor::Import.title(), "Import a rice repo");
+        let ui = import(&mut state);
+        assert!(
+            matches!(ui.as_slice(), [Effect::Toast(t)] if t.text.starts_with("Imported Ember")),
+            "{ui:?}"
+        );
+        assert_eq!(slugs(&store), ["ember", "noir"]);
+        assert_eq!(open_slug(&state), Some("ember"));
+
+        // Again: the slug exists, so it asks.
+        assert!(import(&mut state).is_empty());
+        assert!(
+            matches!(&state.dialog, Some(Dialog::ImportCollision { palette, replace_ok: true, .. })
+                if palette.slug == "ember"),
+            "{:?}",
+            state.dialog
+        );
+        drive(&mut state, Msg::ImportKeepBoth);
+        assert!(state.dialog.is_none());
+        assert_eq!(slugs(&store), ["ember", "embertwo", "noir"]);
+        assert_eq!(store.load("embertwo").unwrap().name, "Ember Two");
+        assert_eq!(store.versions("ember").unwrap().len(), 1);
+        assert_eq!(open_slug(&state), Some("embertwo"));
+
+        // The next Keep both takes the next free number.
+        import(&mut state);
+        drive(&mut state, Msg::ImportKeepBoth);
+        assert_eq!(store.load("emberthree").unwrap().name, "Ember Three");
+
+        // Replace instead saves a new version of the existing slug.
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["noir"]);
+        let mut state = start(&tmp);
+        import(&mut state);
+        import(&mut state);
+        drive(&mut state, Msg::ImportReplace);
+        assert!(state.dialog.is_none());
+        assert_eq!(slugs(&store), ["ember", "noir"]);
+        assert_eq!(store.versions("ember").unwrap().len(), 2);
+        assert_eq!(open_slug(&state), Some("ember"));
+
+        // Replace keeps the notes and pair the repo cannot carry.
+        drive(&mut state, Msg::SetNotes("Kept".to_string()));
+        drive(&mut state, Msg::Save);
+        import(&mut state);
+        drive(&mut state, Msg::ImportReplace);
+        assert_eq!(store.versions("ember").unwrap().len(), 4);
+        assert_eq!(store.load("ember").unwrap().notes.as_deref(), Some("Kept"));
+        assert_eq!(working(&state).notes.as_deref(), Some("Kept"));
+    }
+
+    #[test]
+    fn import_never_replaces_unreadable() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["noir"]);
+        fs::create_dir_all(palettes_dir(&tmp).join("ember")).unwrap();
+        fs::write(palettes_dir(&tmp).join("ember/palette.toml"), "nope").unwrap();
+        let mut state = start(&tmp);
+        let before = snapshot(&tmp);
+        assert!(import(&mut state).is_empty());
+        assert!(
+            matches!(
+                &state.dialog,
+                Some(Dialog::ImportCollision {
+                    replace_ok: false,
+                    ..
+                })
+            ),
+            "{:?}",
+            state.dialog
+        );
+        assert!(drive(&mut state, Msg::ImportReplace).is_empty());
+        assert!(matches!(state.dialog, Some(Dialog::ImportCollision { .. })));
+        assert_eq!(snapshot(&tmp), before);
+        drive(&mut state, Msg::ImportKeepBoth);
+        assert_eq!(
+            fs::read_to_string(palettes_dir(&tmp).join("ember/palette.toml")).unwrap(),
+            "nope"
+        );
+        assert!(palettes_dir(&tmp).join("embertwo/palette.toml").is_file());
+    }
+
+    #[test]
+    fn keep_both_names() {
+        let taken = ["embertwo", "emberthree"];
+        assert_eq!(
+            keep_both_name("Ember", |s| taken.contains(&s)).as_deref(),
+            Some("Ember Four")
+        );
+        assert_eq!(keep_both_name("Ember", |_| true), None);
+        assert_eq!(
+            keep_both_name("Ember Day", |_| false).as_deref(),
+            Some("Ember Day Two")
+        );
+    }
+
+    #[test]
+    fn export_summary() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        state.menu_open = true;
+        let ui = drive(&mut state, MenuItem::Export.msg());
+        assert!(
+            matches!(ui.as_slice(), [Effect::ChooseFolder(FolderFor::Export)]),
+            "{ui:?}"
+        );
+        let out = tmp.path().join("out");
+        fs::create_dir_all(&out).unwrap();
+        let ui = drive(&mut state, Msg::Folder(FolderFor::Export, Ok(out.clone())));
+        assert!(ui.is_empty(), "{ui:?}");
+        let Some(Dialog::Exported(summary)) = &state.dialog else {
+            panic!("{:?}", state.dialog);
+        };
+        assert!(
+            summary.lines.contains(&ExportLine {
+                path: "cosmic/Ember.ron".to_string(),
+                status: ExportStatus::Created,
+            }),
+            "{:?}",
+            summary.lines
+        );
+        assert!(
+            summary
+                .text
+                .lines()
+                .any(|l| l.trim() == "created   cosmic/Ember.ron"),
+            "{}",
+            summary.text
+        );
+        assert!(summary.text.contains(BY_HAND));
+        assert!(summary.text.contains("Contrast: "));
+        // The pair is not in the store: exported alone, and said so.
+        assert!(summary.text.contains("emberday"), "{}", summary.text);
+        assert!(out.join("cosmic-ember-theme/cosmic/Ember.ron").is_file());
+        drive(&mut state, Msg::CloseDialog);
+        assert!(state.dialog.is_none());
     }
 }
