@@ -21,7 +21,7 @@ impl Spawned {
         let dir = tempfile::TempDir::new().unwrap();
         let exe = dir.path().join(name);
         fs::copy("/bin/sleep", &exe).unwrap();
-        let child = Command::new(&exe).arg("30").spawn().unwrap();
+        let child = spawn_retrying(&exe);
         // Wait until the kernel reports the new name.
         let start = Instant::now();
         while irida_core::reload::find_processes(name).is_empty() {
@@ -29,6 +29,21 @@ impl Spawned {
             std::thread::sleep(Duration::from_millis(10));
         }
         Spawned { child, _dir: dir }
+    }
+}
+
+/// Spawn `exe 30`, retrying while the copy is "Text file busy": a sibling test
+/// thread can fork while our write handle is open, so the child briefly holds it.
+fn spawn_retrying(exe: &Path) -> Child {
+    let mut tries = 0;
+    loop {
+        match Command::new(exe).arg("30").spawn() {
+            Err(e) if e.kind() == std::io::ErrorKind::ExecutableFileBusy && tries < 50 => {
+                tries += 1;
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            result => return result.unwrap(),
+        }
     }
 }
 
