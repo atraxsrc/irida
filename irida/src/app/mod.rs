@@ -218,7 +218,8 @@ impl Application for App {
     }
 
     fn init(core: Core, ctx: Ctx) -> (Self, Task<Message>) {
-        let (state, effects) = State::new(ctx, PathBuf::from(COSMIC_SYSTEM));
+        let lock = irida_core::live::lock_app(&ctx.dirs);
+        let (state, effects) = State::new(ctx, PathBuf::from(COSMIC_SYSTEM), lock);
         let mut app = App {
             core,
             state,
