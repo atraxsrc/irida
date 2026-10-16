@@ -421,10 +421,7 @@ fn plan_target<'t>(
         match plan_file(f, dirs.expand(&f.path), rendered) {
             Ok(Some(w)) => {
                 if f.write == WriteKind::File && replaces_user_file(&w, recorded) {
-                    warnings.push(format!(
-                        "{}: replaced your file; irida undo restores it",
-                        w.path.display()
-                    ));
+                    warnings.push(replaced_note(&w.path));
                 }
                 writes.push(w);
             }
@@ -461,6 +458,14 @@ fn plan_target<'t>(
     .or_skipped())
 }
 
+/// The note for a `file` write over a file the user wrote.
+fn replaced_note(path: &Path) -> String {
+    format!(
+        "{}: replaced your file; irida undo restores it",
+        path.display()
+    )
+}
+
 impl TargetPlan<'_> {
     /// A selected target left with no write is skipped, its first warning the reason.
     fn or_skipped(mut self) -> Self {
@@ -486,10 +491,15 @@ impl TargetPlan<'_> {
         for w in std::mem::take(&mut self.writes) {
             let key = resolve_write_path(&w.path).unwrap_or_else(|_| w.path.clone());
             match seen.iter().find(|(p, _)| *p == key) {
-                Some((_, first)) => self.warnings.push(format!(
-                    "{}: already written by {first}; skipped",
-                    w.path.display()
-                )),
+                Some((_, first)) => {
+                    // This target does not write the file, so it replaces nothing.
+                    let note = replaced_note(&w.path);
+                    self.warnings.retain(|m| *m != note);
+                    self.warnings.push(format!(
+                        "{}: already written by {first}; skipped",
+                        w.path.display()
+                    ));
+                }
                 None => {
                     seen.push((key, self.name.clone()));
                     kept.push(w);
@@ -620,9 +630,15 @@ pub fn apply(
 /// is on the path: an app found only by its config folder cannot be running.
 fn reload_target(target: &Target, ctx: &Ctx) -> ReloadStatus {
     let r = target.def.reload.as_ref();
+    // A signal goes only to a target whose binary is on PATH; one found only
+    // by its config folder, or with no binary named, cannot be running.
     if r.is_some_and(|r| r.signal.is_some())
-        && let Some(bin) = &target.def.detect.binary
-        && !ctx.path.iter().any(|p| is_executable(&p.join(bin)))
+        && !target
+            .def
+            .detect
+            .binary
+            .as_ref()
+            .is_some_and(|bin| ctx.path.iter().any(|p| is_executable(&p.join(bin))))
     {
         return ReloadStatus::NotRunning;
     }

@@ -169,7 +169,8 @@ fn key_dir(root: &Path, id: &str, version: u64) -> PathBuf {
     root.join("cosmic").join(id).join(format!("v{version}"))
 }
 
-/// Copy the regular files of `from`, when it exists, into `to`.
+/// Copy the regular files of `from`, when it exists, into `to`. A key that is
+/// a symlink to a file (a dotfile manager's link) counts, as it does for COSMIC.
 fn copy_keys(from: &Path, to: &Path) -> Result<(), TargetError> {
     let rd = match fs::read_dir(from) {
         Ok(rd) => rd,
@@ -179,7 +180,7 @@ fn copy_keys(from: &Path, to: &Path) -> Result<(), TargetError> {
     fs::create_dir_all(to).map_err(|e| io_err(to, e))?;
     for entry in rd {
         let entry = entry.map_err(|e| io_err(from, e))?;
-        if entry.file_type().map_err(|e| io_err(from, e))?.is_file() {
+        if entry.path().is_file() {
             fs::copy(entry.path(), to.join(entry.file_name()))
                 .map_err(|e| io_err(&entry.path(), e))?;
         }

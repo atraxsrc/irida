@@ -112,7 +112,7 @@ fn showcase_rows() {
     );
 }
 
-/// The fixture `switch.sh` with exactly the three changes Irida's version makes.
+/// The fixture `switch.sh` with exactly the four changes Irida's version makes.
 fn changed_switch(fixture: &str) -> String {
     let changes = [
         (
@@ -122,6 +122,10 @@ fn changed_switch(fixture: &str) -> String {
         (
             "# Updater banner\nln -sfn \"$R/scripts/update_system.sh\" \"$HOME/update_system.sh\"\necho \"  ~/update_system.sh -> $NAME\"\n\n",
             "",
+        ),
+        (
+            "    if [ -x \"$tool/install.sh\" ]; then \"./$tool/install.sh\" | sed \"/^$/d; s/^/  $tool: /\"; fi\n",
+            "    if [ -x \"$tool/install.sh\" ]; then\n        \"./$tool/install.sh\" | sed \"/^$/d; s/^/  $tool: /\" || echo \"  $tool: install.sh failed, see above\"\n    fi\n",
         ),
         (
             "./claude-desktop/install.sh | sed '/^$/d; s/^/  claude-desktop: /'\nclaude_theme=\"$(basename \"$(ls claude-desktop/*.jsonc | head -n1)\" .jsonc)\"\n",

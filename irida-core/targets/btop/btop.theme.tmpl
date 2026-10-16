@@ -1,4 +1,4 @@
-# Main background, empty so it follows the terminal pane ({{ term.background }})
+# Main background, empty so it follows the terminal pane ({{ term.background or pane }})
 theme[main_bg]=""
 
 # Main text color
@@ -14,7 +14,7 @@ theme[hi_fg]="{{ accent }}"
 theme[selected_bg]="{{ accent }}"
 
 # Foreground color of selected item in processes box
-theme[selected_fg]="{{ term.background }}"
+theme[selected_fg]="{{ term.background or pane }}"
 
 # Color of inactive/disabled text
 theme[inactive_fg]="{{ comment }}"

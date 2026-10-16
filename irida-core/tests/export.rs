@@ -335,3 +335,63 @@ fn noir_desktop_note() {
         );
     }
 }
+
+#[test]
+fn dot_path_cannot_overwrite() {
+    let env = TestEnv::new();
+    put_target(
+        &env,
+        "mine",
+        &rice_target("mine", &["./README.md", "nvim/./install.sh"]),
+        &[("t.tmpl", "from user target\n")],
+    );
+    let repo = env.tmp.path().join("cosmic-ember-theme");
+    fs::create_dir_all(&repo).unwrap();
+    fs::write(repo.join("README.md"), "# My hand-written README\n").unwrap();
+
+    let report = run(&env, &palette("ember"), &repo).unwrap();
+    for rel in ["./README.md", "nvim/./install.sh"] {
+        assert_eq!(
+            status(&report, rel),
+            [&ExportStatus::Skipped("path leaves the repo".into())],
+            "{rel}"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(repo.join("README.md")).unwrap(),
+        "# My hand-written README\n"
+    );
+    assert_eq!(
+        fs::read_to_string(repo.join("nvim/install.sh")).unwrap(),
+        render_export("ember", "nvim", "install.sh.tmpl")
+    );
+}
+
+#[test]
+fn planted_temp_symlink_not_followed() {
+    let env = TestEnv::new();
+    let repo = env.tmp.path().join("cosmic-ember-theme");
+    run(&env, &palette("ember"), &repo).unwrap();
+    let victim = env.tmp.path().join("victim.txt");
+    fs::write(&victim, "keep me").unwrap();
+    fs::write(repo.join("btop/Ember.theme"), "changed\n").unwrap();
+    symlink(&victim, repo.join("btop/.Ember.theme.irida-tmp")).unwrap();
+
+    let report = run(&env, &palette("ember"), &repo).unwrap();
+    assert_eq!(
+        status(&report, "btop/Ember.theme"),
+        [&ExportStatus::Updated]
+    );
+    assert_eq!(fs::read_to_string(&victim).unwrap(), "keep me");
+    let theme = repo.join("btop/Ember.theme");
+    assert!(
+        !fs::symlink_metadata(&theme)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        fs::read_to_string(&theme).unwrap(),
+        rice_text("ember", "btop/Ember.theme")
+    );
+}

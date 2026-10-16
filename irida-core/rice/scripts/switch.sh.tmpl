@@ -76,7 +76,9 @@ echo "  cosmic: $MODE mode"
 
 # Terminal tools; bat, starship and cava only exist in some repos
 for tool in fastfetch lsd bat starship cava; do
-    if [ -x "$tool/install.sh" ]; then "./$tool/install.sh" | sed "/^$/d; s/^/  $tool: /"; fi
+    if [ -x "$tool/install.sh" ]; then
+        "./$tool/install.sh" | sed "/^$/d; s/^/  $tool: /" || echo "  $tool: install.sh failed, see above"
+    fi
 done
 mkdir -p "$C/btop/themes" && cp "btop/$BTOP.theme" "$C/btop/themes/"
 if [ -f "$C/btop/btop.conf" ]; then

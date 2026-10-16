@@ -3,7 +3,7 @@
 use std::fmt;
 use std::fs;
 use std::io::{self, Write};
-use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 
 /// Symlink hops followed before giving up, as Linux does.
@@ -47,27 +47,23 @@ pub fn atomic_write(path: &Path, contents: &[u8]) -> io::Result<()> {
         .file_name()
         .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "path has no file name"))?
         .to_string_lossy();
-    let tmp = parent.join(format!(".{name}.irida-tmp"));
     let mode = match fs::metadata(&target) {
         Ok(m) => m.permissions().mode() & 0o7777,
         Err(_) => 0o644,
     };
-    let result = (|| {
-        let mut f = fs::OpenOptions::new()
-            .write(true)
-            .create(true)
-            .truncate(true)
-            .mode(0o600)
-            .open(&tmp)?;
-        f.write_all(contents)?;
-        f.set_permissions(fs::Permissions::from_mode(mode))?;
-        f.sync_all()?;
-        fs::rename(&tmp, &target)
-    })();
-    if result.is_err() {
-        let _ = fs::remove_file(&tmp);
-    }
-    result
+    // A fresh, unpredictable name created exclusively, so a file or symlink
+    // already in the folder (a cloned repo can carry one) is never opened.
+    // Dropped unpersisted, the temporary file removes itself.
+    let mut tmp = tempfile::Builder::new()
+        .prefix(&format!(".{name}."))
+        .suffix(".irida-tmp")
+        .tempfile_in(parent)?;
+    tmp.write_all(contents)?;
+    tmp.as_file()
+        .set_permissions(fs::Permissions::from_mode(mode))?;
+    tmp.as_file().sync_all()?;
+    tmp.persist(&target).map_err(|e| e.error)?;
+    Ok(())
 }
 
 pub fn begin_marker(comment: &str) -> String {
