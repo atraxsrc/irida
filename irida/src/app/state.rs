@@ -1872,12 +1872,13 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     effects
                 }
                 Err(e) => {
+                    let mut effects = vec![state.toast(format!("Not saved: {e}"))];
                     // Asked from the unsaved-changes question: ask it again,
                     // so a draft is not lost.
                     if let Some(leave) = leave {
-                        state.dialog = Some(Dialog::Unsaved(leave));
+                        effects.extend(state.leave(leave));
                     }
-                    vec![state.toast(format!("Not saved: {e}"))]
+                    effects
                 }
             }
         }
@@ -5488,6 +5489,39 @@ mod tests {
         drive(&mut state, Msg::UnsavedDiscard);
         assert_eq!(open_slug(&state), Some("moss"));
         assert!(!state.live_on());
+    }
+
+    #[test]
+    fn failed_save_asks_about_a_live_session_first() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember", "noir"]);
+        put_cava(&tmp);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        drive(&mut state, Msg::CloseRequested);
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
+        let running = update(&mut state, Msg::UnsavedSave);
+        assert!(matches!(running.as_slice(), [Effect::SaveVersion { .. }]));
+
+        // Try it live starts while the save runs, then the save fails: Keep
+        // or Revert comes first, not a Discard that exits with it still on.
+        drive(&mut state, Msg::LiveToggle(true));
+        assert!(state.live_on());
+        let ui = drive(&mut state, Msg::Saved(Err("disk full".to_string())));
+        assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+        assert_eq!(last_toast(&state), "Not saved: disk full");
+        assert_eq!(
+            state.dialog,
+            Some(Dialog::KeepOrRevert {
+                then: Some(LiveThen::Leave(Leave::Exit)),
+                pending: false,
+            })
+        );
+        drive(&mut state, Msg::LiveRevert);
+        assert!(!state.live_on());
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
+        let ui = drive(&mut state, Msg::UnsavedDiscard);
+        assert!(matches!(ui.as_slice(), [Effect::Exit]), "{ui:?}");
     }
 
     #[test]
