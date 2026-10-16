@@ -173,8 +173,9 @@ impl ColorScheme {
             .expect("a colour scheme serialises")
     }
 
-    pub fn slot(&self, s: Slot) -> Option<Rgb> {
-        let c = match s {
+    /// The slot's colour as written, alpha included.
+    pub fn raw(&self, s: Slot) -> Option<HexColor> {
+        match s {
             Slot::Ansi(Tone::Normal, a) => self.normal.get(a),
             Slot::Ansi(Tone::Bright, a) => self.bright.get(a),
             Slot::Ansi(Tone::Dim, a) => self.dim.get(a),
@@ -184,8 +185,12 @@ impl ColorScheme {
             Slot::BrightForeground => self.bright_foreground,
             Slot::DimForeground => self.dim_foreground,
             Slot::CosmicNeutral10 | Slot::CosmicGray2 => None,
-        };
-        c.map(to_rgb)
+        }
+    }
+
+    /// The slot's colour with any alpha dropped.
+    pub fn slot(&self, s: Slot) -> Option<Rgb> {
+        self.raw(s).map(to_rgb)
     }
 }
 

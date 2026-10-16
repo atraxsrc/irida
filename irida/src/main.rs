@@ -8,6 +8,7 @@ use irida_core::apply::{self, ApplyError, ApplyRequest, Ctx};
 use irida_core::contrast;
 use irida_core::dirs::Dirs;
 use irida_core::export::{ExportRequest, export};
+use irida_core::import;
 use irida_core::palette::Palette;
 use irida_core::store::{PairLookup, Store, is_saved_slug};
 
@@ -47,6 +48,21 @@ enum Command {
     },
 }
 
+/// The palette `arg` names, as `Store::resolve` finds it. A rice folder
+/// without a `palette.toml` is imported here instead, so its notes (such as
+/// a dropped alpha) reach stderr.
+fn resolve(store: &Store, arg: &str) -> Result<Palette, String> {
+    let path = Path::new(arg);
+    if path.is_dir() && !path.join("palette.toml").is_file() && import::is_rice_folder(path) {
+        let (p, notes) = import::import_rice_with_notes(path).map_err(|e| e.to_string())?;
+        for note in notes {
+            eprintln!("irida: note: {note}");
+        }
+        return Ok(p);
+    }
+    store.resolve(arg).map_err(|e| e.to_string())
+}
+
 /// The palette's pair, when it names one that exists with the opposite mode.
 /// Otherwise a warning goes to stderr and the palette is used alone;
 /// `doing` names what for ("applying", "exporting").
@@ -70,7 +86,7 @@ fn load_pair(store: &Store, p: &Palette, doing: &str) -> Option<Palette> {
 
 fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<ExitCode, String> {
     let ctx = Ctx::from_env().map_err(|e| e.to_string())?;
-    let p = store.resolve(palette).map_err(|e| e.to_string())?;
+    let p = resolve(&store, palette)?;
     let pair = load_pair(&store, &p, "applying");
     let settings = store.settings().map_err(|e| e.to_string())?;
     let req = ApplyRequest {
@@ -110,7 +126,7 @@ fn run_undo() -> Result<ExitCode, String> {
 }
 
 fn run_export(dirs: &Dirs, store: Store, palette: &str, folder: &Path) -> Result<ExitCode, String> {
-    let p = store.resolve(palette).map_err(|e| e.to_string())?;
+    let p = resolve(&store, palette)?;
     let pair = load_pair(&store, &p, "exporting");
     let req = ExportRequest {
         palette: &p,
@@ -130,7 +146,7 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
         Command::Undo => run_undo(),
         Command::Export { palette, folder } => run_export(&dirs, store, &palette, &folder),
         Command::Check { palette } => {
-            let p = store.resolve(&palette).map_err(|e| e.to_string())?;
+            let p = resolve(&store, &palette)?;
             let report = contrast::check(&p);
             print!("{}", output::format_check(&p, &report));
             Ok(if report.failures().is_empty() {

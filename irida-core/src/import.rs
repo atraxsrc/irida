@@ -1,6 +1,6 @@
 //! Read an existing `cosmic-<slug>-theme` rice repo into a palette.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -11,6 +11,7 @@ use regex::Regex;
 
 use crate::color::Rgb;
 use crate::derive::derive;
+use crate::export_docs::readme_names;
 use crate::palette::{Mode, Palette, Roles, validate_name, validate_slug};
 use crate::role::Role;
 use crate::slot::{Ansi, PinValue, Pins, Slot, Tone};
@@ -260,6 +261,31 @@ fn roles_from_files(
     Ok(roles)
 }
 
+/// The terminal scheme slots `roles_from_files` reads roles from.
+const ROLE_SOURCES: [Slot; 6] = [
+    Slot::Background,
+    Slot::Foreground,
+    Slot::DimForeground,
+    Slot::Ansi(Tone::Normal, Ansi::Blue),
+    Slot::Ansi(Tone::Normal, Ansi::Magenta),
+    Slot::Ansi(Tone::Normal, Ansi::Cyan),
+];
+
+/// One note per slot in `used` whose scheme colour is not opaque.
+fn alpha_notes(scheme: &ColorScheme, used: &BTreeSet<Slot>) -> Vec<String> {
+    used.iter()
+        .filter_map(|&slot| {
+            let c = scheme.raw(slot)?;
+            (c.a < 255).then(|| {
+                format!(
+                    "{slot}: alpha {} in the terminal scheme was dropped; Irida colours are opaque",
+                    c.a
+                )
+            })
+        })
+        .collect()
+}
+
 /// Pin every slot the scheme sets to something other than its derived value,
 /// in stages so a pinned normal colour is not pinned again in its brights and dims.
 fn pin_scheme(p: &mut Palette, scheme: &ColorScheme) {
@@ -380,6 +406,12 @@ fn read_scheme(
 /// Read a rice repo folder into a palette. Slots that differ from their
 /// derived values become pins, so the terminal scheme round-trips.
 pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
+    import_rice_with_notes(dir).map(|(p, _)| p)
+}
+
+/// [`import_rice`], plus a note for every terminal scheme colour whose alpha
+/// was dropped on the way into a role or a pin.
+pub fn import_rice_with_notes(dir: &Path) -> Result<(Palette, Vec<String>), ImportError> {
     let slug = rice_slug(dir).ok_or_else(|| {
         err(
             dir,
@@ -413,12 +445,18 @@ pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
     } else {
         None
     };
+    let mut used = BTreeSet::new();
     let (roles, names) = match from_contrast {
         Some(found) => found,
-        None => (
-            roles_from_files(dir, &slug, &ron_path, &builder, &scheme_path, &scheme)?,
-            BTreeMap::new(),
-        ),
+        None => {
+            let roles = roles_from_files(dir, &slug, &ron_path, &builder, &scheme_path, &scheme)?;
+            used.extend(ROLE_SOURCES);
+            // Display names are optional: an unreadable README gives none.
+            let names = fs::read_to_string(dir.join("README.md"))
+                .map(|t| readme_names(&t))
+                .unwrap_or_default();
+            (roles, names)
+        }
     };
     let roles = Roles::new(Role::ALL.map(|r| roles[&r]));
 
@@ -433,6 +471,8 @@ pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
         pins: Pins::default(),
     };
     pin_scheme(&mut p, &scheme);
+    used.extend(p.pins.iter().map(|(slot, _)| slot));
+    let notes = alpha_notes(&scheme, &used);
 
     let inner = builder.palette.as_ref();
     let derived = derive(&p);
@@ -448,5 +488,5 @@ pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
             .set(Slot::CosmicGray2, PinValue::Color(gray_2))
             .expect("colour pins are always allowed");
     }
-    Ok(p)
+    Ok((p, notes))
 }
