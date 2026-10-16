@@ -97,7 +97,8 @@ fn apply_failure(e: ApplyError) -> ApplyFailure {
         },
         ApplyError::Render { target, message } => ApplyFailure::Render { target, message },
         ApplyError::NothingToApply(_) => ApplyFailure::NothingToApply,
-        e @ (ApplyError::UnknownTarget(_) | ApplyError::Record(_)) => {
+        e
+        @ (ApplyError::UnknownTarget(_) | ApplyError::Record(_) | ApplyError::LiveSessionOpen) => {
             ApplyFailure::Other(e.to_string())
         }
     }

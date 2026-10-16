@@ -1833,8 +1833,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     }
                     // A draft's first save makes it the last palette.
                     effects.extend(state.remember(p.slug.clone()));
+                    // An edit made while the save ran is not in it: ask
+                    // again rather than drop it.
                     if let Some(leave) = leave {
-                        effects.extend(state.go(leave));
+                        effects.extend(state.leave(leave));
                     }
                     effects
                 }
@@ -3409,6 +3411,43 @@ mod tests {
         let ui = drive_effects(&mut state, running);
         assert!(matches!(ui.last(), Some(Effect::Exit)), "{ui:?}");
         assert_eq!(store.versions("ember").unwrap().len(), 3);
+
+        // An edit made while that save runs is not dropped: it asks again.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        update(&mut state, Msg::CloseRequested);
+        let running = update(&mut state, Msg::UnsavedSave);
+        assert!(state.dialog.is_none(), "the dialog closes on Save");
+        drive(
+            &mut state,
+            Msg::SetRole(Role::Accent, Rgb::from_hex("#00FF00").unwrap()),
+        );
+        let ui = drive_effects(&mut state, running);
+        assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
+        assert_eq!(store.versions("ember").unwrap().len(), 4);
+        assert_eq!(store.load("ember").unwrap().roles.get(Role::Accent), red());
+        // Saving again saves the edit, then exits.
+        let ui = drive(&mut state, Msg::UnsavedSave);
+        assert!(matches!(ui.last(), Some(Effect::Exit)), "{ui:?}");
+        assert_eq!(store.versions("ember").unwrap().len(), 5);
+        assert_eq!(
+            store.load("ember").unwrap().roles.get(Role::Accent),
+            Rgb::from_hex("#00FF00").unwrap()
+        );
+
+        // So is an edit made while a Ctrl+S runs that Save then waits for.
+        drive(&mut state, Msg::SetRole(Role::Accent, red()));
+        let running = update(&mut state, Msg::Save);
+        update(&mut state, Msg::CloseRequested);
+        assert!(update(&mut state, Msg::UnsavedSave).is_empty());
+        drive(
+            &mut state,
+            Msg::SetRole(Role::Accent, Rgb::from_hex("#0000FF").unwrap()),
+        );
+        let ui = drive_effects(&mut state, running);
+        assert!(!ui.iter().any(|e| matches!(e, Effect::Exit)), "{ui:?}");
+        assert_eq!(state.dialog, Some(Dialog::Unsaved(Leave::Exit)));
+        assert_eq!(store.versions("ember").unwrap().len(), 6);
 
         // A save that fails does not exit.
         if let Some(Current::Editable { working, .. }) = &mut state.current {

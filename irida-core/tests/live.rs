@@ -296,18 +296,52 @@ fn prune_spares_open_session() {
     put_cava(&env);
     put_a(&env);
     let ember = palette("ember");
+    let mut last = 0;
+    for _ in 0..3 {
+        last = apply_a(&env, &ember).record_id;
+    }
     let mut s = LiveSession::start(&ctx(&env), "ember").unwrap();
     session_apply(&mut s, &env, &ember);
     let id = s.record_id().unwrap();
-    let mut last = 0;
-    for _ in 0..12 {
-        last = apply_a(&env, &ember).record_id;
-    }
 
-    let ids = record_ids(&env);
-    assert!(ids.contains(&id), "{ids:?}");
-    assert_eq!(ids.len(), 11, "{ids:?}");
+    // A normal apply cannot run during the session, so prune directly.
+    record::prune(&env.dirs, 1).unwrap();
+    assert_eq!(record_ids(&env), vec![last, id]);
     assert_eq!(record::latest(&env.dirs).unwrap().unwrap().id, last);
+}
+
+#[test]
+fn apply_refuses_during_session() {
+    let env = TestEnv::new();
+    let cava = put_cava(&env);
+    put_a(&env);
+    let a = env.dirs.home.join(".config/a/a.conf");
+    let ember = palette("ember");
+    let mut s = LiveSession::start(&ctx(&env), "ember").unwrap();
+    session_apply(&mut s, &env, &ember);
+    let id = s.record_id().unwrap();
+    let applied = read(&cava);
+
+    let req = ApplyRequest {
+        only: Some(vec!["a".to_string()]),
+        ..req(&ember)
+    };
+    match apply::apply(&ctx(&env), &Settings::default(), &req) {
+        Err(e @ ApplyError::LiveSessionOpen) => {
+            assert!(e.to_string().contains("live session"), "{e}");
+        }
+        other => panic!("expected LiveSessionOpen, got {other:?}"),
+    }
+    assert_eq!(read(&cava), applied);
+    assert!(!a.exists(), "nothing written");
+    assert_eq!(record_ids(&env), vec![id], "no record made");
+
+    // Keep, then one undo still puts back what was there before the session.
+    s.keep(&ctx(&env)).unwrap();
+    apply_a(&env, &ember);
+    apply::undo(&ctx(&env)).unwrap();
+    apply::undo(&ctx(&env)).unwrap();
+    assert_eq!(read(&cava), "x\n");
 }
 
 #[test]
