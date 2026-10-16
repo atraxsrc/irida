@@ -395,3 +395,36 @@ fn planted_temp_symlink_not_followed() {
         rice_text("ember", "btop/Ember.theme")
     );
 }
+
+#[test]
+fn symlinked_folder_cannot_overwrite() {
+    let env = TestEnv::new();
+    put_target(
+        &env,
+        "mine",
+        &rice_target("mine", &["here/README.md", "s2/switch.sh"]),
+        &[("t.tmpl", "from user target\n")],
+    );
+    let repo = env.tmp.path().join("cosmic-ember-theme");
+    fs::create_dir_all(repo.join("scripts")).unwrap();
+    fs::write(repo.join("README.md"), "# My hand-written README\n").unwrap();
+    symlink(".", repo.join("here")).unwrap();
+    symlink("scripts", repo.join("s2")).unwrap();
+
+    let report = run(&env, &palette("ember"), &repo).unwrap();
+    for rel in ["here/README.md", "s2/switch.sh"] {
+        assert_eq!(
+            status(&report, rel),
+            [&ExportStatus::Skipped("already written by irida".into())],
+            "{rel}"
+        );
+    }
+    assert_eq!(
+        fs::read_to_string(repo.join("README.md")).unwrap(),
+        "# My hand-written README\n"
+    );
+    assert_ne!(
+        fs::read_to_string(repo.join("scripts/switch.sh")).unwrap(),
+        "from user target\n"
+    );
+}

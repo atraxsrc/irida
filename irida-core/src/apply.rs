@@ -492,9 +492,11 @@ impl TargetPlan<'_> {
             let key = resolve_write_path(&w.path).unwrap_or_else(|_| w.path.clone());
             match seen.iter().find(|(p, _)| *p == key) {
                 Some((_, first)) => {
-                    // This target does not write the file, so it replaces nothing.
+                    // The dropped write replaces nothing, so its note goes too.
                     let note = replaced_note(&w.path);
-                    self.warnings.retain(|m| *m != note);
+                    if let Some(i) = self.warnings.iter().position(|m| *m == note) {
+                        self.warnings.remove(i);
+                    }
                     self.warnings.push(format!(
                         "{}: already written by {first}; skipped",
                         w.path.display()

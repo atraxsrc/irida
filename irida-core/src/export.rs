@@ -119,6 +119,7 @@ pub(crate) struct Planned {
 pub(crate) struct Plan {
     files: Vec<Planned>,
     owners: BTreeMap<String, String>,
+    reserved: Vec<String>,
     skipped: Vec<ExportLine>,
 }
 
@@ -144,6 +145,7 @@ impl Plan {
     /// Skip `path` and keep later sources from writing it.
     fn reserve(&mut self, path: &str, reason: &str) {
         self.owners.insert(path.to_string(), IRIDA.to_string());
+        self.reserved.push(path.to_string());
         self.skip(path, reason);
     }
 
@@ -554,9 +556,28 @@ pub fn export(dirs: &Dirs, req: &ExportRequest) -> Result<ExportReport, ExportEr
         .filter(|path| !plan.has(path))
         .collect();
 
+    // The first source to reach a real file owns it however the path is
+    // spelled, so a symlinked folder in the repo cannot route a later source
+    // onto a file Irida or an earlier target already wrote or reserved.
+    let mut claimed: BTreeMap<PathBuf, &str> = BTreeMap::new();
+    for path in &plan.reserved {
+        if let Some(real) = inside(&repo, &canonical_repo, path) {
+            claimed.insert(real, IRIDA);
+        }
+    }
     let mut lines = plan.skipped.clone();
     for f in &plan.files {
-        let status = write_planned(&repo, &canonical_repo, f)?;
+        let owner = plan.owners.get(&f.path).map_or(IRIDA, String::as_str);
+        let real = inside(&repo, &canonical_repo, &f.path);
+        let status = match real.as_ref().and_then(|r| claimed.get(r)) {
+            Some(first) => ExportStatus::Skipped(format!("already written by {first}")),
+            None => {
+                if let Some(real) = real {
+                    claimed.insert(real, owner);
+                }
+                write_planned(&repo, &canonical_repo, f)?
+            }
+        };
         lines.push(ExportLine {
             path: f.path.clone(),
             status,
