@@ -5,6 +5,7 @@ mod apply_sheet;
 mod compare;
 mod effects;
 mod header;
+mod io_queue;
 mod preview;
 mod roles;
 mod scene;
@@ -25,6 +26,7 @@ use cosmic::{Application, ApplicationExt, Element};
 use irida_core::apply::Ctx;
 
 use effects::perform;
+use io_queue::IoQueue;
 use state::{Current, Effect, FolderFor, Msg, State, ToastItem, update};
 
 pub const APP_ID: &str = "io.github.atraxsrc.Irida";
@@ -35,8 +37,11 @@ const COSMIC_SYSTEM: &str = "/usr/share/cosmic";
 #[derive(Debug, Clone)]
 pub enum Message {
     Ui(Msg),
-    /// The Msgs a batch of IO effects gave, in order.
+    /// The Msgs a batch of IO effects gave, in order. Sent only when a
+    /// batch finishes, since it starts the next one.
     Results(Vec<Msg>),
+    /// A file chooser was cancelled.
+    Nothing,
     CloseToast(ToastId),
 }
 
@@ -44,6 +49,8 @@ pub struct App {
     core: Core,
     state: State,
     toasts: Toasts<Message>,
+    /// IO effects run one batch at a time, in the order they were asked for.
+    io: IoQueue<Effect>,
 }
 
 /// Open the window. The only place the app reads its folders and `$PATH`
@@ -63,8 +70,9 @@ impl App {
         self.run_effects(effects)
     }
 
-    /// Toasts, timers and exit happen here; the IO effects run in order on
-    /// one blocking thread, so a later effect sees an earlier one's writes.
+    /// Toasts, timers and exit happen here; the IO effects queue behind any
+    /// still running and run in order on a blocking thread, so a later
+    /// effect sees an earlier one's writes, even from an earlier `update`.
     fn run_effects(&mut self, effects: Vec<Effect>) -> Task<Message> {
         let mut tasks = Vec::new();
         let mut io = Vec::new();
@@ -87,20 +95,27 @@ impl App {
                 }
             }
         }
-        if !io.is_empty() {
-            let ctx = self.state.ctx.clone();
-            tasks.push(cosmic::task::future(async move {
-                let msgs = tokio::task::spawn_blocking(move || {
-                    io.into_iter()
-                        .flat_map(|e| perform(e, &ctx))
-                        .collect::<Vec<_>>()
-                })
-                .await
-                .unwrap_or_default();
-                Message::Results(msgs)
-            }));
+        if let Some(batch) = self.io.enqueue(io) {
+            tasks.push(self.start_io(batch));
         }
         Task::batch(tasks)
+    }
+
+    /// Run one batch of IO effects; `Message::Results` reports it finished,
+    /// even when a panic lost its Msgs.
+    fn start_io(&self, batch: Vec<Effect>) -> Task<Message> {
+        let ctx = self.state.ctx.clone();
+        cosmic::task::future(async move {
+            let msgs = tokio::task::spawn_blocking(move || {
+                batch
+                    .into_iter()
+                    .flat_map(|e| perform(e, &ctx))
+                    .collect::<Vec<_>>()
+            })
+            .await
+            .unwrap_or_default();
+            Message::Results(msgs)
+        })
     }
 
     fn toast(&mut self, item: ToastItem) -> Task<Message> {
@@ -124,7 +139,7 @@ fn choose_folder(purpose: FolderFor) -> Task<Message> {
                 .first()
                 .and_then(|url| url.to_file_path().ok())
                 .ok_or_else(|| "the chosen folder is not a local folder".to_string()),
-            Err(file_chooser::Error::Cancelled) => return Message::Results(Vec::new()),
+            Err(file_chooser::Error::Cancelled) => return Message::Nothing,
             Err(e) => Err(e.to_string()),
         };
         Message::Ui(Msg::Folder(purpose, result))
@@ -154,7 +169,7 @@ fn choose_image() -> Task<Message> {
                 .first()
                 .and_then(|url| url.to_file_path().ok())
                 .ok_or_else(|| "the chosen file is not a local file".to_string()),
-            Err(file_chooser::Error::Cancelled) => return Message::Results(Vec::new()),
+            Err(file_chooser::Error::Cancelled) => return Message::Nothing,
             Err(e) => Err(e.to_string()),
         };
         Message::Ui(Msg::Image(result))
@@ -202,6 +217,7 @@ impl Application for App {
             core,
             state,
             toasts: Toasts::new(Message::CloseToast),
+            io: IoQueue::default(),
         };
         let mut tasks = vec![app.run_effects(effects)];
         if let Some(id) = app.core.main_window_id() {
@@ -245,12 +261,18 @@ impl Application for App {
         match message {
             Message::Ui(msg) => self.handle(msg),
             Message::Results(msgs) => {
+                // What was queued while this batch ran starts first; what
+                // these Msgs ask for queues behind it.
                 let mut tasks = Vec::new();
+                if let Some(batch) = self.io.finished() {
+                    tasks.push(self.start_io(batch));
+                }
                 for msg in msgs {
                     tasks.push(self.handle(msg));
                 }
                 Task::batch(tasks)
             }
+            Message::Nothing => Task::none(),
             Message::CloseToast(id) => {
                 self.toasts.remove(id);
                 Task::none()

@@ -382,6 +382,37 @@ fn undo_refuses_during_live_session() {
 }
 
 #[test]
+fn apply_refuses_during_live_session() {
+    let tmp = TempDir::new().unwrap();
+    apply_env(&tmp)
+        .args(["apply", "ember", "--only", "btop"])
+        .assert()
+        .code(0);
+    let state = tmp.path().join("home/.local/state/irida");
+    let conf = tmp.path().join("home/.config/btop/themes/irida.theme");
+    let applied = fs::read(&conf).unwrap();
+    // A live session whose record is apply 1.
+    let marker = state.join("live.toml");
+    fs::write(&marker, "palette = \"ember\"\nrecord = 1\n").unwrap();
+    apply_env(&tmp)
+        .args(["apply", "emberday", "--only", "btop"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "A live session is open; keep or revert it in Irida first",
+        ));
+    assert_eq!(fs::read(&conf).unwrap(), applied, "nothing written");
+    assert!(!state.join("applies/2").exists(), "no record made");
+
+    fs::remove_file(&marker).unwrap();
+    apply_env(&tmp)
+        .args(["apply", "emberday", "--only", "btop"])
+        .assert()
+        .code(0);
+    assert!(state.join("applies/2").is_dir());
+}
+
+#[test]
 fn apply_reports_even_when_settings_cannot_be_saved() {
     let tmp = TempDir::new().unwrap();
     let _ = apply_env(&tmp);

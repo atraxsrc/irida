@@ -67,6 +67,12 @@ pub(crate) fn marker_record(dirs: &Dirs) -> Option<u32> {
     read_marker(dirs).ok().flatten()?.record
 }
 
+/// Whether a live session holds files in its record, so a normal apply or
+/// undo must wait until it is kept or reverted. Reads only.
+pub(crate) fn session_open(dirs: &Dirs) -> bool {
+    marker_record(dirs).is_some_and(|id| record::exists(dirs, id))
+}
+
 /// An open try-it-live session.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LiveSession {

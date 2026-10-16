@@ -141,6 +141,8 @@ pub enum ApplyError {
     },
     NothingToApply(Vec<TargetResult>),
     Record(io::Error),
+    /// A live session's record is open; it is kept or reverted in the app.
+    LiveSessionOpen,
 }
 
 impl fmt::Display for ApplyError {
@@ -177,6 +179,12 @@ impl fmt::Display for ApplyError {
             }
             ApplyError::Record(e) => {
                 write!(f, "cannot save the apply record: {e}; nothing was written")
+            }
+            ApplyError::LiveSessionOpen => {
+                write!(
+                    f,
+                    "A live session is open; keep or revert it in Irida first"
+                )
             }
         }
     }
@@ -828,11 +836,16 @@ fn write_session(rec: &mut RecordWriter, writes: &[&PlannedWrite]) -> Result<(),
     Ok(())
 }
 
+/// Apply into a new record, then prune old records. Refused while a live
+/// session is open: its record must stay the one undo puts back first.
 pub fn apply(
     ctx: &Ctx,
     settings: &Settings,
     req: &ApplyRequest,
 ) -> Result<ApplyReport, ApplyError> {
+    if live::session_open(&ctx.dirs) {
+        return Err(ApplyError::LiveSessionOpen);
+    }
     let mut rec = RecordWriter::create(&ctx.dirs, &req.palette.slug).map_err(ApplyError::Record)?;
     match apply_into(ctx, settings, req, &mut rec, false) {
         Ok(report) => {
@@ -967,7 +980,7 @@ pub(crate) fn reload_target(target: &Target, ctx: &Ctx) -> ReloadStatus {
 /// Undo the newest apply, keeping the user's own edits to block and key files.
 /// Refuses while a live session's record is open.
 pub fn undo(ctx: &Ctx) -> Result<UndoReport, UndoError> {
-    if live::marker_record(&ctx.dirs).is_some_and(|id| record::exists(&ctx.dirs, id)) {
+    if live::session_open(&ctx.dirs) {
         return Err(UndoError::LiveSessionOpen);
     }
     let record = record::latest(&ctx.dirs)
