@@ -82,7 +82,13 @@ fn path_of(bin: &Path) -> Vec<PathBuf> {
 #[test]
 fn version_parsing() {
     assert_eq!(parse_version("btop version: 1.3.0"), Some((1, 3, 0)));
+    assert_eq!(parse_version("1.4.6"), Some((1, 4, 6)));
+    assert_eq!(parse_version("btop v1.4.6"), Some((1, 4, 6)));
     assert_eq!(parse_version("none"), None);
+    assert_eq!(parse_version("btop 1.3 (gcc 13.2.0)"), None);
+    assert_eq!(parse_version("2025.10 build 3.4.5"), None);
+    assert_eq!(parse_version("v1.3.x 2.0.0"), None);
+    assert_eq!(parse_version("1.2.3.4"), None);
 }
 
 #[test]

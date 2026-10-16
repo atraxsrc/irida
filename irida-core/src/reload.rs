@@ -20,25 +20,29 @@ pub enum ReloadStatus {
     Failed(String),
 }
 
-/// The first `N.N.N` in `s`.
+/// Parse a version out of program output, failing safe.
+///
+/// The text is split on whitespace. From each token trailing `,;:)` and a
+/// leading `v`, `V` or `(` are stripped; the first token that then starts
+/// with an ASCII digit is the version token. It must be exactly three
+/// non-empty ASCII digit runs joined by single dots (each fitting a `u64`),
+/// otherwise the result is `None`. Later tokens are never consulted.
 pub fn parse_version(s: &str) -> Option<(u64, u64, u64)> {
-    let bytes = s.as_bytes();
-    (0..bytes.len())
-        .filter(|&i| bytes[i].is_ascii_digit() && (i == 0 || !bytes[i - 1].is_ascii_digit()))
-        .find_map(|i| {
-            let mut parts = s[i..].splitn(3, '.');
-            let n = |p: Option<&str>| -> Option<u64> {
-                let digits: String =
-                    p?.chars().take_while(char::is_ascii_digit).collect();
-                digits.parse().ok()
-            };
-            let (a, b) = (n(parts.next())?, n(parts.next())?);
-            let rest = parts.next()?;
-            if !rest.starts_with(|c: char| c.is_ascii_digit()) {
-                return None;
-            }
-            Some((a, b, n(Some(rest))?))
-        })
+    let token = s.split_whitespace().find_map(|t| {
+        let t = t.trim_end_matches([',', ';', ':', ')']);
+        let t = t.strip_prefix(['v', 'V', '(']).unwrap_or(t);
+        t.starts_with(|c: char| c.is_ascii_digit()).then_some(t)
+    })?;
+    let mut parts = token.split('.');
+    let mut next = || -> Option<u64> {
+        let p = parts.next()?;
+        if p.is_empty() || !p.bytes().all(|b| b.is_ascii_digit()) {
+            return None;
+        }
+        p.parse().ok()
+    };
+    let v = (next()?, next()?, next()?);
+    parts.next().is_none().then_some(v)
 }
 
 /// Pids of this user's processes whose `comm` is exactly `name`.
