@@ -2,11 +2,16 @@
 
 use std::ffi::OsString;
 use std::fs;
+use std::io::{self, Read};
 use std::os::unix::fs::MetadataExt;
+use std::os::unix::process::CommandExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Output, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
 
-use nix::sys::signal::{Signal, kill};
+use nix::sys::signal::{Signal, kill, killpg};
 use nix::unistd::Pid;
 
 use crate::target::Reload;
@@ -81,13 +86,70 @@ fn signal_by_name(name: &str) -> Option<Signal> {
     }
 }
 
-fn run_shell(command: &str, path: &[PathBuf]) -> std::io::Result<std::process::Output> {
+/// How long a reload command or version probe may run before it is killed,
+/// so a hung program never holds up the apply that asked for it.
+pub const COMMAND_TIMEOUT: Duration = Duration::from_secs(5);
+
+/// How long output is still read once the shell has exited, for a child it
+/// left running that keeps the output open.
+const OUTPUT_GRACE: Duration = Duration::from_millis(300);
+
+/// Run `command` with `sh -c`, killing it and its children after
+/// `COMMAND_TIMEOUT` with a `TimedOut` error.
+fn run_shell(command: &str, path: &[PathBuf]) -> io::Result<Output> {
     let joined: OsString = std::env::join_paths(path).unwrap_or_default();
-    Command::new("/bin/sh")
+    let mut child = Command::new("/bin/sh")
         .arg("-c")
         .arg(command)
         .env("PATH", joined)
-        .output()
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .process_group(0)
+        .spawn()?;
+    let stdout = read_in_background(child.stdout.take());
+    let stderr = read_in_background(child.stderr.take());
+    let deadline = Instant::now() + COMMAND_TIMEOUT;
+    let status = loop {
+        if let Some(status) = child.try_wait()? {
+            break status;
+        }
+        if Instant::now() >= deadline {
+            // The group is the shell's own, so this also stops its children.
+            let _ = killpg(Pid::from_raw(child.id() as i32), Signal::SIGKILL);
+            let _ = child.wait();
+            return Err(io::Error::new(
+                io::ErrorKind::TimedOut,
+                format!("timed out after {}s", COMMAND_TIMEOUT.as_secs()),
+            ));
+        }
+        thread::sleep(Duration::from_millis(10));
+    };
+    let until = deadline.min(Instant::now() + OUTPUT_GRACE);
+    Ok(Output {
+        status,
+        stdout: collect(stdout, until),
+        stderr: collect(stderr, until),
+    })
+}
+
+/// Read a pipe to its end on another thread.
+fn read_in_background(pipe: Option<impl Read + Send + 'static>) -> mpsc::Receiver<Vec<u8>> {
+    let (tx, rx) = mpsc::channel();
+    if let Some(mut pipe) = pipe {
+        thread::spawn(move || {
+            let mut buf = Vec::new();
+            let _ = pipe.read_to_end(&mut buf);
+            let _ = tx.send(buf);
+        });
+    }
+    rx
+}
+
+/// What a pipe gave by `until`; empty when it is still held open then.
+fn collect(rx: mpsc::Receiver<Vec<u8>>, until: Instant) -> Vec<u8> {
+    rx.recv_timeout(until.saturating_duration_since(Instant::now()))
+        .unwrap_or_default()
 }
 
 fn version_ok(command: &str, minimum: &str, path: &[PathBuf]) -> bool {
