@@ -97,7 +97,7 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
         Effect::SaveSettings(s) => {
             Msg::SettingsSaved(store.save_settings(&s).map_err(|e| e.to_string()))
         }
-        Effect::Toast(_) | Effect::Exit => return Vec::new(),
+        Effect::Toast(_) | Effect::Copy(_) | Effect::Exit => return Vec::new(),
     };
     vec![msg]
 }

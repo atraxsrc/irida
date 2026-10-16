@@ -2,12 +2,19 @@
 //! here, in `update`; IO happens in `effects::perform`, and the views only
 //! read `State` and emit `Msg`.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 
+use cosmic::cosmic_theme::palette::{FromColor, Hsv, Srgb};
+use cosmic::iced::Color;
+use cosmic::widget::color_picker::{ColorPickerModel, ColorPickerUpdate};
 use irida_core::apply::Ctx;
 use irida_core::color::Rgb;
+use irida_core::contrast::{RoleContrast, check};
+use irida_core::derive::derive;
 use irida_core::palette::{Mode, Palette, slug_from_name, validate_name};
 use irida_core::role::Role;
+use irida_core::slot::{Ansi, PinValue, Slot, Tone};
 use irida_core::store::{Settings, starters};
 
 /// One stored palette as the Switch list shows it.
@@ -176,6 +183,144 @@ pub enum HeaderItem {
     Apply,
 }
 
+/// The error a hex field shows for anything but six hex digits.
+pub const HEX_ERROR: &str = "Use six hex digits, like #E8713A";
+
+/// A text field in the role editor whose text can differ from the colour
+/// it edits (while typing, or after invalid input).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum Field {
+    /// The expanded role's hex field.
+    Hex(Role),
+    /// A pinned slot's hex field.
+    PinHex(Slot),
+}
+
+/// What the user typed in a `Field`, and why it was not used.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FieldEdit {
+    pub text: String,
+    pub error: Option<String>,
+}
+
+/// One row of the role list.
+#[derive(Debug, Clone, PartialEq)]
+pub struct RoleRow {
+    pub role: Role,
+    /// The role's `[names]` entry, else the capitalised role.
+    pub name: String,
+    pub color: Rgb,
+    /// Both ratios and the minimum; `None` for surfaces.
+    pub contrast: Option<RoleContrast>,
+}
+
+impl RoleRow {
+    /// The lower of the two ratios, to one decimal, like `4.5:1`.
+    pub fn ratio_label(&self) -> Option<String> {
+        self.contrast
+            .as_ref()
+            .map(|c| ratio_text(c.on_background.min(c.on_pane)))
+    }
+
+    /// Under the role's minimum on either surface (the raw ratio decides).
+    pub fn fails(&self) -> bool {
+        self.contrast.as_ref().is_some_and(|c| !c.passes())
+    }
+}
+
+/// A ratio to one decimal, like `4.5:1`.
+pub fn ratio_text(r: f64) -> String {
+    format!("{r:.1}:1")
+}
+
+/// `accent` gives `Accent`.
+pub fn capitalised(role: Role) -> String {
+    let s = role.as_str();
+    let mut out = s[..1].to_ascii_uppercase();
+    out.push_str(&s[1..]);
+    out
+}
+
+/// The name the role list shows for `role`.
+pub fn display_name(p: &Palette, role: Role) -> String {
+    p.names
+        .get(&role)
+        .filter(|n| !n.trim().is_empty())
+        .cloned()
+        .unwrap_or_else(|| capitalised(role))
+}
+
+/// The role list, in `Role::ALL` order.
+pub fn role_rows(p: &Palette) -> Vec<RoleRow> {
+    let report = check(p);
+    Role::ALL
+        .into_iter()
+        .map(|role| RoleRow {
+            role,
+            name: display_name(p, role),
+            color: p.roles.get(role),
+            contrast: report.rows.iter().find(|r| r.role == role).cloned(),
+        })
+        .collect()
+}
+
+/// The slots a role's row shows, following `derive`: every pinnable slot
+/// appears under exactly one role in each mode.
+pub fn role_slots(role: Role, mode: Mode) -> Vec<Slot> {
+    let dark = mode == Mode::Dark;
+    let tones = |a: Ansi| {
+        [Tone::Normal, Tone::Bright, Tone::Dim]
+            .into_iter()
+            .map(move |t| Slot::Ansi(t, a))
+    };
+    let hue = |a: Ansi| tones(a).collect::<Vec<_>>();
+    match role {
+        Role::Error => hue(Ansi::Red),
+        Role::Success => hue(Ansi::Green),
+        Role::Warning => hue(Ansi::Yellow),
+        Role::Blue => hue(Ansi::Blue),
+        Role::Magenta => hue(Ansi::Magenta),
+        Role::Cyan => hue(Ansi::Cyan),
+        Role::Text => [
+            Slot::Foreground,
+            Slot::BrightForeground,
+            Slot::CosmicNeutral10,
+        ]
+        .into_iter()
+        .chain(tones(if dark { Ansi::White } else { Ansi::Black }))
+        .collect(),
+        Role::Muted if dark => vec![Slot::DimForeground, Slot::Ansi(Tone::Bright, Ansi::Black)],
+        Role::Muted => std::iter::once(Slot::DimForeground)
+            .chain(tones(Ansi::White))
+            .collect(),
+        Role::Container if dark => vec![
+            Slot::Ansi(Tone::Normal, Ansi::Black),
+            Slot::Ansi(Tone::Dim, Ansi::Black),
+            Slot::CosmicGray2,
+        ],
+        Role::Pane if dark => vec![Slot::Background],
+        Role::Pane => vec![Slot::Background, Slot::CosmicGray2],
+        Role::Accent => vec![Slot::Cursor],
+        Role::Container | Role::Background | Role::Comment => Vec::new(),
+    }
+}
+
+/// An iced colour as `Rgb`, rounded to the nearest 8-bit channel.
+pub fn rgb_from_color(c: Color) -> Rgb {
+    let [r, g, b, _] = c.into_rgba8();
+    Rgb { r, g, b }
+}
+
+fn rgb_from_hsv(hsv: Hsv) -> Rgb {
+    rgb_from_color(Color::from(Srgb::from_color(hsv)))
+}
+
+/// A colour picker showing `c`.
+fn picker_for(c: Rgb) -> ColorPickerModel {
+    let color = Color::from_rgb8(c.r, c.g, c.b);
+    ColorPickerModel::new("Hex", "RGB", Some(color), Some(color))
+}
+
 /// Why a palette could not be opened: the error, and the file's text when
 /// it could be read (then it opens read-only).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -206,9 +351,21 @@ pub enum Msg {
     },
     SettingsSaved(Result<(), String>),
     // Editing.
-    #[cfg_attr(not(test), allow(dead_code, reason = "sent by the role editor"))]
     SetRole(Role, Rgb),
     SetMode(Mode),
+    /// Open one role's row in place, or close it.
+    Expand(Option<Role>),
+    /// The expanded row's colour picker.
+    Picker(ColorPickerUpdate),
+    HexInput(Role, String),
+    SetName(Role, String),
+    /// Pin a slot at its current effective colour.
+    Pin(Slot),
+    Unpin(Slot),
+    PinHexInput(Slot, String),
+    /// Pin `background` to `none`, or remove that pin.
+    NoBackground(bool),
+    SetNotes(String),
     /// Ctrl+S.
     Save,
     // Header, menu and dialogs.
@@ -250,13 +407,15 @@ pub enum Effect {
     Delete(String),
     SaveSettings(Settings),
     Toast(ToastItem),
+    /// Put text on the clipboard.
+    Copy(String),
     Exit,
 }
 
 impl Effect {
     /// Whether `perform` runs it (rather than the window).
     pub fn is_io(&self) -> bool {
-        !matches!(self, Effect::Toast(_) | Effect::Exit)
+        !matches!(self, Effect::Toast(_) | Effect::Copy(_) | Effect::Exit)
     }
 }
 
@@ -275,6 +434,12 @@ pub struct State {
     /// Every toast shown, newest last.
     pub toasts: Vec<ToastItem>,
     pub menu_open: bool,
+    /// The role whose row is open in place.
+    pub expanded: Option<Role>,
+    /// The expanded row's colour picker, rebuilt on `Expand`.
+    pub picker: ColorPickerModel,
+    /// Hex fields whose text differs from their colour.
+    pub fields: BTreeMap<Field, FieldEdit>,
     /// What happens once the save asked for by the unsaved-changes question
     /// succeeds.
     after_save: Option<Leave>,
@@ -297,6 +462,9 @@ impl State {
             dialog: None,
             toasts: Vec::new(),
             menu_open: false,
+            expanded: None,
+            picker: picker_for(Rgb { r: 0, g: 0, b: 0 }),
+            fields: BTreeMap::new(),
             after_save: None,
             saving: false,
         };
@@ -321,6 +489,30 @@ impl State {
 
     fn editable(&self) -> bool {
         matches!(self.current, Some(Current::Editable { .. }))
+    }
+
+    /// The working copy, when the open palette can be edited.
+    fn working_mut(&mut self) -> Option<&mut Palette> {
+        match &mut self.current {
+            Some(Current::Editable { working, .. }) => Some(working),
+            _ => None,
+        }
+    }
+
+    /// What the user typed in `field`, when it differs from the colour.
+    pub fn field(&self, field: Field) -> Option<&FieldEdit> {
+        self.fields.get(&field)
+    }
+
+    fn set_field(&mut self, field: Field, text: String, error: Option<&str>) {
+        let error = error.map(str::to_string);
+        self.fields.insert(field, FieldEdit { text, error });
+    }
+
+    /// Close the role editor, for a newly opened palette.
+    fn reset_editor(&mut self) {
+        self.expanded = None;
+        self.fields.clear();
     }
 
     pub fn menu_enabled(&self, item: MenuItem) -> bool {
@@ -378,6 +570,7 @@ impl State {
     /// Open `p` for editing as saved, and remember it as the last palette.
     fn open_editable(&mut self, p: Palette) -> Vec<Effect> {
         let slug = p.slug.clone();
+        self.reset_editor();
         self.current = Some(Current::Editable {
             slug: slug.clone(),
             saved: Some(p.clone()),
@@ -420,6 +613,16 @@ impl State {
     /// The Save effect for the working copy, or a toast when it cannot be
     /// saved. `None` when there is nothing to save.
     fn save(&mut self) -> Option<Effect> {
+        // Display names are kept as typed while editing and saved trimmed.
+        if !self.saving
+            && let Some(w) = self.working_mut()
+        {
+            for name in w.names.values_mut() {
+                if name.trim().len() != name.len() {
+                    *name = name.trim().to_string();
+                }
+            }
+        }
         let Some(Current::Editable { saved, working, .. }) = &self.current else {
             return None;
         };
@@ -514,6 +717,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 error,
                 text: Some(text),
             }) => {
+                state.reset_editor();
                 state.current = Some(Current::Unreadable {
                     slug: slug.clone(),
                     error,
@@ -567,6 +771,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     state.entries.remove(i);
                     if state.current.as_ref().is_some_and(|c| c.slug() == slug) {
                         state.current = None;
+                        state.reset_editor();
                         let next = state
                             .entries
                             .get(i)
@@ -577,6 +782,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     }
                 } else if state.current.as_ref().is_some_and(|c| c.slug() == slug) {
                     state.current = None;
+                    state.reset_editor();
                 }
                 effects.push(Effect::ListEntries);
                 effects
@@ -588,14 +794,140 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             vec![state.toast(format!("Could not save your settings: {e}"))]
         }
         Msg::SetRole(role, value) => {
-            if let Some(Current::Editable { working, .. }) = &mut state.current {
+            if let Some(working) = state.working_mut() {
                 working.roles.set(role, value);
+                state.fields.remove(&Field::Hex(role));
             }
             Vec::new()
         }
         Msg::SetMode(mode) => {
-            if let Some(Current::Editable { working, .. }) = &mut state.current {
+            if let Some(working) = state.working_mut() {
                 working.mode = mode;
+            }
+            Vec::new()
+        }
+        Msg::Expand(role) => {
+            let Some(working) = state.current.as_ref().and_then(Current::working) else {
+                return Vec::new();
+            };
+            if let Some(r) = role {
+                state.picker = picker_for(working.roles.get(r));
+                state.fields.remove(&Field::Hex(r));
+            }
+            state.expanded = role;
+            Vec::new()
+        }
+        Msg::Picker(u) => {
+            let Some(role) = state.expanded.filter(|_| state.editable()) else {
+                return Vec::new();
+            };
+            // The model's own task only writes the clipboard on Copied,
+            // which `Effect::Copy` does instead.
+            drop(state.picker.update::<Msg>(u.clone()));
+            let color = match u {
+                ColorPickerUpdate::ActiveColor(hsv) => Some(rgb_from_hsv(hsv)),
+                ColorPickerUpdate::ActionFinished | ColorPickerUpdate::AppliedColor => {
+                    state.picker.get_applied_color().map(rgb_from_color)
+                }
+                ColorPickerUpdate::Copied(_) => {
+                    let hex = state
+                        .current
+                        .as_ref()
+                        .and_then(Current::working)
+                        .map(|p| p.roles.get(role).to_hex());
+                    return hex.map(Effect::Copy).into_iter().collect();
+                }
+                _ => None,
+            };
+            match color {
+                Some(c) => update(state, Msg::SetRole(role, c)),
+                None => Vec::new(),
+            }
+        }
+        Msg::HexInput(role, text) => {
+            if !state.editable() {
+                return Vec::new();
+            }
+            match Rgb::from_hex(text.trim()) {
+                Ok(c) => {
+                    if let Some(working) = state.working_mut() {
+                        working.roles.set(role, c);
+                    }
+                    if state.expanded == Some(role) {
+                        state.picker = picker_for(c);
+                    }
+                    state.set_field(Field::Hex(role), text, None);
+                }
+                Err(_) => state.set_field(Field::Hex(role), text, Some(HEX_ERROR)),
+            }
+            Vec::new()
+        }
+        Msg::SetName(role, text) => {
+            if let Some(working) = state.working_mut() {
+                if text.trim().is_empty() {
+                    working.names.remove(&role);
+                } else {
+                    working.names.insert(role, text);
+                }
+            }
+            Vec::new()
+        }
+        Msg::Pin(slot) => {
+            if let Some(working) = state.working_mut()
+                && !working.pins.is_pinned(slot)
+                && let Some(c) = derive(working).slot(slot)
+            {
+                working
+                    .pins
+                    .set(slot, PinValue::Color(c))
+                    .expect("a colour pin is always allowed");
+                state.fields.remove(&Field::PinHex(slot));
+            }
+            Vec::new()
+        }
+        Msg::Unpin(slot) => {
+            if let Some(working) = state.working_mut() {
+                working.pins.remove(slot);
+                state.fields.remove(&Field::PinHex(slot));
+            }
+            Vec::new()
+        }
+        Msg::PinHexInput(slot, text) => {
+            let Some(working) = state.working_mut() else {
+                return Vec::new();
+            };
+            if !matches!(working.pins.get(slot), Some(PinValue::Color(_))) {
+                return Vec::new();
+            }
+            match Rgb::from_hex(text.trim()) {
+                Ok(c) => {
+                    working
+                        .pins
+                        .set(slot, PinValue::Color(c))
+                        .expect("a colour pin is always allowed");
+                    state.set_field(Field::PinHex(slot), text, None);
+                }
+                Err(_) => state.set_field(Field::PinHex(slot), text, Some(HEX_ERROR)),
+            }
+            Vec::new()
+        }
+        Msg::NoBackground(on) => {
+            if let Some(working) = state.working_mut() {
+                if on {
+                    working
+                        .pins
+                        .set(Slot::Background, PinValue::None)
+                        .expect("background can be none");
+                    state.fields.remove(&Field::PinHex(Slot::Background));
+                } else if working.pins.get(Slot::Background) == Some(PinValue::None) {
+                    working.pins.remove(Slot::Background);
+                }
+            }
+            Vec::new()
+        }
+        Msg::SetNotes(text) => {
+            if let Some(working) = state.working_mut() {
+                working.notes = (!text.trim().is_empty()).then_some(text);
             }
             Vec::new()
         }
@@ -750,6 +1082,11 @@ mod tests {
     use irida_core::dirs::Dirs;
     use irida_core::store::Store;
     use tempfile::TempDir;
+
+    use cosmic::cosmic_theme::palette::{FromColor, Hsv, Srgb};
+    use irida_core::color::{WHITE, mix};
+    use irida_core::derive::derive;
+    use irida_core::slot::{Ansi, PinValue, Slot, Tone};
 
     use super::*;
     use crate::app::effects::{drive, drive_effects, perform};
@@ -1004,6 +1341,23 @@ mod tests {
         assert!(update(&mut state, Msg::Save).is_empty());
         assert!(update(&mut state, Msg::ShowDuplicate).is_empty());
         assert!(state.dialog.is_none());
+        let bright_red = Slot::Ansi(Tone::Bright, Ansi::Red);
+        for msg in [
+            Msg::Expand(Some(Role::Accent)),
+            Msg::Picker(ColorPickerUpdate::ActionFinished),
+            Msg::HexInput(Role::Accent, "#00FF00".to_string()),
+            Msg::HexInput(Role::Accent, "nope".to_string()),
+            Msg::SetName(Role::Accent, "Flame".to_string()),
+            Msg::Pin(bright_red),
+            Msg::Unpin(bright_red),
+            Msg::PinHexInput(bright_red, "#00FF00".to_string()),
+            Msg::NoBackground(true),
+            Msg::SetNotes("notes".to_string()),
+        ] {
+            assert!(update(&mut state, msg.clone()).is_empty(), "{msg:?}");
+        }
+        assert_eq!(state.expanded, None);
+        assert!(state.fields.is_empty());
         assert_eq!(snapshot(&tmp), before);
 
         for item in MenuItem::ALL {
@@ -1242,5 +1596,326 @@ mod tests {
         let ui = drive(&mut state, MenuItem::Import.msg());
         assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Coming soon: Import"));
         assert!(!state.menu_open);
+    }
+
+    fn derived(state: &State, slot: Slot) -> Option<Rgb> {
+        derive(working(state)).slot(slot)
+    }
+
+    fn hex(s: &str) -> Rgb {
+        Rgb::from_hex(s).unwrap()
+    }
+
+    fn row(state: &State, role: Role) -> RoleRow {
+        role_rows(working(state))
+            .into_iter()
+            .find(|r| r.role == role)
+            .expect("a row")
+    }
+
+    #[test]
+    fn set_role_updates_ratios() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let before = row(&state, Role::Error);
+        let rc = before.contrast.clone().expect("error has a ratio");
+        assert!(rc.fails_on_pane(), "{rc:?}");
+        assert!(before.fails());
+        drive(&mut state, Msg::SetRole(Role::Error, hex("#E06060")));
+        let after = row(&state, Role::Error);
+        let rc = after.contrast.clone().unwrap();
+        assert!(!rc.fails_on_pane(), "{rc:?}");
+        assert!(!after.fails());
+        assert_eq!(after.color, hex("#E06060"));
+        let lower = rc.on_background.min(rc.on_pane);
+        assert_eq!(after.ratio_label(), Some(format!("{lower:.1}:1")));
+
+        // Surfaces show no ratio; the rows follow Role::ALL.
+        let rows = role_rows(working(&state));
+        let roles: Vec<Role> = rows.iter().map(|r| r.role).collect();
+        assert_eq!(roles, Role::ALL);
+        for r in &rows {
+            let surface = matches!(r.role, Role::Background | Role::Pane | Role::Container);
+            assert_eq!(r.ratio_label().is_none(), surface, "{:?}", r.role);
+        }
+        // The display name is the [names] entry, else the capitalised role.
+        assert_eq!(row(&state, Role::Error).name, "Brick");
+        drive(&mut state, Msg::SetName(Role::Error, String::new()));
+        assert_eq!(row(&state, Role::Error).name, "Error");
+    }
+
+    #[test]
+    fn pin_keeps_value_when_role_changes() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let br = Slot::Ansi(Tone::Bright, Ansi::Red);
+        let before = derived(&state, br).unwrap();
+        drive(&mut state, Msg::Pin(br));
+        assert_eq!(working(&state).pins.get(br), Some(PinValue::Color(before)));
+        assert!(state.dirty());
+
+        drive(&mut state, Msg::SetRole(Role::Error, hex("#E06060")));
+        assert_eq!(derived(&state, br), Some(before), "the pin holds");
+        // Pinning again keeps the pinned value.
+        drive(&mut state, Msg::Pin(br));
+        assert_eq!(derived(&state, br), Some(before));
+
+        // A pinned slot's hex is editable.
+        drive(&mut state, Msg::PinHexInput(br, "#123456".to_string()));
+        assert_eq!(derived(&state, br), Some(hex("#123456")));
+        drive(&mut state, Msg::PinHexInput(br, "#1234".to_string()));
+        assert_eq!(derived(&state, br), Some(hex("#123456")));
+        assert_eq!(
+            state
+                .field(Field::PinHex(br))
+                .and_then(|f| f.error.as_deref()),
+            Some(HEX_ERROR)
+        );
+
+        drive(&mut state, Msg::Unpin(br));
+        assert!(!working(&state).pins.is_pinned(br));
+        assert_eq!(
+            derived(&state, br),
+            Some(mix(hex("#E06060"), WHITE, 0.12)),
+            "it follows error again"
+        );
+        assert!(state.field(Field::PinHex(br)).is_none());
+
+        // An unpinned slot's hex cannot be typed.
+        drive(&mut state, Msg::PinHexInput(br, "#123456".to_string()));
+        assert!(!working(&state).pins.is_pinned(br));
+    }
+
+    #[test]
+    fn no_background_pins_none() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::NoBackground(true));
+        assert_eq!(
+            working(&state).pins.get(Slot::Background),
+            Some(PinValue::None)
+        );
+        assert_eq!(derived(&state, Slot::Background), None);
+        // A background pinned to none cannot be pinned to a colour by Pin.
+        drive(&mut state, Msg::Pin(Slot::Background));
+        assert_eq!(
+            working(&state).pins.get(Slot::Background),
+            Some(PinValue::None)
+        );
+        drive(&mut state, Msg::NoBackground(false));
+        assert_eq!(working(&state).pins.get(Slot::Background), None);
+        assert!(!state.dirty(), "back to the saved file");
+
+        // Off leaves a colour pin alone.
+        drive(&mut state, Msg::Pin(Slot::Background));
+        let pane = working(&state).roles.get(Role::Pane);
+        assert_eq!(
+            working(&state).pins.get(Slot::Background),
+            Some(PinValue::Color(pane))
+        );
+        drive(&mut state, Msg::NoBackground(false));
+        assert_eq!(
+            working(&state).pins.get(Slot::Background),
+            Some(PinValue::Color(pane))
+        );
+        // And the palette still saves.
+        drive(&mut state, Msg::NoBackground(true));
+        let ui = drive(&mut state, Msg::Save);
+        assert!(matches!(ui.as_slice(), [Effect::Toast(t)] if t.text == "Saved version 2"));
+    }
+
+    #[test]
+    fn hex_input_rules() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::Expand(Some(Role::Accent)));
+        assert_eq!(state.expanded, Some(Role::Accent));
+        let want = hex("#E8713A");
+        for input in ["e8713a", "#E8713A", "E8713A", "#e8713A"] {
+            drive(&mut state, Msg::SetRole(Role::Accent, red()));
+            drive(&mut state, Msg::HexInput(Role::Accent, input.to_string()));
+            assert_eq!(working(&state).roles.get(Role::Accent), want, "{input}");
+            let f = state.field(Field::Hex(Role::Accent)).expect("the field");
+            assert_eq!(f.text, input);
+            assert_eq!(f.error, None);
+            assert_eq!(picker_rgb(&state), Some(want), "the picker follows");
+        }
+        for input in ["#E871", "", "#E8713G", "#E8713A0"] {
+            drive(&mut state, Msg::HexInput(Role::Accent, input.to_string()));
+            assert_eq!(working(&state).roles.get(Role::Accent), want, "{input:?}");
+            let f = state.field(Field::Hex(Role::Accent)).unwrap();
+            assert_eq!(f.text, input);
+            assert_eq!(f.error.as_deref(), Some(HEX_ERROR));
+        }
+        assert_eq!(HEX_ERROR, "Use six hex digits, like #E8713A");
+        // A valid entry clears the error.
+        drive(
+            &mut state,
+            Msg::HexInput(Role::Accent, "#FF0000".to_string()),
+        );
+        assert_eq!(state.field(Field::Hex(Role::Accent)).unwrap().error, None);
+        assert_eq!(working(&state).roles.get(Role::Accent), red());
+    }
+
+    fn picker_rgb(state: &State) -> Option<Rgb> {
+        state.picker.get_applied_color().map(rgb_from_color)
+    }
+
+    #[test]
+    fn picker_sets_role() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        // Nothing expanded: the picker changes nothing.
+        assert!(drive(&mut state, Msg::Picker(ColorPickerUpdate::ActionFinished)).is_empty());
+        assert!(!state.dirty());
+
+        drive(&mut state, Msg::Expand(Some(Role::Blue)));
+        let blue = working(&state).roles.get(Role::Blue);
+        assert_eq!(picker_rgb(&state), Some(blue), "rebuilt on Expand");
+
+        // A drag shows at once; its end keeps it.
+        let green = Hsv::from_color(Srgb::new(0.0_f32, 1.0, 0.0));
+        drive(
+            &mut state,
+            Msg::Picker(ColorPickerUpdate::ActiveColor(green)),
+        );
+        assert_eq!(working(&state).roles.get(Role::Blue), hex("#00FF00"));
+        drive(&mut state, Msg::Picker(ColorPickerUpdate::ActionFinished));
+        assert_eq!(working(&state).roles.get(Role::Blue), hex("#00FF00"));
+        assert_eq!(picker_rgb(&state), Some(hex("#00FF00")));
+        assert!(state.dirty());
+
+        // Typing in the picker's own field applies on submit.
+        drive(
+            &mut state,
+            Msg::Picker(ColorPickerUpdate::Input("#0000FF".to_string())),
+        );
+        assert_eq!(working(&state).roles.get(Role::Blue), hex("#00FF00"));
+        drive(&mut state, Msg::Picker(ColorPickerUpdate::AppliedColor));
+        assert_eq!(working(&state).roles.get(Role::Blue), hex("#0000FF"));
+
+        // Copy hands the hex to the window.
+        let ui = drive(
+            &mut state,
+            Msg::Picker(ColorPickerUpdate::Copied(std::time::Instant::now())),
+        );
+        assert!(
+            matches!(ui.as_slice(), [Effect::Copy(t)] if t == "#0000FF"),
+            "{ui:?}"
+        );
+        assert!(!Effect::Copy(String::new()).is_io());
+
+        // Expanding another row rebuilds the picker on its colour.
+        drive(&mut state, Msg::Expand(Some(Role::Cyan)));
+        let cyan = working(&state).roles.get(Role::Cyan);
+        assert_eq!(picker_rgb(&state), Some(cyan));
+        drive(&mut state, Msg::Expand(None));
+        assert_eq!(state.expanded, None);
+        drive(
+            &mut state,
+            Msg::Picker(ColorPickerUpdate::ActiveColor(green)),
+        );
+        assert_eq!(working(&state).roles.get(Role::Cyan), cyan);
+    }
+
+    #[test]
+    fn opening_another_palette_collapses() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember", "noir"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::Expand(Some(Role::Accent)));
+        drive(&mut state, Msg::HexInput(Role::Accent, "#12".to_string()));
+        drive(&mut state, Msg::ShowSwitch);
+        drive(&mut state, Msg::Choose("noir".to_string()));
+        assert_eq!(open_slug(&state), Some("noir"));
+        assert_eq!(state.expanded, None);
+        assert!(state.fields.is_empty());
+    }
+
+    #[test]
+    fn empty_name_clears() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        assert_eq!(
+            working(&state).names.get(&Role::Accent).map(String::as_str),
+            Some("Ember")
+        );
+        drive(&mut state, Msg::SetName(Role::Accent, "  ".to_string()));
+        assert_eq!(working(&state).names.get(&Role::Accent), None);
+        drive(&mut state, Msg::SetName(Role::Accent, String::new()));
+        assert_eq!(working(&state).names.get(&Role::Accent), None);
+
+        // Typed as is; trimmed when saved.
+        drive(&mut state, Msg::SetName(Role::Accent, "Hot ".to_string()));
+        assert_eq!(
+            working(&state).names.get(&Role::Accent).map(String::as_str),
+            Some("Hot ")
+        );
+        drive(&mut state, Msg::Save);
+        assert!(!state.dirty());
+        let saved = store.load("ember").unwrap();
+        assert_eq!(
+            saved.names.get(&Role::Accent).map(String::as_str),
+            Some("Hot")
+        );
+    }
+
+    #[test]
+    fn notes_set_and_clear() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::SetNotes("Warm, low glare".to_string()));
+        assert_eq!(working(&state).notes.as_deref(), Some("Warm, low glare"));
+        drive(&mut state, Msg::SetNotes(" ".to_string()));
+        assert_eq!(working(&state).notes, None);
+        drive(&mut state, Msg::SetNotes(String::new()));
+        assert_eq!(working(&state).notes, None);
+        assert!(!state.dirty());
+    }
+
+    #[test]
+    fn every_pin_is_reachable() {
+        for p in starters() {
+            let reachable: Vec<Slot> = Role::ALL
+                .iter()
+                .flat_map(|r| role_slots(*r, p.mode))
+                .collect();
+            for (slot, _) in p.pins.iter() {
+                assert!(reachable.contains(&slot), "{} {slot}", p.slug);
+            }
+        }
+    }
+
+    #[test]
+    fn every_slot_under_one_role() {
+        let all: Vec<Slot> = Slot::ALL_TERM
+            .into_iter()
+            .chain([Slot::CosmicNeutral10, Slot::CosmicGray2])
+            .collect();
+        for mode in [Mode::Dark, Mode::Light] {
+            for slot in &all {
+                let owners: Vec<Role> = Role::ALL
+                    .into_iter()
+                    .filter(|r| role_slots(*r, mode).contains(slot))
+                    .collect();
+                assert_eq!(owners.len(), 1, "{mode} {slot}: {owners:?}");
+            }
+            let count: usize = Role::ALL.iter().map(|r| role_slots(*r, mode).len()).sum();
+            assert_eq!(count, all.len(), "{mode}");
+        }
+        assert!(role_slots(Role::Container, Mode::Light).is_empty());
+        assert_eq!(role_slots(Role::Accent, Mode::Dark), [Slot::Cursor]);
+        assert_eq!(role_slots(Role::Pane, Mode::Dark), [Slot::Background]);
+        assert_eq!(
+            role_slots(Role::Pane, Mode::Light),
+            [Slot::Background, Slot::CosmicGray2]
+        );
     }
 }

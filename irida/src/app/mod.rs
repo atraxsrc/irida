@@ -3,6 +3,7 @@
 
 mod effects;
 mod header;
+mod roles;
 mod state;
 
 use std::path::PathBuf;
@@ -10,14 +11,12 @@ use std::path::PathBuf;
 use cosmic::app::{Core, Settings, Task};
 use cosmic::iced::event::{self, Event};
 use cosmic::iced::keyboard;
-use cosmic::iced::{Background, Border, Color, Length, Limits, Size, Subscription, window};
+use cosmic::iced::{Length, Limits, Size, Subscription, window};
 use cosmic::widget::menu::KeyBind;
 use cosmic::widget::menu::key_bind::Modifier;
 use cosmic::widget::{self, ToastId, Toasts, text};
 use cosmic::{Application, ApplicationExt, Element};
 use irida_core::apply::Ctx;
-use irida_core::palette::Palette;
-use irida_core::role::Role;
 
 use effects::perform;
 use state::{Current, Effect, Msg, State, ToastItem, update};
@@ -66,6 +65,7 @@ impl App {
         for effect in effects {
             match effect {
                 Effect::Toast(item) => tasks.push(self.toast(item)),
+                Effect::Copy(text) => tasks.push(cosmic::iced::clipboard::write(text)),
                 Effect::Exit => tasks.push(cosmic::iced::exit()),
                 effect => {
                     debug_assert!(effect.is_io());
@@ -117,44 +117,6 @@ fn events(event: Event, _status: event::Status, _window: window::Id) -> Option<M
         Event::Window(window::Event::CloseRequested) => Some(Message::Ui(Msg::CloseRequested)),
         _ => None,
     }
-}
-
-fn swatch(c: irida_core::color::Rgb) -> Element<'static, Msg> {
-    widget::container(text::body(""))
-        .width(Length::Fixed(28.))
-        .height(Length::Fixed(28.))
-        .style(move |_| widget::container::Style {
-            background: Some(Background::Color(Color::from_rgb8(c.r, c.g, c.b))),
-            border: Border {
-                radius: 6.0.into(),
-                width: 1.0,
-                color: Color::from_rgba8(128, 128, 128, 0.5),
-            },
-            ..Default::default()
-        })
-        .into()
-}
-
-/// The roles at a glance; the role editor replaces this.
-fn roles(p: &Palette) -> Element<'_, Msg> {
-    let list = Role::ALL
-        .iter()
-        .fold(widget::Column::new().spacing(8), |col, role| {
-            let c = p.roles.get(*role);
-            let name = p
-                .names
-                .get(role)
-                .map_or_else(|| role.as_str().to_string(), Clone::clone);
-            col.push(
-                widget::Row::new()
-                    .spacing(12)
-                    .align_y(cosmic::iced::Alignment::Center)
-                    .push(swatch(c))
-                    .push(text::body(name).width(Length::Fixed(160.)))
-                    .push(text::monotext(c.to_hex())),
-            )
-        });
-    widget::scrollable(list).into()
 }
 
 impl Application for App {
@@ -235,7 +197,21 @@ impl Application for App {
 
     fn view(&self) -> Element<'_, Message> {
         let content: Element<'_, Msg> = match &self.state.current {
-            Some(Current::Editable { working, .. }) => roles(working),
+            Some(Current::Editable { working, .. }) => widget::Row::new()
+                .spacing(24)
+                .push(
+                    widget::container(roles::view(&self.state, working))
+                        .width(Length::FillPortion(2))
+                        .max_width(480.),
+                )
+                .push(
+                    widget::Column::new()
+                        .spacing(12)
+                        .width(Length::FillPortion(3))
+                        .push(widget::Space::new().height(Length::Fill))
+                        .push(roles::notes(working)),
+                )
+                .into(),
             Some(Current::Unreadable { slug, error, text }) => {
                 header::unreadable(slug, error, text)
             }
