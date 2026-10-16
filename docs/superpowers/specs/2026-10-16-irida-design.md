@@ -597,8 +597,11 @@ Exporting into an existing rice repo replaces only generated files. In
 
 `docs/showcase.md` uses the same form with `irida contrast`. A file with no
 markers is left alone and named in the summary; a missing file gets the full
-skeleton. Files that look generated but were not written this time (another
-`cosmic/*.ron`) are named, never deleted. The summary
+skeleton. A rice's own `scripts/contrast.py`, which import reads first, gets
+only its palette lines (`WINDOW`, `PANE`, `SURFACES`, `ROLES`) refreshed when
+it has the shape import reads, and is never created. Files that look generated
+but were not written this time (another `cosmic/*.ron`, a `contrast.py` of
+another shape) are named, never deleted. The summary
 lists what is still done by hand (wallpaper, icons, cursor, Firefox,
 Claude Desktop, `update_system.sh`, LICENSE, screenshot) and any contrast
 failures.

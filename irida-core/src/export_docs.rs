@@ -26,7 +26,7 @@ fn capitalised(role: Role) -> String {
 }
 
 /// The role's display name, or its capitalised role name.
-fn name_of(p: &Palette, role: Role) -> String {
+pub(crate) fn name_of(p: &Palette, role: Role) -> String {
     p.names
         .get(&role)
         .cloned()
@@ -35,6 +35,61 @@ fn name_of(p: &Palette, role: Role) -> String {
 
 fn hex(p: &Palette, role: Role) -> String {
     p.roles.get(role).to_hex()
+}
+
+/// `\`, `|` and `/` escaped with a backslash, so a name keeps to its table
+/// cell and the ` / ` between the container and pane names stays the only one.
+fn escape_cell(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        if matches!(c, '\\' | '|' | '/') {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    out
+}
+
+/// [`escape_cell`] undone: every backslash keeps only the character after it.
+fn unescape_cell(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => out.extend(chars.next()),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// A table row's cells, split on the pipes no backslash escapes.
+fn split_cells(line: &str) -> Vec<&str> {
+    let mut cells = Vec::new();
+    let mut start = 0;
+    let mut escaped = false;
+    for (i, c) in line.char_indices() {
+        match c {
+            _ if escaped => escaped = false,
+            '\\' => escaped = true,
+            '|' => {
+                cells.push(line[start..i].trim());
+                start = i + 1;
+            }
+            _ => {}
+        }
+    }
+    cells.push(line[start..].trim());
+    cells
+}
+
+/// How the terminal pane is drawn: `transparent` or `opaque`.
+pub(crate) fn opacity(p: &Palette) -> &'static str {
+    if p.pins.get(Slot::Background) == Some(PinValue::None) {
+        "transparent"
+    } else {
+        "opaque"
+    }
 }
 
 fn swatch(hex: &str) -> String {
@@ -59,7 +114,7 @@ pub fn readme_block(p: &Palette, pair: Option<&Palette>) -> String {
     out.push_str(&row(
         "Background",
         &bg,
-        &name_of(p, Role::Background),
+        &escape_cell(&name_of(p, Role::Background)),
         &format!("`{bg}`"),
     ));
     out.push_str(&row(
@@ -67,20 +122,15 @@ pub fn readme_block(p: &Palette, pair: Option<&Palette>) -> String {
         &container,
         &format!(
             "{} / {}",
-            name_of(p, Role::Container),
-            name_of(p, Role::Pane)
+            escape_cell(&name_of(p, Role::Container)),
+            escape_cell(&name_of(p, Role::Pane))
         ),
         &format!("`{container}` / `{pane}`"),
     ));
-    let opacity = if p.pins.get(Slot::Background) == Some(PinValue::None) {
-        "transparent"
-    } else {
-        "opaque"
-    };
     out.push_str(&row(
         "Terminal",
         &pane,
-        &format!("{}, {opacity}", name_of(p, Role::Pane)),
+        &format!("{}, {}", escape_cell(&name_of(p, Role::Pane)), opacity(p)),
         &format!("`{pane}`"),
     ));
     for role in [
@@ -99,7 +149,7 @@ pub fn readme_block(p: &Palette, pair: Option<&Palette>) -> String {
         out.push_str(&row(
             &capitalised(role),
             &h,
-            &name_of(p, role),
+            &escape_cell(&name_of(p, role)),
             &format!("`{h}`"),
         ));
     }
@@ -136,8 +186,8 @@ fn swatch_name(cell: &str) -> Option<&str> {
 }
 
 /// The display names in a README's palette block, read back from its role
-/// table. Names equal to the capitalised role, and empty ones, are left out.
-/// No markers or a malformed table gives an empty map.
+/// table and unescaped. Names equal to the capitalised role, and empty ones,
+/// are left out. No markers or a malformed table gives an empty map.
 pub fn readme_names(readme: &str) -> BTreeMap<Role, String> {
     let lines: Vec<&str> = readme.lines().collect();
     let Some(begin) = lines.iter().position(|l| l.trim_end() == README_BEGIN) else {
@@ -164,8 +214,8 @@ pub fn readme_names(readme: &str) -> BTreeMap<Role, String> {
         if !line.starts_with('|') {
             continue;
         }
-        let cells: Vec<&str> = line.trim_matches('|').split('|').map(str::trim).collect();
-        let [label, color, _hex] = cells.as_slice() else {
+        let cells = split_cells(line);
+        let (["", label, color, _hex, ""] | ["", label, color, _hex]) = cells.as_slice() else {
             continue;
         };
         let Some(name) = swatch_name(color) else {
@@ -177,9 +227,9 @@ pub fn readme_names(readme: &str) -> BTreeMap<Role, String> {
         }
         seen.push(label.to_string());
         let mut keep = |role: Role, name: &str| {
-            let name = name.trim();
+            let name = unescape_cell(name.trim());
             if !name.is_empty() && name != capitalised(role) {
-                names.insert(role, name.to_string());
+                names.insert(role, name);
             }
         };
         match *label {
@@ -218,7 +268,7 @@ fn ratio_text(ratio: f64, min: Option<f64>) -> String {
 fn showcase_row(p: &Palette, r: &RoleContrast) -> String {
     let cap = capitalised(r.role);
     let label = match p.names.get(&r.role) {
-        Some(n) if *n != cap => format!("{n}, {}", r.role),
+        Some(n) if *n != cap => format!("{}, {}", escape_cell(n), r.role),
         _ => cap,
     };
     let min = match r.min {

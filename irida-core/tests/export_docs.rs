@@ -118,6 +118,29 @@ fn readme_names_round_trip() {
 }
 
 #[test]
+fn readme_names_with_pipes_and_slashes_round_trip() {
+    let mut ember = palette("ember");
+    ember.names.insert(Role::Container, "Soot / Ash".into());
+    ember.names.insert(Role::Pane, "Deep|Pane".into());
+    ember.names.insert(Role::Text, r"Fog \| mist/haze\".into());
+    ember.names.insert(Role::Accent, "a | b".into());
+    let mut want = ember.names.clone();
+    for role in [Role::Muted, Role::Comment] {
+        want.remove(&role);
+    }
+    let block = readme_block(&ember, None);
+    let text = format!("{README_BEGIN}\n\n{block}\n{README_END}\n");
+    assert_eq!(readme_names(&text), want);
+    for line in block.lines().filter(|l| l.starts_with('|')) {
+        let unescaped = line.replace(r"\\", "").replace(r"\|", "");
+        assert_eq!(unescaped.matches('|').count(), 4, "{line}");
+    }
+    let showcase = showcase_block(&ember);
+    let row = showcase.lines().find(|l| l.contains(", accent")).unwrap();
+    assert!(row.starts_with(r"| a \| b, accent |"), "{row}");
+}
+
+#[test]
 fn readme_block_transparent_and_alone() {
     let mut p = palette("ember");
     p.pins

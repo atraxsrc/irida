@@ -12,6 +12,7 @@ use include_dir::{Dir, DirEntry, include_dir};
 use crate::contrast::{self, ContrastReport};
 use crate::dirs::Dirs;
 use crate::export_docs;
+use crate::import;
 use crate::native;
 use crate::palette::Palette;
 use crate::target::{LoadedTarget, Source, Target, load_targets};
@@ -366,13 +367,14 @@ fn write_planned(
 
 /// Generated-looking files that exist in the repo.
 fn generated_files(repo: &Path) -> Vec<String> {
-    let patterns: [(&str, &str); 6] = [
+    let patterns: [(&str, &str); 7] = [
         ("cosmic", ".ron"),
         ("cosmic-term", "-term.ron"),
         ("btop", ".theme"),
         ("nvim/colors", ".lua"),
         ("nvim/lua/plugins", ".lua"),
         ("zsh", ".zsh"),
+        ("scripts", "contrast.py"),
     ];
     let mut out = Vec::new();
     for (dir, suffix) in patterns {
@@ -517,6 +519,23 @@ fn plan_docs(
         &showcase,
         || export_docs::showcase_skeleton(p, req.pair, &showcase),
     )?;
+
+    // Import reads a rice's own contrast.py first, so one it can read gets
+    // its palette lines refreshed. It is never created.
+    let contrast = "scripts/contrast.py";
+    if let Some(text) = read_existing(repo, contrast)?
+        && let Some(contents) = import::refresh_contrast(&text, p)
+    {
+        plan.add(
+            IRIDA,
+            Planned {
+                path: contrast.into(),
+                contents,
+                executable: false,
+                create_only: false,
+            },
+        );
+    }
 
     let template = "scripts/switch.sh.tmpl";
     let contents = renderer

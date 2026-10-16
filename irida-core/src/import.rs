@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 
 use cosmic_theme::ThemeBuilder;
 use cosmic_theme::palette::{Srgb, Srgba};
-use regex::Regex;
+use regex::{Captures, NoExpand, Regex};
 
 use crate::color::Rgb;
 use crate::derive::derive;
-use crate::export_docs::readme_names;
+use crate::export_docs::{name_of, opacity, readme_names};
 use crate::palette::{Mode, Palette, Roles, validate_name, validate_slug};
 use crate::role::Role;
 use crate::slot::{Ansi, PinValue, Pins, Slot, Tone};
@@ -112,11 +112,50 @@ fn hex(s: &str) -> Rgb {
     Rgb::from_hex(s).expect("the patterns only match #RRGGBB")
 }
 
+/// A Python string literal in `scripts/contrast.py`, its text captured.
+const PY_STR: &str = r#""((?:[^"\\]|\\.)*)""#;
+
+/// A role line of `ROLES`: indent, role, name, colour, reads.
+fn role_line() -> Regex {
+    Regex::new(&format!(
+        r#"(?m)^(\s*)\("(Text|Accent|Success|Warning|Error|Blue|Magenta|Cyan|Muted|Comment)", {PY_STR}, "(#[0-9A-Fa-f]{{6}})", (True|False)\),$"#
+    ))
+    .expect("pattern compiles")
+}
+
+/// A surface line of `SURFACES`: indent, label, name, colours.
+fn surface_line() -> Regex {
+    Regex::new(&format!(
+        r#"(?m)^(\s*)\("(Background|Containers|Terminal)", {PY_STR}, \[([^\]]*)\]\),$"#
+    ))
+    .expect("pattern compiles")
+}
+
+fn constant_line(key: &str) -> Regex {
+    Regex::new(&format!(r#"(?m)^{key} = "(#[0-9A-Fa-f]{{6}})"$"#)).expect("pattern compiles")
+}
+
+/// A Python string's text: every backslash keeps only the character after it.
+fn py_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => out.extend(chars.next()),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn py_escape(s: &str) -> String {
+    s.replace('\\', r"\\").replace('"', r#"\""#)
+}
+
 /// Path 1: the roles and names in `scripts/contrast.py`, when it has exactly
 /// one of each. `None` when the file is absent or does not have that shape.
 fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role, String>)> {
-    let one = |pattern: &str| -> Option<Rgb> {
-        let re = Regex::new(pattern).expect("pattern compiles");
+    let one = |re: Regex| -> Option<Rgb> {
         let found: Vec<_> = re.captures_iter(text).collect();
         match found.as_slice() {
             [c] => Some(hex(&c[1])),
@@ -125,51 +164,45 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
     };
     let mut roles = BTreeMap::new();
     let mut names = BTreeMap::new();
-    roles.insert(
-        Role::Background,
-        one(r#"(?m)^WINDOW = "(#[0-9A-Fa-f]{6})"$"#)?,
-    );
-    roles.insert(Role::Pane, one(r#"(?m)^PANE = "(#[0-9A-Fa-f]{6})"$"#)?);
+    roles.insert(Role::Background, one(constant_line("WINDOW"))?);
+    roles.insert(Role::Pane, one(constant_line("PANE"))?);
     roles.insert(
         Role::Container,
-        one(r#"(?m)^\s*\("Containers", "[^"]*", \["(#[0-9A-Fa-f]{6})""#)?,
+        one(
+            Regex::new(r#"(?m)^\s*\("Containers", "(?:[^"\\]|\\.)*", \["(#[0-9A-Fa-f]{6})""#)
+                .expect("pattern compiles"),
+        )?,
     );
 
-    let re = Regex::new(
-        r#"(?m)^\s*\("(Text|Accent|Success|Warning|Error|Blue|Magenta|Cyan|Muted|Comment)", "([^"]*)", "(#[0-9A-Fa-f]{6})", (True|False)\),$"#,
-    )
-    .expect("pattern compiles");
-    let found: Vec<_> = re.captures_iter(text).collect();
+    let found: Vec<_> = role_line().captures_iter(text).collect();
     if found.len() != 10 {
         return None;
     }
     for c in &found {
-        let role: Role = c[1].to_lowercase().parse().ok()?;
-        if roles.insert(role, hex(&c[3])).is_some() {
+        let role: Role = c[2].to_lowercase().parse().ok()?;
+        if roles.insert(role, hex(&c[4])).is_some() {
             return None;
         }
-        names.insert(role, c[2].to_string());
+        names.insert(role, py_unescape(&c[3]));
     }
 
-    let re =
-        Regex::new(r#"(?m)^\s*\("(Background|Containers|Terminal)", "([^"]*)", \[([^\]]*)\]\),$"#)
-            .expect("pattern compiles");
-    let found: Vec<_> = re.captures_iter(text).collect();
+    let found: Vec<_> = surface_line().captures_iter(text).collect();
     if found.len() != 3 {
         return None;
     }
     let mut seen = Vec::new();
     for c in &found {
-        let label = c[1].to_string();
+        let label = c[2].to_string();
         if seen.contains(&label) {
             return None;
         }
+        let name = py_unescape(&c[3]);
         match label.as_str() {
             "Background" => {
-                names.insert(Role::Background, c[2].to_string());
+                names.insert(Role::Background, name);
             }
             "Containers" => {
-                let (container, pane) = c[2].split_once(" / ")?;
+                let (container, pane) = name.split_once(" / ")?;
                 names.insert(Role::Container, container.to_string());
                 names.insert(Role::Pane, pane.to_string());
             }
@@ -178,6 +211,56 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
         seen.push(label);
     }
     Some((roles, names))
+}
+
+/// `scripts/contrast.py` with its palette lines rebuilt from `p`: `WINDOW`,
+/// `PANE`, the three surfaces and the ten roles, each in place, so the
+/// script's own code and every other line stay as written. `None` when the
+/// file does not have the shape path 1 reads.
+pub(crate) fn refresh_contrast(text: &str, p: &Palette) -> Option<String> {
+    roles_from_contrast(text)?;
+    let hex = |role: Role| p.roles.get(role).to_hex();
+    let name = |role: Role| py_escape(&name_of(p, role));
+    let text = constant_line("WINDOW").replace(
+        text,
+        NoExpand(&format!(r#"WINDOW = "{}""#, hex(Role::Background))),
+    );
+    let text =
+        constant_line("PANE").replace(&text, NoExpand(&format!(r#"PANE = "{}""#, hex(Role::Pane))));
+    let text = surface_line().replace_all(&text, |c: &Captures| {
+        let (label, colors) = match &c[2] {
+            "Background" => (name(Role::Background), vec![hex(Role::Background)]),
+            "Containers" => (
+                format!("{} / {}", name(Role::Container), name(Role::Pane)),
+                vec![hex(Role::Container), hex(Role::Pane)],
+            ),
+            _ => (
+                format!("{}, {}", name(Role::Pane), opacity(p)),
+                vec![hex(Role::Pane)],
+            ),
+        };
+        let colors = colors
+            .iter()
+            .map(|h| format!("\"{h}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(r#"{}("{}", "{label}", [{colors}]),"#, &c[1], &c[2])
+    });
+    let text = role_line().replace_all(&text, |c: &Captures| {
+        let role: Role = c[2]
+            .to_lowercase()
+            .parse()
+            .expect("the pattern names roles");
+        format!(
+            r#"{}("{}", "{}", "{}", {}),"#,
+            &c[1],
+            &c[2],
+            name(role),
+            hex(role),
+            &c[5]
+        )
+    });
+    Some(text.into_owned())
 }
 
 /// The `cmt` colour of the repo's Neovim colorscheme.
