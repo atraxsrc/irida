@@ -69,8 +69,10 @@ fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<E
         Ok(report) => {
             let mut settings = settings;
             settings.last_palette = Some(p.slug.clone());
-            store.save_settings(&settings).map_err(|e| e.to_string())?;
             print!("{}", output::format_apply(&report));
+            if let Err(e) = store.save_settings(&settings) {
+                eprintln!("irida: warning: could not save settings: {e}");
+            }
             Ok(ExitCode::SUCCESS)
         }
         Err(ApplyError::NothingToApply(results)) => {
