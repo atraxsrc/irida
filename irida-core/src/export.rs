@@ -367,16 +367,20 @@ fn write_planned(
 
 /// Generated-looking files that exist in the repo.
 fn generated_files(repo: &Path) -> Vec<String> {
-    let patterns: [(&str, &str); 7] = [
+    let patterns: [(&str, &str); 6] = [
         ("cosmic", ".ron"),
         ("cosmic-term", "-term.ron"),
         ("btop", ".theme"),
         ("nvim/colors", ".lua"),
         ("nvim/lua/plugins", ".lua"),
         ("zsh", ".zsh"),
-        ("scripts", "contrast.py"),
     ];
     let mut out = Vec::new();
+    // Only the one contrast.py import reads; other scripts are the user's own.
+    let contrast = "scripts/contrast.py";
+    if repo.join(contrast).is_file() {
+        out.push(contrast.to_string());
+    }
     for (dir, suffix) in patterns {
         let Ok(rd) = fs::read_dir(repo.join(dir)) else {
             continue;
