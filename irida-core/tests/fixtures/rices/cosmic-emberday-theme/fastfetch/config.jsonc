@@ -1,0 +1,157 @@
+{
+  "$schema": "https://github.com/fastfetch-cli/fastfetch/raw/dev/doc/json_schema.json",
+  "logo": {
+    "type": "file",
+    "source": "~/.config/fastfetch/cosmic.txt",
+    "color": {
+      "1": "38;2;43;46;54"
+    },
+    "padding": {
+      "top": 3,
+      "left": 2,
+      "right": 6
+    }
+  },
+  "display": {
+    "separator": ": ",
+    "color": {
+      "output": "38;2;43;46;54"
+    }
+  },
+  "modules": [
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;168;166;162m┌───────────────────────\u001b[38;2;110;78;140mHardware\u001b[38;2;168;166;162m───────────────────────┐"
+    },
+    {
+      "type": "host",
+      "key": " PC",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "cpu",
+      "key": "├ ",
+      "keyColor": "38;2;164;68;26",
+      "showPeCoreCount": true
+    },
+    {
+      "type": "gpu",
+      "key": "├ 󰢮",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "display",
+      "key": "├ 󰍹",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "disk",
+      "key": "├ ",
+      "keyColor": "38;2;164;68;26",
+      "folders": "/"
+    },
+    {
+      "type": "memory",
+      "key": "├ 󰍛",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "swap",
+      "key": "├ 󰓡",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "battery",
+      "key": "└ 󰁹",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;168;166;162m└──────────────────────────────────────────────────────┘"
+    },
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;168;166;162m┌───────────────────────\u001b[38;2;110;78;140mSoftware\u001b[38;2;168;166;162m───────────────────────┐"
+    },
+    {
+      "type": "os",
+      "key": " OS",
+      "keyColor": "38;2;164;68;26",
+      "format": "{name} {version-id}"
+    },
+    {
+      "type": "de",
+      "key": "├ ",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "wm",
+      "key": "├ ",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "kernel",
+      "key": "├ ",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "shell",
+      "key": "├ ",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "terminal",
+      "key": "├ ",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "packages",
+      "key": "├ 󰏖",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "command",
+      "key": "├ 󰏘",
+      "keyColor": "38;2;164;68;26",
+      "text": "echo -n 'Ember Day '; for c in 43,46,54 164,68,26 76,107,69 138,94,18 158,58,58 110,78,140 46,110,106; do printf '\\033[38;2;%sm●' \"$(echo $c | tr , \\;)\"; done"
+    },
+    {
+      "type": "terminalfont",
+      "key": "└ ",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;168;166;162m└──────────────────────────────────────────────────────┘"
+    },
+    "break",
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;168;166;162m┌────────────────\u001b[38;2;110;78;140mAge / Uptime / Update\u001b[38;2;168;166;162m─────────────────┐"
+    },
+    {
+      "type": "command",
+      "key": "󰔟 OS Age",
+      "keyColor": "38;2;164;68;26",
+      "text": "b=$(stat -c %W / 2>/dev/null); [ \"${b:-0}\" -le 0 ] && b=$(stat -c %Y /var/log/installer 2>/dev/null); echo \"$(( ($(date +%s) - b) / 86400 )) days\""
+    },
+    {
+      "type": "uptime",
+      "key": "󰅐 Uptime",
+      "keyColor": "38;2;164;68;26"
+    },
+    {
+      "type": "command",
+      "key": "󰚰 Update",
+      "keyColor": "38;2;164;68;26",
+      "text": "d=$( { zcat -f /var/log/apt/history.log* 2>/dev/null; } | grep '^Start-Date' | sort | tail -1 | cut -d' ' -f2- ); [ -n \"$d\" ] && date -d \"$d\" '+%A, %B %d %Y at %H:%M' || echo unknown"
+    },
+    {
+      "type": "custom",
+      "format": "\u001b[38;2;168;166;162m└──────────────────────────────────────────────────────┘"
+    },
+    "break"
+  ]
+}
