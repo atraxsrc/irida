@@ -1,0 +1,187 @@
+//! The `palette.toml` model.
+
+use std::collections::BTreeMap;
+use std::fmt;
+
+use serde::{Deserialize, Serialize};
+
+use crate::color::Rgb;
+use crate::role::Role;
+use crate::slot::Pins;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Mode {
+    Dark,
+    Light,
+}
+
+impl fmt::Display for Mode {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.pad(match self {
+            Mode::Dark => "dark",
+            Mode::Light => "light",
+        })
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum PaletteError {
+    Toml(String),
+    MissingRole(Role),
+    UnknownRole(String),
+    BadSlug(String),
+    BadColor { key: String, value: String },
+}
+
+impl fmt::Display for PaletteError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            PaletteError::Toml(m) => write!(f, "invalid palette file: {m}"),
+            PaletteError::MissingRole(r) => write!(f, "missing role: {r}"),
+            PaletteError::UnknownRole(s) => write!(f, "unknown role: {s}"),
+            PaletteError::BadSlug(s) => write!(f, "invalid slug {s:?}: use lowercase letters only"),
+            PaletteError::BadColor { key, value } => {
+                write!(f, "invalid colour for {key}: {value:?}")
+            }
+        }
+    }
+}
+
+impl std::error::Error for PaletteError {}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Roles([Rgb; 13]);
+
+impl Roles {
+    fn index(role: Role) -> usize {
+        Role::ALL.iter().position(|r| *r == role).expect("role in ALL")
+    }
+
+    pub fn get(&self, role: Role) -> Rgb {
+        self.0[Self::index(role)]
+    }
+
+    pub fn set(&mut self, role: Role, value: Rgb) {
+        self.0[Self::index(role)] = value;
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Palette {
+    pub name: String,
+    pub slug: String,
+    pub mode: Mode,
+    pub pair: Option<String>,
+    pub notes: Option<String>,
+    pub roles: Roles,
+    pub names: BTreeMap<Role, String>,
+    pub pins: Pins,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Raw {
+    name: String,
+    slug: String,
+    mode: Mode,
+    #[serde(default)]
+    pair: Option<String>,
+    #[serde(default)]
+    notes: Option<String>,
+    roles: BTreeMap<String, String>,
+    #[serde(default)]
+    names: BTreeMap<String, String>,
+    #[serde(default)]
+    pins: BTreeMap<String, String>,
+}
+
+/// Slugs are one or more lowercase ASCII letters.
+pub fn validate_slug(s: &str) -> Result<(), PaletteError> {
+    if !s.is_empty() && s.bytes().all(|b| b.is_ascii_lowercase()) {
+        Ok(())
+    } else {
+        Err(PaletteError::BadSlug(s.to_string()))
+    }
+}
+
+fn quote(s: &str) -> String {
+    toml::Value::String(s.to_string()).to_string()
+}
+
+impl Palette {
+    pub fn from_toml(s: &str) -> Result<Palette, PaletteError> {
+        let raw: Raw = toml::from_str(s).map_err(|e| PaletteError::Toml(e.to_string()))?;
+        validate_slug(&raw.slug)?;
+
+        let mut values: BTreeMap<Role, Rgb> = BTreeMap::new();
+        for (key, value) in &raw.roles {
+            let role: Role = key
+                .parse()
+                .map_err(|_| PaletteError::UnknownRole(key.clone()))?;
+            let rgb = Rgb::from_hex(value).map_err(|_| PaletteError::BadColor {
+                key: format!("roles.{key}"),
+                value: value.clone(),
+            })?;
+            values.insert(role, rgb);
+        }
+        let mut arr = [crate::color::BLACK; 13];
+        for (i, role) in Role::ALL.into_iter().enumerate() {
+            arr[i] = *values.get(&role).ok_or(PaletteError::MissingRole(role))?;
+        }
+
+        let mut names = BTreeMap::new();
+        for (key, value) in raw.names {
+            let role: Role = key.parse().map_err(|_| PaletteError::UnknownRole(key))?;
+            names.insert(role, value);
+        }
+
+        Ok(Palette {
+            name: raw.name,
+            slug: raw.slug,
+            mode: raw.mode,
+            pair: raw.pair,
+            notes: raw.notes,
+            roles: Roles(arr),
+            names,
+            pins: Pins(raw.pins),
+        })
+    }
+
+    pub fn to_toml(&self) -> String {
+        let mut out = String::new();
+        out.push_str(&format!("name = {}\n", quote(&self.name)));
+        out.push_str(&format!("slug = {}\n", quote(&self.slug)));
+        out.push_str(&format!("mode = \"{}\"\n", self.mode));
+        if let Some(pair) = &self.pair {
+            out.push_str(&format!("pair = {}\n", quote(pair)));
+        }
+        if let Some(notes) = &self.notes {
+            out.push_str(&format!("notes = {}\n", quote(notes)));
+        }
+        out.push_str("\n[roles]\n");
+        for role in Role::ALL {
+            out.push_str(&format!("{} = \"{}\"\n", role, self.roles.get(role)));
+        }
+        if !self.names.is_empty() {
+            out.push_str("\n[names]\n");
+            for role in Role::ALL {
+                if let Some(n) = self.names.get(&role) {
+                    out.push_str(&format!("{} = {}\n", role, quote(n)));
+                }
+            }
+        }
+        if !self.pins.0.is_empty() {
+            out.push_str("\n[pins]\n");
+            for (k, v) in &self.pins.0 {
+                out.push_str(&format!("{} = {}\n", quote(k), quote(v)));
+            }
+        }
+        out
+    }
+
+    /// The name with spaces removed, used for file and theme names.
+    pub fn stem(&self) -> String {
+        self.name.replace(' ', "")
+    }
+}
