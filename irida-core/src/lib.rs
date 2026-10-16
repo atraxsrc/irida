@@ -7,4 +7,5 @@ pub mod derive;
 pub mod dirs;
 pub mod slot;
 pub mod store;
+pub mod target;
 pub mod term;
