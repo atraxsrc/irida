@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::dirs::{Dirs, DirsError};
-use crate::native;
+use crate::native::{self, NativeUndo};
 use crate::palette::Palette;
 use crate::record::{self, Entry, Record, RecordWriter, RestoreMode};
 use crate::reload::{ReloadStatus, reload};
@@ -189,6 +189,8 @@ enum Edit {
         before: Option<String>,
         appended_newline: bool,
     },
+    /// A native key file with the parts undo puts back one by one; never empty.
+    Native(Vec<NativeUndo>),
 }
 
 /// The full new contents of one file.
@@ -199,32 +201,64 @@ struct PlannedWrite {
 }
 
 impl PlannedWrite {
-    fn entry(&self, blob: Option<String>) -> Entry {
+    /// The record entries for this write, all sharing the one captured `blob`.
+    fn entries(&self, blob: Option<String>) -> Vec<Entry> {
         let path = self.path.clone();
         match &self.edit {
-            Edit::File => Entry::File { path, blob },
+            Edit::File => vec![Entry::File { path, blob }],
             Edit::Block {
                 comment,
                 before,
                 appended_newline,
-            } => Entry::Block {
+            } => vec![Entry::Block {
                 path,
                 blob,
                 comment: comment.clone(),
                 before: before.clone(),
                 appended_newline: *appended_newline,
-            },
+            }],
             Edit::Key {
                 key,
                 before,
                 appended_newline,
-            } => Entry::Key {
+            } => vec![Entry::Key {
                 path,
                 blob,
                 key: key.clone(),
                 before: before.clone(),
                 appended_newline: *appended_newline,
-            },
+            }],
+            Edit::Native(undo) => undo
+                .iter()
+                .map(|u| match u {
+                    NativeUndo::TermScheme { mode, id, before } => Entry::TermScheme {
+                        path: path.clone(),
+                        blob: blob.clone(),
+                        mode: *mode,
+                        id: *id,
+                        before: before.clone(),
+                    },
+                    NativeUndo::TermProfileTheme {
+                        profile,
+                        field,
+                        before,
+                    } => Entry::TermProfileTheme {
+                        path: path.clone(),
+                        blob: blob.clone(),
+                        profile: *profile,
+                        field: field.clone(),
+                        before: before.clone(),
+                    },
+                })
+                .collect(),
+        }
+    }
+
+    /// How many record entries `entries` makes.
+    fn entry_count(&self) -> usize {
+        match &self.edit {
+            Edit::Native(undo) => undo.len(),
+            _ => 1,
         }
     }
 }
@@ -436,7 +470,11 @@ fn plan_target<'t>(
                 writes.extend(plan.writes.into_iter().map(|w| PlannedWrite {
                     path: w.path,
                     contents: w.contents,
-                    edit: Edit::File,
+                    edit: if w.undo.is_empty() {
+                        Edit::File
+                    } else {
+                        Edit::Native(w.undo)
+                    },
                 }));
                 warnings.extend(plan.warnings);
             }
@@ -513,14 +551,18 @@ impl TargetPlan<'_> {
     }
 }
 
-/// Capture every file before it is written. On failure the unfinished record
+/// Capture every file once before it is written. On failure the unfinished record
 /// folder, which holds private copies, is deleted; the capture or finish error
 /// is returned even when that cleanup fails.
 fn record_writes(dirs: &Dirs, slug: &str, writes: &[&PlannedWrite]) -> Result<Record, ApplyError> {
     let mut writer = RecordWriter::create(dirs, slug).map_err(ApplyError::Record)?;
     for w in writes {
         match writer.capture(&w.path) {
-            Ok(blob) => writer.push(w.entry(blob)),
+            Ok(blob) => {
+                for e in w.entries(blob) {
+                    writer.push(e);
+                }
+            }
             Err(e) => {
                 let _ = writer.abort();
                 return Err(ApplyError::Record(e));
@@ -591,12 +633,14 @@ pub fn apply(
     }
 
     let record = record_writes(&ctx.dirs, &req.palette.slug, &writes)?;
-    for (i, w) in writes.iter().enumerate() {
+    // Entries of the writes done so far; one write can make several entries.
+    let mut done = 0;
+    for w in &writes {
         if let Err(source) = atomic_write(&w.path, w.contents.as_bytes()) {
             let completed = Record {
                 id: record.id,
                 palette: record.palette.clone(),
-                entries: record.entries[..i].to_vec(),
+                entries: record.entries[..done].to_vec(),
             };
             let rolled_back =
                 record::restore(&ctx.dirs, &completed, RestoreMode::Rollback).is_empty();
@@ -609,6 +653,7 @@ pub fn apply(
                 rolled_back,
             });
         }
+        done += w.entry_count();
     }
 
     let targets = plans

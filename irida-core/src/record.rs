@@ -8,12 +8,15 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::dirs::Dirs;
+use crate::native::cosmic_term::{self, Undone};
+use crate::palette::Mode;
 use crate::write::{atomic_write, resolve_write_path, restore_block, restore_key};
 
 /// One file an apply touched. `blob` names a file inside the record folder holding
-/// the bytes before the apply; `None` means the file did not exist.
+/// the bytes before the apply; `None` means the file did not exist. Entries for
+/// parts of one COSMIC Terminal key file share that file's blob.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Entry {
     File {
         path: PathBuf,
@@ -38,20 +41,48 @@ pub enum Entry {
         before: Option<String>,
         appended_newline: bool,
     },
+    /// One COSMIC Terminal colour scheme; `before` is its RON, `None` when the
+    /// id was free.
+    TermScheme {
+        path: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<String>,
+        mode: Mode,
+        id: u64,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+    },
+    /// One syntax theme field of one COSMIC Terminal profile; `before` is the
+    /// RON of its value.
+    TermProfileTheme {
+        path: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<String>,
+        profile: u64,
+        field: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+    },
 }
 
 impl Entry {
     pub fn path(&self) -> &Path {
         match self {
-            Entry::File { path, .. } | Entry::Block { path, .. } | Entry::Key { path, .. } => path,
+            Entry::File { path, .. }
+            | Entry::Block { path, .. }
+            | Entry::Key { path, .. }
+            | Entry::TermScheme { path, .. }
+            | Entry::TermProfileTheme { path, .. } => path,
         }
     }
 
     pub fn blob(&self) -> Option<&str> {
         match self {
-            Entry::File { blob, .. } | Entry::Block { blob, .. } | Entry::Key { blob, .. } => {
-                blob.as_deref()
-            }
+            Entry::File { blob, .. }
+            | Entry::Block { blob, .. }
+            | Entry::Key { blob, .. }
+            | Entry::TermScheme { blob, .. }
+            | Entry::TermProfileTheme { blob, .. } => blob.as_deref(),
         }
     }
 }
@@ -69,7 +100,8 @@ pub struct Record {
 pub enum RestoreMode {
     /// Put every file back byte for byte.
     Rollback,
-    /// Remove only Irida's blocks and keys, keeping later user edits.
+    /// Remove only Irida's blocks, keys, terminal schemes and profile fields,
+    /// keeping later user edits.
     Undo,
 }
 
@@ -219,8 +251,10 @@ pub fn restore(dirs: &Dirs, rec: &Record, mode: RestoreMode) -> Vec<(PathBuf, io
         .rev()
         .filter_map(|e| {
             let result = match (mode, e) {
-                (RestoreMode::Undo, Entry::Block { .. } | Entry::Key { .. }) => undo_edit(e),
-                _ => put_back(&dir, e.path(), e.blob()),
+                (RestoreMode::Undo, Entry::File { .. }) | (RestoreMode::Rollback, _) => {
+                    put_back(&dir, e.path(), e.blob())
+                }
+                (RestoreMode::Undo, _) => undo_edit(&dir, e),
             };
             result.err().map(|err| (e.path().to_path_buf(), err))
         })
@@ -243,31 +277,56 @@ fn remove(path: &Path) -> io::Result<()> {
     }
 }
 
-/// Take Irida's block or key out of the current file, keeping everything else.
-fn undo_edit(e: &Entry) -> io::Result<()> {
+/// Take Irida's block, key, scheme or profile field out of the current file,
+/// keeping everything else. A COSMIC Terminal key file that no longer parses
+/// gets the recorded copy back instead.
+fn undo_edit(dir: &Path, e: &Entry) -> io::Result<()> {
     let path = e.path();
     let current = match fs::read_to_string(path) {
         Ok(t) => t,
         Err(err) if is_absent(&err) => return Ok(()),
         Err(err) => return Err(err),
     };
-    let restored = match e {
+    let (restored, empty) = match e {
         Entry::Block {
             comment,
             before,
             appended_newline,
             ..
-        } => restore_block(&current, comment, before.as_deref(), *appended_newline)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?,
+        } => {
+            let text = restore_block(&current, comment, before.as_deref(), *appended_newline)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+            let empty = text.is_empty();
+            (text, empty)
+        }
         Entry::Key {
             key,
             before,
             appended_newline,
             ..
-        } => restore_key(&current, key, before.as_deref(), *appended_newline),
+        } => {
+            let text = restore_key(&current, key, before.as_deref(), *appended_newline);
+            let empty = text.is_empty();
+            (text, empty)
+        }
+        Entry::TermScheme { id, before, .. } => {
+            match cosmic_term::undo_scheme(&current, *id, before.as_deref())? {
+                Undone::Text { text, empty } => (text, empty),
+                Undone::Unparsable => return put_back(dir, path, e.blob()),
+            }
+        }
+        Entry::TermProfileTheme {
+            profile,
+            field,
+            before,
+            ..
+        } => match cosmic_term::undo_profile_theme(&current, *profile, field, before.as_deref())? {
+            Undone::Text { text, empty } => (text, empty),
+            Undone::Unparsable => return put_back(dir, path, e.blob()),
+        },
         Entry::File { .. } => return Ok(()),
     };
-    if e.blob().is_none() && restored.is_empty() {
+    if e.blob().is_none() && empty {
         return remove(path);
     }
     if restored == current {
