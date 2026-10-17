@@ -311,18 +311,28 @@ pub fn view(s: Scene, image: Option<&ImageStatus>) -> Element<'static, Msg> {
     let Some(ImageStatus::Ready { handle, .. }) = image else {
         return monitor(column);
     };
-    let photo = widget::image(handle.clone())
+    monitor(over_wallpaper(column.into(), handle.clone()))
+}
+
+/// `content` over `handle`, the image covering the area `content` sets.
+/// The software renderer ignores an image's own clip and cuts it only at its
+/// render layer, so a covered image would paint over the widgets around the
+/// preview. A clipping stack draws every layer after the first in its own
+/// layer cut to the stack, so an empty first layer puts the photo in one.
+fn over_wallpaper<'a>(
+    content: Element<'a, Msg>,
+    handle: widget::image::Handle,
+) -> Element<'a, Msg> {
+    let photo = widget::image(handle)
         .content_fit(ContentFit::Cover)
         .width(Length::Fill)
         .height(Length::Fill);
-    // The column sets the size. The image sits under it and covers that area;
-    // `clip` keeps the covered image from drawing past it, since the image
-    // widget itself does not cut the overflow.
-    let screen = cosmic::iced::widget::stack([column.into()])
+    cosmic::iced::widget::stack([content])
         .push_under(photo)
+        .push_under(widget::Space::new())
         .clip(true)
-        .width(Length::Fill);
-    monitor(screen)
+        .width(Length::Fill)
+        .into()
 }
 
 /// The widest the monitor gets; it is centred when the column is wider.
@@ -357,6 +367,49 @@ fn monitor<'a>(screen: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
 mod tests {
     use super::ImageStatus;
     use super::load_preview_image;
+    use super::over_wallpaper;
+    use cosmic::iced::{Length, Size};
+    use cosmic::widget;
+    use iced_test::simulator::Simulator;
+
+    /// A wide red image covers a 100 px square between two empty 100 px
+    /// strips. The cover overflow must not paint the strips.
+    #[test]
+    fn the_wallpaper_stays_inside_its_area() {
+        let red = [255u8, 0, 0, 255].repeat(8);
+        let handle = widget::image::Handle::from_rgba(8, 1, red);
+        let square = widget::Space::new()
+            .width(Length::Fixed(100.))
+            .height(Length::Fixed(100.));
+        let strip = || widget::Space::new().width(Length::Fixed(100.));
+        let row = widget::Row::new()
+            .push(strip())
+            .push(
+                widget::container(over_wallpaper(square.into(), handle)).width(Length::Fixed(100.)),
+            )
+            .push(strip());
+        let mut sim = Simulator::with_size(
+            iced_test::core::Settings::default(),
+            Size::new(300., 100.),
+            row,
+        );
+        let snapshot = sim.snapshot(&cosmic::Theme::dark()).unwrap();
+        let tmp = tempfile::TempDir::new().unwrap();
+        snapshot.matches_image(tmp.path().join("shot.png")).unwrap();
+        // The snapshot adds the renderer's name to the file name.
+        let written = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .next()
+            .unwrap()
+            .unwrap();
+        let png = image::open(written.path()).unwrap().to_rgba8();
+        // The snapshot may be drawn at a scale factor; sample in logical px.
+        let scale = png.width() / 300;
+        let red_at = |x: u32| png.get_pixel(x * scale, 50 * scale).0 == [255, 0, 0, 255];
+        assert!(red_at(150), "the square is covered");
+        assert!(!red_at(50), "nothing left of the square");
+        assert!(!red_at(250), "nothing right of the square");
+    }
 
     #[test]
     fn load_preview_image_reads_a_png_and_rejects_text() {
