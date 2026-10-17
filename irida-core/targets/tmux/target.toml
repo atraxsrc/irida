@@ -7,6 +7,7 @@
 name = "tmux"
 display = "tmux"
 detect = { binary = "tmux" }
+live = true
 
 [[file]]
 path = "~/.config/tmux/tmux.conf"
@@ -15,9 +16,12 @@ comment = "#"
 template = "block.tmpl"
 
 # source-file re-reads the config in a running server; with no server the
-# next one reads it at start.
+# next one reads it at start. It only sets options, so the options the block
+# sets go back to tmux's defaults first, in the same tmux call: after an undo
+# or a live Revert no Irida colour stays behind. Live, as the reload shows
+# every change.
 [reload]
-command = "tmux info >/dev/null 2>&1 || exit 0; tmux source-file \"${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf\""
+command = "tmux info >/dev/null 2>&1 || exit 0; tmux set -gu status-style \\; set -gu window-status-style \\; set -gu window-status-current-style \\; set -gu window-status-activity-style \\; set -gu pane-border-style \\; set -gu pane-active-border-style \\; set -gu message-style \\; set -gu message-command-style \\; set -gu mode-style \\; set -gu display-panes-active-colour \\; set -gu display-panes-colour \\; set -gu clock-mode-colour \\; source-file \"${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf\""
 hint = "run tmux source-file on your tmux.conf, or start a new tmux server"
 
 [[rice]]
