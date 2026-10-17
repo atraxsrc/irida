@@ -55,6 +55,7 @@ result to your desktop, terminal, editor and tools in one step.
 | zsh | A marked block in `~/.zshrc` | |
 | Ghostty | `themes/irida`, selected in `config` | |
 | delta | `~/.config/delta/irida.gitconfig`, included from `~/.gitconfig` | |
+| fish | `conf.d/irida.fish` | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in
