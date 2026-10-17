@@ -387,6 +387,11 @@ fn skeleton_lists_every_install_script() {
         "delta",
         "fish",
         "eza",
+        "kitty",
+        "alacritty",
+        "foot",
+        "helix",
+        "bat",
     ] {
         assert!(
             text.contains(&format!("`./{app}/install.sh`")),
