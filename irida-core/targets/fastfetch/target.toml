@@ -1,0 +1,25 @@
+name = "fastfetch"
+detect = { binary = "fastfetch", config = "~/.config/fastfetch" }
+
+[[file]]
+path = "~/.config/fastfetch/config.jsonc"
+write = "file"
+template = "config.jsonc.tmpl"
+
+[[file]]
+path = "~/.config/fastfetch/cosmic.txt"
+write = "file"
+template = "cosmic.txt"
+
+[[rice]]
+path = "fastfetch/config.jsonc"
+template = "config.jsonc.tmpl"
+
+[[rice]]
+path = "fastfetch/cosmic.txt"
+template = "cosmic.txt"
+
+[[rice]]
+path = "fastfetch/install.sh"
+template = "install.sh.tmpl"
+executable = true

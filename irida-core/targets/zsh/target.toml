@@ -1,0 +1,20 @@
+name = "zsh"
+detect = { config = "~/.zshrc" }
+
+[[file]]
+path = "~/.zshrc"
+write = "block"
+comment = "#"
+template = "zsh.tmpl"
+
+[reload]
+hint = "open a new shell or run exec zsh"
+
+[[rice]]
+path = "zsh/{{ slug }}.zsh"
+template = "zsh.tmpl"
+
+[[rice]]
+path = "zsh/install.sh"
+template = "install.sh.tmpl"
+executable = true

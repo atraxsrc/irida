@@ -755,6 +755,7 @@ dependencies = [
  "include_dir",
  "minijinja",
  "nix",
+ "regex",
  "ron",
  "serde",
  "tempfile",

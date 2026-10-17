@@ -1,0 +1,27 @@
+name = "nvim"
+detect = { binary = "nvim", config = "~/.config/nvim" }
+
+[[file]]
+path = "~/.config/nvim/colors/irida.lua"
+write = "file"
+template = "colors.lua.tmpl"
+
+[reload]
+hint = "run :colorscheme irida in Neovim (add vim.cmd.colorscheme('irida') to your config to keep it)"
+
+[[rice]]
+path = "nvim/colors/{{ slug }}.lua"
+template = "colors.lua.tmpl"
+
+[[rice]]
+path = "nvim/lua/plugins/{{ slug }}.lua"
+template = "plugin.lua.tmpl"
+
+[[rice]]
+path = "nvim/syntax/ron.vim"
+template = "ron.vim.tmpl"
+
+[[rice]]
+path = "nvim/install.sh"
+template = "install.sh.tmpl"
+executable = true

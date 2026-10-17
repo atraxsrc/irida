@@ -1,11 +1,13 @@
 mod output;
 
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use clap::{Parser, Subcommand};
 use irida_core::apply::{self, ApplyError, ApplyRequest, Ctx};
 use irida_core::contrast;
 use irida_core::dirs::Dirs;
+use irida_core::export::{ExportRequest, export};
 use irida_core::palette::Palette;
 use irida_core::store::Store;
 
@@ -21,14 +23,14 @@ struct Cli {
 enum Command {
     /// Check a palette's contrast against its background and pane
     Check {
-        /// Palette slug or path to a palette file
+        /// Palette slug, palette file or rice folder
         palette: String,
     },
     /// List stored palettes
     List,
     /// Apply a palette to every installed target
     Apply {
-        /// Palette slug or path to a palette file
+        /// Palette slug, palette file or rice folder
         palette: String,
         /// Apply only these targets (comma separated), even when turned off
         #[arg(long, value_delimiter = ',')]
@@ -36,36 +38,47 @@ enum Command {
     },
     /// Undo the most recent apply
     Undo,
-}
-
-fn store() -> Result<Store, String> {
-    Dirs::from_env().map(Store::new).map_err(|e| e.to_string())
+    /// Export a palette as a cosmic-<slug>-theme rice repo
+    Export {
+        /// Palette slug, palette file or rice folder
+        palette: String,
+        /// The repo itself, or the folder to create it in
+        folder: PathBuf,
+    },
 }
 
 /// The palette's pair, when it names one that exists with the opposite mode.
-/// Otherwise a warning goes to stderr and the palette is applied alone.
-fn load_pair(store: &Store, p: &Palette) -> Option<Palette> {
+/// Otherwise a warning goes to stderr and the palette is used alone;
+/// `doing` names what for ("applying", "exporting").
+fn load_pair(store: &Store, p: &Palette, doing: &str) -> Option<Palette> {
     let slug = p.pair.as_deref()?;
     match store.load(slug) {
         Ok(pair) if pair.mode != p.mode => Some(pair),
         Ok(_) => {
             eprintln!(
-                "irida: warning: pair {slug} has the same mode as {}; applying alone",
+                "irida: warning: pair {slug} has the same mode as {}; {doing} alone",
                 p.slug
             );
             None
         }
         Err(e) => {
-            eprintln!("irida: warning: pair {slug} not available ({e}); applying alone");
+            eprintln!("irida: warning: pair {slug} not available ({e}); {doing} alone");
             None
         }
     }
 }
 
+/// Whether `arg` names a saved palette by slug rather than a file or folder,
+/// the same test `Store::resolve` makes.
+fn is_saved_slug(arg: &str) -> bool {
+    let path = Path::new(arg);
+    !path.is_file() && !path.is_dir()
+}
+
 fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<ExitCode, String> {
     let ctx = Ctx::from_env().map_err(|e| e.to_string())?;
     let p = store.resolve(palette).map_err(|e| e.to_string())?;
-    let pair = load_pair(&store, &p);
+    let pair = load_pair(&store, &p, "applying");
     let settings = store.settings().map_err(|e| e.to_string())?;
     let req = ApplyRequest {
         palette: &p,
@@ -74,11 +87,13 @@ fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<E
     };
     match apply::apply(&ctx, &settings, &req) {
         Ok(report) => {
-            let mut settings = settings;
-            settings.last_palette = Some(p.slug.clone());
             print!("{}", output::format_apply(&report));
-            if let Err(e) = store.save_settings(&settings) {
-                eprintln!("irida: warning: could not save settings: {e}");
+            if is_saved_slug(palette) {
+                let mut settings = settings;
+                settings.last_palette = Some(p.slug.clone());
+                if let Err(e) = store.save_settings(&settings) {
+                    eprintln!("irida: warning: could not save settings: {e}");
+                }
             }
             Ok(ExitCode::SUCCESS)
         }
@@ -101,11 +116,26 @@ fn run_undo() -> Result<ExitCode, String> {
     })
 }
 
+fn run_export(dirs: &Dirs, store: Store, palette: &str, folder: &Path) -> Result<ExitCode, String> {
+    let p = store.resolve(palette).map_err(|e| e.to_string())?;
+    let pair = load_pair(&store, &p, "exporting");
+    let req = ExportRequest {
+        palette: &p,
+        pair: pair.as_ref(),
+        folder,
+    };
+    let report = export(dirs, &req).map_err(|e| e.to_string())?;
+    print!("{}", output::format_export(&report, &p));
+    Ok(ExitCode::SUCCESS)
+}
+
 fn run(cli: Cli) -> Result<ExitCode, String> {
-    let store = store()?;
+    let dirs = Dirs::from_env().map_err(|e| e.to_string())?;
+    let store = Store::new(dirs.clone());
     match cli.command {
         Command::Apply { palette, only } => run_apply(store, &palette, only),
         Command::Undo => run_undo(),
+        Command::Export { palette, folder } => run_export(&dirs, store, &palette, &folder),
         Command::Check { palette } => {
             let p = store.resolve(&palette).map_err(|e| e.to_string())?;
             let report = contrast::check(&p);

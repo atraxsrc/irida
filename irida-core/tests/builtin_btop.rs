@@ -30,6 +30,21 @@ fn matches_rice_files() {
 }
 
 #[test]
+fn transparent_terminal_uses_pane() {
+    let rendered = Renderer::new(&palette("noir"))
+        .render("btop.theme.tmpl", &template())
+        .unwrap();
+    assert!(
+        rendered.contains("theme[selected_fg]=\"#171717\"\n"),
+        "{rendered}"
+    );
+    assert!(
+        rendered
+            .starts_with("# Main background, empty so it follows the terminal pane (#171717)\n")
+    );
+}
+
+#[test]
 fn apply_sets_theme_and_key() {
     let env = TestEnv::new();
     let bin = env.tmp.path().join("bin");

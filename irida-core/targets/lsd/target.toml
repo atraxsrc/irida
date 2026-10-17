@@ -1,0 +1,26 @@
+name = "lsd"
+detect = { binary = "lsd", config = "~/.config/lsd" }
+
+[[file]]
+path = "~/.config/lsd/colors.yaml"
+write = "file"
+template = "colors.yaml.tmpl"
+
+[[file]]
+path = "~/.config/lsd/config.yaml"
+write = "file"
+template = "theme.yaml"
+create_only = true
+
+[[rice]]
+path = "lsd/colors.yaml"
+template = "colors.yaml.tmpl"
+
+[[rice]]
+path = "lsd/config.yaml"
+template = "config.yaml"
+
+[[rice]]
+path = "lsd/install.sh"
+template = "install.sh.tmpl"
+executable = true

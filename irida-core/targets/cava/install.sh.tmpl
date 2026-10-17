@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+# Install the {{ name }} cava colours into ~/.config/cava/config.
+#
+#   ./cava/install.sh
+#
+# Writes config.colors between the "# >>> irida >>>" and "# <<< irida <<<"
+# lines of cava's config and leaves the rest of the file alone. Backs up the
+# config to config.bak when it changes. Safe to run again.
+set -euo pipefail
+
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dest="${XDG_CONFIG_HOME:-$HOME/.config}/cava"
+conf="$dest/config"
+begin="# >>> irida >>>"
+end="# <<< irida <<<"
+
+if ! command -v cava >/dev/null 2>&1 && [ ! -d "$dest" ]; then
+    echo "  cava not installed, skipped"
+    exit 0
+fi
+
+mkdir -p "$dest"
+existed=0
+begins=0
+ends=0
+if [ -f "$conf" ]; then
+    existed=1
+    begins="$(grep -cxF "$begin" "$conf" || true)"
+    ends="$(grep -cxF "$end" "$conf" || true)"
+fi
+
+tmp="$(mktemp)"
+trap 'rm -f "$tmp"' EXIT
+
+if [ "$begins" -eq 0 ] && [ "$ends" -eq 0 ]; then
+    if [ -s "$conf" ]; then
+        cat "$conf" > "$tmp"
+        if [ -n "$(tail -c 1 "$conf")" ]; then
+            echo >> "$tmp"
+        fi
+    fi
+    { echo "$begin"; cat "$dir/config.colors"; echo "$end"; } >> "$tmp"
+elif [ "$begins" -eq 1 ] && [ "$ends" -eq 1 ] &&
+    [ "$(grep -nxF "$begin" "$conf" | cut -d: -f1)" -lt "$(grep -nxF "$end" "$conf" | cut -d: -f1)" ]; then
+    awk -v b="$begin" -v e="$end" -v colors="$dir/config.colors" '
+        $0 == b { print; while ((getline line < colors) > 0) print line; skip = 1; next }
+        $0 == e { skip = 0 }
+        !skip { print }
+    ' "$conf" > "$tmp"
+else
+    echo "$conf has broken irida markers; fix them by hand, nothing written"
+    exit 1
+fi
+
+if [ "$existed" -eq 1 ] && cmp -s "$tmp" "$conf"; then
+    echo "  already up to date"
+else
+    if [ "$existed" -eq 1 ]; then
+        cp "$conf" "$conf.bak"
+        echo "  backup: config.bak"
+    fi
+    cat "$tmp" > "$conf"
+    echo "  $conf"
+fi
+
+echo "Done. A running cava picks up the colours with: pkill -USR2 cava"

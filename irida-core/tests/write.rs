@@ -162,3 +162,22 @@ fn atomic_write_keeps_mode_and_cleans_up() {
             .all(|e| !e.file_name().to_string_lossy().ends_with(".irida-tmp"))
     );
 }
+
+#[test]
+fn planted_temp_symlink_is_not_followed() {
+    let dir = tempfile::tempdir().unwrap();
+    let victim = dir.path().join("victim.txt");
+    fs::write(&victim, "keep me").unwrap();
+    let repo = dir.path().join("repo");
+    fs::create_dir_all(&repo).unwrap();
+    let f = repo.join("f.theme");
+    fs::write(&f, "old").unwrap();
+    // The fixed temporary name the old code used, planted as a link outside.
+    symlink(&victim, repo.join(".f.theme.irida-tmp")).unwrap();
+
+    atomic_write(&f, b"new").unwrap();
+
+    assert_eq!(fs::read_to_string(&victim).unwrap(), "keep me");
+    assert!(!fs::symlink_metadata(&f).unwrap().file_type().is_symlink());
+    assert_eq!(fs::read_to_string(&f).unwrap(), "new");
+}

@@ -12,9 +12,11 @@ use crate::palette::Palette;
 use crate::record::{self, Entry, Record, RecordWriter, RestoreMode};
 use crate::reload::{ReloadStatus, reload};
 use crate::store::Settings;
-use crate::target::{FileEntry, LoadedTarget, Target, WriteKind, is_detected, load_targets};
+use crate::target::{
+    FileEntry, LoadedTarget, Target, WriteKind, is_detected, is_executable, load_targets,
+};
 use crate::template::{Renderer, check_syntax};
-use crate::write::{atomic_write, set_block, set_key};
+use crate::write::{atomic_write, resolve_write_path, set_block, set_key};
 
 /// Apply records kept after an apply.
 const KEEP_RECORDS: usize = 10;
@@ -296,16 +298,54 @@ fn read_existing(path: &Path) -> io::Result<Option<String>> {
     }
 }
 
-/// Plan one `[[file]]`. `Err` is a warning: the file is left alone.
-fn plan_file(f: &FileEntry, path: PathBuf, rendered: String) -> Result<PlannedWrite, String> {
+/// The first rendered line missing from `existing`, with the nearest earlier
+/// rendered line that is less indented, both trimmed.
+fn missing_line<'r>(rendered: &'r str, existing: &str) -> Option<(&'r str, Option<&'r str>)> {
+    let have: Vec<&str> = existing.lines().map(str::trim).collect();
+    let indent = |l: &str| l.len() - l.trim_start().len();
+    let lines: Vec<&str> = rendered.lines().collect();
+    let i = lines
+        .iter()
+        .position(|l| !l.trim().is_empty() && !have.contains(&l.trim()))?;
+    let parent = lines[..i]
+        .iter()
+        .rev()
+        .find(|l| !l.trim().is_empty() && indent(l) < indent(lines[i]))
+        .map(|l| l.trim());
+    Some((lines[i].trim(), parent))
+}
+
+/// Plan one `[[file]]`. `Err` is a warning: the file is left alone. `Ok(None)`
+/// drops the write with nothing to report.
+fn plan_file(
+    f: &FileEntry,
+    path: PathBuf,
+    rendered: String,
+) -> Result<Option<PlannedWrite>, String> {
+    let skip = |why: &dyn fmt::Display| format!("{}: {why}; skipped", path.display());
     if f.write == WriteKind::File {
-        return Ok(PlannedWrite {
+        if f.create_only {
+            let resolved = resolve_write_path(&path).map_err(|e| skip(&e))?;
+            if resolved.exists() {
+                let existing = fs::read_to_string(&resolved).map_err(|e| skip(&e))?;
+                return match missing_line(&rendered, &existing) {
+                    None => Ok(None),
+                    Some((line, parent)) => {
+                        let under = parent.map(|p| format!(" under `{p}`")).unwrap_or_default();
+                        Err(format!(
+                            "{}: already exists, so Irida left it alone; add `{line}`{under}",
+                            path.display()
+                        ))
+                    }
+                };
+            }
+        }
+        return Ok(Some(PlannedWrite {
             path,
             contents: rendered,
             edit: Edit::File,
-        });
+        }));
     }
-    let skip = |why: &dyn fmt::Display| format!("{}: {why}; skipped", path.display());
     let existing = read_existing(&path).map_err(|e| skip(&e))?;
     match f.write {
         WriteKind::Block => {
@@ -315,7 +355,7 @@ fn plan_file(f: &FileEntry, path: PathBuf, rendered: String) -> Result<PlannedWr
                 .ok_or_else(|| skip(&"block needs comment"))?;
             let edit = set_block(existing.as_deref(), &comment, &rendered)
                 .map_err(|_| skip(&"irida markers are broken"))?;
-            Ok(PlannedWrite {
+            Ok(Some(PlannedWrite {
                 path,
                 contents: edit.contents,
                 edit: Edit::Block {
@@ -323,13 +363,13 @@ fn plan_file(f: &FileEntry, path: PathBuf, rendered: String) -> Result<PlannedWr
                     before: edit.before,
                     appended_newline: edit.appended_newline,
                 },
-            })
+            }))
         }
         _ => {
             let key = f.key.clone().ok_or_else(|| skip(&"key needs key"))?;
             let value = rendered.trim_end_matches(['\n', '\r']);
             let edit = set_key(existing.as_deref(), &key, value);
-            Ok(PlannedWrite {
+            Ok(Some(PlannedWrite {
                 path,
                 contents: edit.contents,
                 edit: Edit::Key {
@@ -337,8 +377,20 @@ fn plan_file(f: &FileEntry, path: PathBuf, rendered: String) -> Result<PlannedWr
                     before: edit.before,
                     appended_newline: edit.appended_newline,
                 },
-            })
+            }))
         }
+    }
+}
+
+/// Whether a `file` write replaces an existing file with different bytes that
+/// the previous apply did not write.
+fn replaces_user_file(w: &PlannedWrite, recorded: &[PathBuf]) -> bool {
+    if recorded.contains(&w.path) {
+        return false;
+    }
+    match fs::read(&w.path) {
+        Ok(bytes) => bytes != w.contents.as_bytes(),
+        Err(_) => false,
     }
 }
 
@@ -349,6 +401,7 @@ fn plan_target<'t>(
     renderer: &Renderer,
     req: &ApplyRequest,
     dirs: &Dirs,
+    recorded: &[PathBuf],
 ) -> Result<TargetPlan<'t>, ApplyError> {
     let name = &target.def.name;
     let mut writes = Vec::new();
@@ -366,7 +419,13 @@ fn plan_target<'t>(
             .render(&f.template, source)
             .map_err(|e| render_error(e.to_string()))?;
         match plan_file(f, dirs.expand(&f.path), rendered) {
-            Ok(w) => writes.push(w),
+            Ok(Some(w)) => {
+                if f.write == WriteKind::File && replaces_user_file(&w, recorded) {
+                    warnings.push(replaced_note(&w.path));
+                }
+                writes.push(w);
+            }
+            Ok(None) => {}
             Err(warning) => warnings.push(warning),
         }
     }
@@ -390,24 +449,68 @@ fn plan_target<'t>(
             }
         }
     }
-    if writes.is_empty() {
-        let reason = if warnings.is_empty() {
-            "nothing to write".to_string()
-        } else {
-            warnings.remove(0)
-        };
-        return Ok(TargetPlan::skipped(
-            name,
-            SkipReason::Broken(reason),
-            warnings,
-        ));
-    }
     Ok(TargetPlan {
         name: name.clone(),
         outcome: Ok(target),
         writes,
         warnings,
-    })
+    }
+    .or_skipped())
+}
+
+/// The note for a `file` write over a file the user wrote.
+fn replaced_note(path: &Path) -> String {
+    format!(
+        "{}: replaced your file; irida undo restores it",
+        path.display()
+    )
+}
+
+impl TargetPlan<'_> {
+    /// A selected target left with no write is skipped, its first warning the reason.
+    fn or_skipped(mut self) -> Self {
+        if self.outcome.is_err() || !self.writes.is_empty() {
+            return self;
+        }
+        let reason = if self.warnings.is_empty() {
+            "nothing to write".to_string()
+        } else {
+            self.warnings.remove(0)
+        };
+        self.outcome = Err(SkipReason::Broken(reason));
+        self
+    }
+
+    /// Drop writes to a file an earlier write already plans, recording this
+    /// target's own writes in `seen`.
+    fn guard_paths(mut self, seen: &mut Vec<(PathBuf, String)>) -> Self {
+        if self.outcome.is_err() {
+            return self;
+        }
+        let mut kept = Vec::new();
+        for w in std::mem::take(&mut self.writes) {
+            let key = resolve_write_path(&w.path).unwrap_or_else(|_| w.path.clone());
+            match seen.iter().find(|(p, _)| *p == key) {
+                Some((_, first)) => {
+                    // The dropped write replaces nothing, so its note goes too.
+                    let note = replaced_note(&w.path);
+                    if let Some(i) = self.warnings.iter().position(|m| *m == note) {
+                        self.warnings.remove(i);
+                    }
+                    self.warnings.push(format!(
+                        "{}: already written by {first}; skipped",
+                        w.path.display()
+                    ));
+                }
+                None => {
+                    seen.push((key, self.name.clone()));
+                    kept.push(w);
+                }
+            }
+        }
+        self.writes = kept;
+        self.or_skipped()
+    }
 }
 
 /// Capture every file before it is written. On failure the unfinished record
@@ -445,6 +548,12 @@ pub fn apply(
     }
 
     let renderer = Renderer::new(req.palette);
+    let recorded: Vec<PathBuf> = record::latest(&ctx.dirs)
+        .ok()
+        .flatten()
+        .map(|r| r.entries.iter().map(|e| e.path().to_path_buf()).collect())
+        .unwrap_or_default();
+    let mut seen = Vec::new();
     let mut plans = Vec::new();
     for lt in &loaded {
         let named = match &req.only {
@@ -453,7 +562,9 @@ pub fn apply(
             None => false,
         };
         plans.push(match select(lt, ctx, settings, named) {
-            Ok(target) => plan_target(target, &renderer, req, &ctx.dirs)?,
+            Ok(target) => {
+                plan_target(target, &renderer, req, &ctx.dirs, &recorded)?.guard_paths(&mut seen)
+            }
             Err(reason) => TargetPlan::skipped(&lt.name, reason, Vec::new()),
         });
     }
@@ -504,9 +615,7 @@ pub fn apply(
         .into_iter()
         .map(|p| {
             let status = match &p.outcome {
-                Ok(target) => {
-                    TargetStatus::Applied(reload(target.def.reload.as_ref(), &p.name, &ctx.path))
-                }
+                Ok(target) => TargetStatus::Applied(reload_target(target, ctx)),
                 Err(reason) => TargetStatus::Skipped(reason.clone()),
             };
             p.into_result(status)
@@ -517,6 +626,25 @@ pub fn apply(
         record_id: record.id,
         targets,
     })
+}
+
+/// Reload one applied target. A signal is sent only when the target's binary
+/// is on the path: an app found only by its config folder cannot be running.
+fn reload_target(target: &Target, ctx: &Ctx) -> ReloadStatus {
+    let r = target.def.reload.as_ref();
+    // A signal goes only to a target whose binary is on PATH; one found only
+    // by its config folder, or with no binary named, cannot be running.
+    if r.is_some_and(|r| r.signal.is_some())
+        && !target
+            .def
+            .detect
+            .binary
+            .as_ref()
+            .is_some_and(|bin| ctx.path.iter().any(|p| is_executable(&p.join(bin))))
+    {
+        return ReloadStatus::NotRunning;
+    }
+    reload(r, &target.def.name, &ctx.path)
 }
 
 /// Undo the newest apply, keeping the user's own edits to block and key files.

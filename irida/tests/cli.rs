@@ -19,14 +19,22 @@ const NOIR: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
     "/../irida-core/tests/fixtures/palettes/noir.toml"
 );
+const EMBER_RICE: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../irida-core/tests/fixtures/rices/cosmic-ember-theme"
+);
 
+/// The binary with its home, XDG folders and temporary folder inside `tmp`.
 fn irida(tmp: &TempDir) -> Command {
     let home = tmp.path().join("home");
+    let scratch = tmp.path().join("tmp");
+    fs::create_dir_all(&scratch).unwrap();
     let mut cmd = Command::cargo_bin("irida").unwrap();
     cmd.env("HOME", &home)
         .env("XDG_CONFIG_HOME", home.join(".config"))
         .env("XDG_DATA_HOME", home.join(".local/share"))
-        .env("XDG_STATE_HOME", home.join(".local/state"));
+        .env("XDG_STATE_HOME", home.join(".local/state"))
+        .env("TMPDIR", &scratch);
     cmd
 }
 
@@ -86,9 +94,9 @@ fn no_args_prints_help() {
         .stderr(predicate::str::contains("Usage"));
 }
 
-/// A temp home with stored palettes, a btop config, and fake apps on `PATH`.
-/// The fake `btop` reports a version below the signal threshold, so nothing
-/// is ever signalled.
+/// A temp home with stored palettes, a btop config, and only fake apps on
+/// `PATH`. The fake `btop` reports a version below the signal threshold, so
+/// nothing is ever signalled, and there is no `cava`.
 fn apply_env(tmp: &TempDir) -> Command {
     let home = tmp.path().join("home");
     let bin = tmp.path().join("bin");
@@ -96,6 +104,10 @@ fn apply_env(tmp: &TempDir) -> Command {
     for (name, body) in [
         ("btop", "#!/bin/sh\necho 'btop version: 1.3.0'\n"),
         ("cosmic-term", "#!/bin/sh\nexit 0\n"),
+        ("cosmic-settings", "#!/bin/sh\nexit 0\n"),
+        ("nvim", "#!/bin/sh\nexit 0\n"),
+        ("fastfetch", "#!/bin/sh\nexit 0\n"),
+        ("lsd", "#!/bin/sh\nexit 0\n"),
     ] {
         let path = bin.join(name);
         fs::write(&path, body).unwrap();
@@ -110,7 +122,7 @@ fn apply_env(tmp: &TempDir) -> Command {
     fs::create_dir_all(&btop).unwrap();
     fs::write(btop.join("btop.conf"), "color_theme = \"Default\"\n").unwrap();
     let mut cmd = irida(tmp);
-    cmd.env("PATH", format!("{}:/usr/bin:/bin", bin.display()));
+    cmd.env("PATH", &bin);
     cmd
 }
 
@@ -219,4 +231,151 @@ fn apply_reports_even_when_settings_cannot_be_saved() {
         stderr.contains("irida: warning: could not save settings:"),
         "{stderr}"
     );
+}
+
+fn fixture_text(rel: &str) -> String {
+    fs::read_to_string(Path::new(EMBER_RICE).join(rel)).unwrap()
+}
+
+fn stdout_of(cmd: &mut Command) -> String {
+    String::from_utf8(cmd.output().unwrap().stdout).unwrap()
+}
+
+#[test]
+fn export_ember() {
+    let tmp = TempDir::new().unwrap();
+    let out = tmp.path().join("out");
+    fs::create_dir_all(&out).unwrap();
+    apply_env(&tmp)
+        .args(["export", "ember"])
+        .arg(&out)
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("Exported Ember to"))
+        .stdout(predicate::str::contains("  created   cosmic/Ember.ron\n"))
+        .stdout(predicate::str::contains("By hand: wallpaper"))
+        .stdout(predicate::str::contains("Contrast: 1 failure(s)"))
+        .stdout(predicate::str::contains(
+            "error    #D85A5A   4.7:1   4.4:1  4.5  FAIL on pane",
+        ));
+    assert_eq!(
+        fs::read_to_string(out.join("cosmic-ember-theme/cosmic/Ember.ron")).unwrap(),
+        fixture_text("cosmic/Ember.ron")
+    );
+}
+
+#[test]
+fn check_rice_folder() {
+    let tmp = TempDir::new().unwrap();
+    irida(&tmp)
+        .args(["check", EMBER_RICE])
+        .assert()
+        .code(1)
+        .stdout(predicate::str::contains(
+            "error    #D85A5A   4.7:1   4.4:1  4.5  FAIL on pane",
+        ));
+}
+
+#[test]
+fn round_trip() {
+    let tmp = TempDir::new().unwrap();
+    let out = tmp.path().join("out");
+    apply_env(&tmp)
+        .args(["export", "ember"])
+        .arg(&out)
+        .assert()
+        .code(0);
+    let exported = stdout_of(
+        apply_env(&tmp)
+            .arg("check")
+            .arg(out.join("cosmic-ember-theme")),
+    );
+    let saved = stdout_of(apply_env(&tmp).args(["check", "ember"]));
+    assert!(saved.contains("FAIL on pane"), "{saved}");
+    assert_eq!(exported, saved);
+}
+
+#[test]
+fn apply_rice_folder() {
+    let tmp = TempDir::new().unwrap();
+    apply_env(&tmp)
+        .args(["apply", EMBER_RICE, "--only", "btop"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("btop: applied"));
+    let config = tmp.path().join("home/.config");
+    assert!(config.join("btop/themes/irida.theme").is_file());
+    let settings = fs::read_to_string(config.join("irida/settings.toml")).unwrap_or_default();
+    assert!(!settings.contains("last_palette"), "{settings}");
+
+    apply_env(&tmp)
+        .args(["apply", "ember", "--only", "btop"])
+        .assert()
+        .code(0);
+    let settings = fs::read_to_string(config.join("irida/settings.toml")).unwrap();
+    assert!(settings.contains("last_palette = \"ember\""), "{settings}");
+}
+
+#[test]
+fn export_wrong_folder() {
+    let tmp = TempDir::new().unwrap();
+    let noir = tmp.path().join("cosmic-noir-theme");
+    fs::create_dir_all(&noir).unwrap();
+    apply_env(&tmp)
+        .args(["export", "ember"])
+        .arg(&noir)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("irida: "))
+        .stderr(predicate::str::contains("cosmic-noir-theme"));
+    assert_eq!(fs::read_dir(&noir).unwrap().count(), 0);
+}
+
+#[test]
+fn export_pair_missing() {
+    let tmp = TempDir::new().unwrap();
+    let mut cmd = apply_env(&tmp);
+    fs::remove_dir_all(tmp.path().join("home/.local/share/irida/palettes/emberday")).unwrap();
+    cmd.args(["export", "ember"])
+        .arg(tmp.path().join("out"))
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains("exporting alone"));
+}
+
+#[test]
+fn apply_all_then_undo() {
+    let tmp = TempDir::new().unwrap();
+    let _ = apply_env(&tmp);
+    let home = tmp.path().join("home");
+    let zshrc = home.join(".zshrc");
+    fs::write(&zshrc, "export X=1\n").unwrap();
+    for dir in ["nvim", "fastfetch", "lsd"] {
+        fs::create_dir_all(home.join(".config").join(dir)).unwrap();
+    }
+    let before = config_listing(&tmp);
+
+    let out = stdout_of(apply_env(&tmp).args(["apply", "ember"]));
+    for target in [
+        "cosmic-desktop",
+        "cosmic-term",
+        "btop",
+        "nvim",
+        "fastfetch",
+        "lsd",
+        "zsh",
+    ] {
+        assert!(
+            out.lines()
+                .any(|l| l.starts_with(&format!("{target}: applied"))),
+            "{target}: {out}"
+        );
+    }
+    assert!(out.contains("not installed: cava"), "{out}");
+    assert_ne!(config_listing(&tmp), before);
+    assert_ne!(fs::read_to_string(&zshrc).unwrap(), "export X=1\n");
+
+    apply_env(&tmp).arg("undo").assert().code(0);
+    assert_eq!(config_listing(&tmp), before);
+    assert_eq!(fs::read_to_string(&zshrc).unwrap(), "export X=1\n");
 }

@@ -22,7 +22,7 @@ signal = { process = "cava", signal = "USR2" }
 
 [[rice]]
 path = "cava/config.colors"
-install = "block"
+template = "cava.tmpl"
 "##;
 
 fn put(env: &TestEnv, folder: &str, toml: &str, templates: &[&str]) {
@@ -192,6 +192,108 @@ fn def() -> TargetDef {
         rice: vec![],
         live: false,
     }
+}
+
+#[test]
+fn rice_entries() {
+    let env = TestEnv::new();
+    let rice = |extra: &str| format!("[[rice]]\npath = \"x/{{{{ stem }}}}.y\"\n{extra}\n");
+    put(
+        &env,
+        "full",
+        &format!(
+            "name = \"full\"\n{}",
+            rice("template = \"t.tmpl\"\nexecutable = true")
+        ),
+        &["t.tmpl"],
+    );
+    put(
+        &env,
+        "notmpl",
+        &format!("name = \"notmpl\"\n{}", rice("")),
+        &[],
+    );
+    put(
+        &env,
+        "install",
+        &format!(
+            "name = \"install\"\n{}",
+            rice("template = \"t.tmpl\"\ninstall = \"file\"")
+        ),
+        &["t.tmpl"],
+    );
+    put(
+        &env,
+        "missing",
+        &format!("name = \"missing\"\n{}", rice("template = \"gone.tmpl\"")),
+        &[],
+    );
+    let all = load_targets(&env.dirs);
+    let t = find(&all, "full").result.as_ref().expect("loads");
+    assert_eq!(t.def.rice.len(), 1);
+    assert_eq!(t.def.rice[0].path, "x/{{ stem }}.y");
+    assert_eq!(t.def.rice[0].template, "t.tmpl");
+    assert!(t.def.rice[0].executable);
+    assert!(matches!(
+        find(&all, "notmpl").result,
+        Err(TargetError::Parse(_))
+    ));
+    assert!(matches!(
+        find(&all, "install").result,
+        Err(TargetError::Parse(_))
+    ));
+    assert!(find(&all, "missing").result.is_ok());
+}
+
+#[test]
+fn create_only_needs_file() {
+    let env = TestEnv::new();
+    let toml = |name: &str, write: &str| {
+        format!(
+            "name = \"{name}\"\n[[file]]\npath = \"~/a\"\nwrite = \"{write}\"\ntemplate = \"a.tmpl\"\ncomment = \"#\"\ncreate_only = true\n"
+        )
+    };
+    put(&env, "blk", &toml("blk", "block"), &["a.tmpl"]);
+    put(&env, "fil", &toml("fil", "file"), &["a.tmpl"]);
+    let all = load_targets(&env.dirs);
+    assert!(matches!(
+        find(&all, "blk").result,
+        Err(TargetError::Invalid(_))
+    ));
+    let t = find(&all, "fil").result.as_ref().expect("loads");
+    assert!(t.def.files[0].create_only);
+}
+
+#[test]
+fn reload_hint_parses() {
+    let env = TestEnv::new();
+    put(
+        &env,
+        "h",
+        "name = \"h\"\n[reload]\nhint = \"open a new shell\"\n",
+        &[],
+    );
+    let all = load_targets(&env.dirs);
+    let t = find(&all, "h").result.as_ref().expect("loads");
+    assert_eq!(
+        t.def.reload.as_ref().unwrap().hint.as_deref(),
+        Some("open a new shell")
+    );
+}
+
+#[test]
+fn config_file_detects() {
+    let env = TestEnv::new();
+    let zsh = TargetDef {
+        detect: Detect {
+            config: Some("~/.zshrc".into()),
+            ..Default::default()
+        },
+        ..def()
+    };
+    assert!(!is_detected(&zsh, &env.dirs, &[]));
+    env.write(".zshrc", "");
+    assert!(is_detected(&zsh, &env.dirs, &[]));
 }
 
 #[test]

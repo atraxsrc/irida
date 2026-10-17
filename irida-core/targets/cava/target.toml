@@ -1,0 +1,21 @@
+name = "cava"
+detect = { binary = "cava", config = "~/.config/cava" }
+live = true
+
+[[file]]
+path = "~/.config/cava/config"
+write = "block"
+comment = "#"
+template = "cava.tmpl"
+
+[reload]
+signal = { process = "cava", signal = "USR2" }
+
+[[rice]]
+path = "cava/config.colors"
+template = "cava.tmpl"
+
+[[rice]]
+path = "cava/install.sh"
+template = "install.sh.tmpl"
+executable = true

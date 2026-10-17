@@ -112,6 +112,12 @@ pub fn reload(r: Option<&Reload>, target: &str, path: &[PathBuf]) -> ReloadStatu
     let Some(r) = r else {
         return ReloadStatus::NotNeeded;
     };
+    if r.signal.is_none()
+        && r.command.is_none()
+        && let Some(hint) = &r.hint
+    {
+        return ReloadStatus::Restart(hint.clone());
+    }
     if let Some(min) = &r.min_version
         && !version_ok(&min.command, &min.version, path)
     {
