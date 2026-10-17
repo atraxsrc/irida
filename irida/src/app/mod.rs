@@ -17,7 +17,8 @@ mod wallpaper;
 
 use std::path::PathBuf;
 
-use cosmic::app::{Core, Settings, Task};
+use cosmic::app::{Core, CosmicFlags, Settings, Task};
+use cosmic::dbus_activation::{Details, Message as DbusMessage};
 use cosmic::dialog::file_chooser;
 use cosmic::iced::event::{self, Event};
 use cosmic::iced::keyboard;
@@ -33,6 +34,27 @@ use io_queue::IoQueue;
 use state::{Current, Effect, FolderFor, Msg, Screen, State, ToastItem, update};
 
 pub const APP_ID: &str = "io.github.atraxsrc.Irida";
+
+/// What `run` starts the window with. The window itself never launches
+/// with an action; `close` arrives over DBus from the panel applet.
+pub struct Flags {
+    pub ctx: Ctx,
+}
+
+impl CosmicFlags for Flags {
+    type SubCommand = String;
+    type Args = Vec<String>;
+}
+
+/// The message a DBus activation carries: the `close` action is the close
+/// button; everything else, including a plain activate, is nothing (the
+/// window is brought forward by libcosmic from the activation token).
+pub fn activation_msg(details: &Details) -> Option<Msg> {
+    match details {
+        Details::ActivateAction { action, .. } if action == "close" => Some(Msg::CloseRequested),
+        _ => None,
+    }
+}
 
 /// Where COSMIC keeps its system defaults, for the wallpaper reader.
 const COSMIC_SYSTEM: &str = "/usr/share/cosmic";
@@ -64,7 +86,10 @@ pub fn run() -> Result<(), String> {
         .size(Size::new(1200., 780.))
         .size_limits(Limits::NONE.min_width(720.).min_height(480.))
         .exit_on_close(false);
-    cosmic::app::run::<App>(settings, ctx).map_err(|e| e.to_string())
+    // Single instance: a second `irida` activates this window over DBus
+    // instead of opening another one, and the panel applet's `close` action
+    // reaches `dbus_activation`.
+    cosmic::app::run_single_instance::<App>(settings, Flags { ctx }).map_err(|e| e.to_string())
 }
 
 impl App {
@@ -212,7 +237,7 @@ fn events(event: Event, _status: event::Status, _window: window::Id) -> Option<M
 
 impl Application for App {
     type Executor = cosmic::executor::Default;
-    type Flags = Ctx;
+    type Flags = Flags;
     type Message = Message;
     const APP_ID: &'static str = APP_ID;
 
@@ -224,7 +249,15 @@ impl Application for App {
         &mut self.core
     }
 
-    fn init(core: Core, ctx: Ctx) -> (Self, Task<Message>) {
+    fn dbus_activation(&mut self, msg: DbusMessage) -> Task<Message> {
+        match activation_msg(&msg.msg) {
+            Some(m) => self.handle(m),
+            None => Task::none(),
+        }
+    }
+
+    fn init(core: Core, flags: Flags) -> (Self, Task<Message>) {
+        let ctx = flags.ctx;
         let lock = irida_core::live::lock_app(&ctx.dirs);
         let (state, effects) = State::new(ctx, PathBuf::from(COSMIC_SYSTEM), lock);
         let mut app = App {
@@ -345,5 +378,26 @@ fn content(state: &State) -> Element<'_, Msg> {
             .into(),
         Some(Current::Unreadable { slug, error, text }) => header::unreadable(slug, error, text),
         None => text::body(state.empty_text()).into(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cosmic::dbus_activation::Details;
+
+    #[test]
+    fn close_action_is_the_close_button_and_others_are_nothing() {
+        let close = Details::ActivateAction {
+            action: "close".into(),
+            args: vec![],
+        };
+        assert!(matches!(activation_msg(&close), Some(Msg::CloseRequested)));
+        let other = Details::ActivateAction {
+            action: "open".into(),
+            args: vec![],
+        };
+        assert!(activation_msg(&other).is_none());
+        assert!(activation_msg(&Details::Activate).is_none());
     }
 }

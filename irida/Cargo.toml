@@ -12,7 +12,7 @@ repository = "https://github.com/atraxsrc/irida"
 irida-core = { path = "../irida-core" }
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "webp"] }
 clap.workspace = true
-libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "e1f2cd2e52226aa50d59bb2cd6d43ffe290106ed", default-features = false, features = ["winit", "wayland", "tokio", "xdg-portal", "dbus-config", "about"] }
+libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "e1f2cd2e52226aa50d59bb2cd6d43ffe290106ed", default-features = false, features = ["winit", "wayland", "tokio", "xdg-portal", "dbus-config", "about", "single-instance"] }
 tokio = { version = "1", features = ["rt", "time"] }
 
 [dev-dependencies]
