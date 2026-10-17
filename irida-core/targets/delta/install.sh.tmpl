@@ -4,7 +4,8 @@
 #   ./delta/install.sh
 #
 # Copies {{ slug }}.gitconfig to ~/.config/delta/, adds it to include.path
-# (once) and sets delta.features to {{ slug }}. Safe to run again.
+# (once) and sets delta.features to {{ slug }}, printing the previous value
+# so it can be put back by hand. Safe to run again.
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -24,7 +25,11 @@ if ! git config --global --get-all include.path 2>/dev/null | grep -qxF "$theme"
     git config --global --add include.path "$theme"
     echo "  include.path += $theme"
 fi
-git config --global delta.features "{{ slug }}"
+before="$(git config --global --get-all delta.features 2>/dev/null | paste -sd ' ' - || true)"
+if [ -n "$before" ] && [ "$before" != "{{ slug }}" ]; then
+    echo "  delta.features was: $before"
+fi
+git config --global --replace-all delta.features "{{ slug }}"
 echo "  delta.features = {{ slug }}"
 
 echo "Done. Takes effect on the next git command"
