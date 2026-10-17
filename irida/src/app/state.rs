@@ -818,6 +818,8 @@ pub enum Msg {
     StoreLoaded {
         entries: Vec<EntrySummary>,
         settings: Result<Settings, String>,
+        /// The settings file was absent, which is the first-run signal.
+        settings_missing: bool,
     },
     Entries(Vec<EntrySummary>),
     Opened {
@@ -1134,6 +1136,8 @@ pub struct State {
     pub current: Option<Current>,
     pub dialog: Option<Dialog>,
     pub screen: Screen,
+    /// The settings file was absent at launch. Cleared once settings are written.
+    pub first_run: bool,
     /// Every toast shown, newest last.
     pub toasts: Vec<ToastItem>,
     pub menu_open: bool,
@@ -1190,6 +1194,7 @@ impl State {
             current: None,
             dialog: None,
             screen: Screen::Editor,
+            first_run: false,
             toasts: Vec::new(),
             menu_open: false,
             expanded: None,
@@ -1637,6 +1642,14 @@ impl State {
 
     /// Write `slug` as `settings.last_palette`, unless it is already there or
     /// `settings.toml` could not be read.
+    fn pass_first_run(&mut self) -> Vec<Effect> {
+        if !self.first_run {
+            return Vec::new();
+        }
+        self.first_run = false;
+        vec![Effect::SaveSettings(self.settings.clone())]
+    }
+
     fn remember(&mut self, slug: String) -> Vec<Effect> {
         if self.settings_unreadable || self.settings.last_palette.as_deref() == Some(&slug) {
             return Vec::new();
@@ -1686,7 +1699,7 @@ impl State {
                     working: p,
                 });
                 self.retain_images();
-                Vec::new()
+                self.pass_first_run()
             }
             // On Discard the edits go at once, so a save cannot bury the
             // import, and so does what was typed for them.
@@ -1707,7 +1720,11 @@ impl State {
                     replace: true,
                 }]
             }
-            Leave::Exit => vec![Effect::Exit],
+            Leave::Exit => {
+                let mut effects = self.pass_first_run();
+                effects.push(Effect::Exit);
+                effects
+            }
         }
     }
 
@@ -1973,7 +1990,11 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         Msg::Seeded(Err(e)) => {
             vec![state.toast(format!("Could not add the starter palettes: {e}"))]
         }
-        Msg::StoreLoaded { entries, settings } => {
+        Msg::StoreLoaded {
+            entries,
+            settings,
+            settings_missing,
+        } => {
             state.entries = entries;
             let mut effects = Vec::new();
             match settings {
@@ -1995,7 +2016,11 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             }
             effects.push(Effect::LoadLiveTargets(state.settings.clone()));
             effects.push(Effect::RefreshTargets(state.settings.clone()));
-            if let Some(slug) = state.start_slug() {
+            if settings_missing {
+                state.first_run = true;
+                state.screen = Screen::Wallpaper(WallpaperDraft::new(false));
+                effects.push(Effect::FindWallpaper(state.wallpaper_system.clone()));
+            } else if let Some(slug) = state.start_slug() {
                 effects.push(Effect::OpenPalette(slug));
             }
             effects
@@ -2059,6 +2084,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                             working: p.clone(),
                         });
                         state.retain_images();
+                        state.first_run = false;
                         effects.push(Effect::LoadApplySheet {
                             palette: p.clone(),
                             settings: state.settings.clone(),
@@ -3318,6 +3344,15 @@ mod tests {
     /// takes the app's lock, so a second one while it is open is another
     /// window.
     fn start(tmp: &TempDir) -> State {
+        let store = Store::new(Dirs::under(tmp.path()));
+        if !store.settings_present().unwrap() {
+            store.save_settings(&Settings::default()).unwrap();
+        }
+        start_without_settings(tmp)
+    }
+
+    /// Like `start`, but a missing settings file stays missing.
+    fn start_without_settings(tmp: &TempDir) -> State {
         let lock = irida_core::live::lock_app(&Dirs::under(tmp.path()));
         let (mut state, effects) = State::new(ctx(tmp), tmp.path().join("system"), lock);
         drive_effects(&mut state, effects);
@@ -3458,9 +3493,103 @@ mod tests {
         let state = start(&tmp);
         assert_eq!(open_slug(&state), Some("ember"));
         assert!(state.settings_unreadable);
+        assert!(!state.first_run);
         assert_eq!(state.settings, Settings::default());
         assert!(last_toast(&state).starts_with("Could not read your settings"));
         assert_eq!(fs::read_to_string(&path).unwrap(), "disabled = 3\n");
+    }
+
+    fn first_run_ready(tmp: &TempDir) -> State {
+        let image = tmp.path().join("pictures/two-tone.png");
+        fs::create_dir_all(image.parent().unwrap()).unwrap();
+        vector_png("two-tone", &image);
+        cosmic_wallpaper(tmp, &image);
+        start_without_settings(tmp)
+    }
+
+    #[test]
+    fn first_run_only_when_settings_are_absent() {
+        let tmp = TempDir::new().unwrap();
+        let state = start_without_settings(&tmp);
+        assert!(state.first_run);
+        assert!(matches!(
+            state.screen,
+            Screen::Wallpaper(WallpaperDraft { cancel: false, .. })
+        ));
+        assert!(state.current.is_none());
+        for slug in ["ember", "emberday", "noir", "dossier"] {
+            assert!(state.entries.iter().any(|e| e.slug == slug), "{slug}");
+        }
+    }
+
+    #[test]
+    fn settings_file_opens_the_editor() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let state = start(&tmp);
+        assert!(!state.first_run);
+        assert_eq!(open_slug(&state), Some("ember"));
+    }
+
+    #[test]
+    fn edit_roles_on_first_run_writes_settings_and_not_the_palette() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = first_run_ready(&tmp);
+        assert!(state.wallpaper_ready(), "{:?}", wallpaper_draft(&state));
+        let slug = {
+            let d = wallpaper_draft(&state);
+            irida_core::palette::slug_from_name(&d.name)
+        };
+        drive(&mut state, Msg::EditRoles);
+        assert!(!state.first_run);
+        assert!(matches!(state.screen, Screen::Editor));
+        let store = Store::new(Dirs::under(tmp.path()));
+        assert!(store.settings_present().unwrap());
+        assert_eq!(store.settings().unwrap().last_palette, None);
+        assert!(store.load(&slug).is_err(), "{slug}");
+        match &state.current {
+            Some(Current::Editable { saved: None, .. }) => {}
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn close_on_first_run_writes_settings_without_last_palette() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = start_without_settings(&tmp);
+        let effects = update(&mut state, Msg::CloseRequested);
+        assert!(
+            matches!(
+                effects.as_slice(),
+                [Effect::SaveSettings(s), Effect::Exit] if s.last_palette.is_none()
+            ),
+            "{effects:?}"
+        );
+        drive_effects(&mut state, effects);
+        let state = start(&tmp);
+        assert!(!state.first_run);
+        assert_eq!(open_slug(&state), Some("dossier"));
+    }
+
+    #[test]
+    fn apply_on_first_run_then_relaunch_skips_the_screen() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = first_run_ready(&tmp);
+        let slug = wallpaper_draft(&state).name.clone();
+        let slug = irida_core::palette::slug_from_name(&slug);
+        drive(&mut state, Msg::WallpaperApply);
+        drive(
+            &mut state,
+            Msg::Applied(Ok(ApplyReport {
+                record_id: 1,
+                targets: vec![],
+            })),
+        );
+        assert!(matches!(state.screen, Screen::Editor));
+        assert_eq!(open_slug(&state), Some(slug.as_str()));
+        let state = start(&tmp);
+        assert!(!state.first_run);
+        assert_eq!(open_slug(&state), Some(slug.as_str()));
     }
 
     #[test]

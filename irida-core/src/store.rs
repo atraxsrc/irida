@@ -284,6 +284,15 @@ impl Store {
         self.load(arg)
     }
 
+    /// True when `settings.toml` exists. Not found is false; any other IO error is returned.
+    pub fn settings_present(&self) -> Result<bool, StoreError> {
+        match fs::metadata(self.settings_path()) {
+            Ok(_) => Ok(true),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(e) => Err(io_err(&self.settings_path(), e)),
+        }
+    }
+
     pub fn settings(&self) -> Result<Settings, StoreError> {
         let path = self.settings_path();
         let text = match fs::read_to_string(&path) {

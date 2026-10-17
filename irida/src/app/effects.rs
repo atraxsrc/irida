@@ -257,10 +257,14 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
     let store = Store::new(ctx.dirs.clone());
     let msg = match effect {
         Effect::SeedStarters => Msg::Seeded(store.seed_starters().map_err(|e| e.to_string())),
-        Effect::LoadStore => Msg::StoreLoaded {
-            entries: summaries(&store),
-            settings: store.settings().map_err(|e| e.to_string()),
-        },
+        Effect::LoadStore => {
+            let settings_missing = matches!(store.settings_present(), Ok(false));
+            Msg::StoreLoaded {
+                entries: summaries(&store),
+                settings: store.settings().map_err(|e| e.to_string()),
+                settings_missing,
+            }
+        }
         Effect::ListEntries => Msg::Entries(summaries(&store)),
         Effect::OpenPalette(slug) => {
             let result = open(&store, &slug);
@@ -555,7 +559,14 @@ mod tests {
         fs::create_dir_all(&dir).unwrap();
         fs::write(dir.join("palette.toml"), "nope").unwrap();
         let msgs = perform(Effect::LoadStore, &ctx);
-        let [Msg::StoreLoaded { entries, settings }] = msgs.as_slice() else {
+        let [
+            Msg::StoreLoaded {
+                entries,
+                settings,
+                settings_missing: _,
+            },
+        ] = msgs.as_slice()
+        else {
             panic!("{msgs:?}");
         };
         assert_eq!(settings.as_ref().unwrap(), &Settings::default());
