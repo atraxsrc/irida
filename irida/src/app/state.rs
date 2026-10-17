@@ -347,10 +347,11 @@ pub struct ApplySheet {
 /// The Apply sheet's targets in its three groups, each sorted by name.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SheetGroups {
-    /// Installed, working targets with whether they are turned on.
-    pub toggles: Vec<(String, bool)>,
-    /// Installed targets that cannot be applied, with the error.
-    pub broken: Vec<(String, String)>,
+    /// Installed, working targets: id, display name, whether turned on.
+    pub toggles: Vec<(String, String, bool)>,
+    /// Installed targets that cannot be applied: id, display name, error.
+    pub broken: Vec<(String, String, String)>,
+    /// Display names of the targets that are not installed.
     pub not_installed: Vec<String>,
 }
 
@@ -372,12 +373,14 @@ pub fn sheet_groups(targets: &[TargetInfo], settings: &Settings) -> SheetGroups 
     };
     for t in targets {
         if !t.detected {
-            groups.not_installed.push(t.name.clone());
+            groups.not_installed.push(t.display.clone());
         } else if let Some(e) = &t.broken {
-            groups.broken.push((t.name.clone(), e.clone()));
+            groups
+                .broken
+                .push((t.name.clone(), t.display.clone(), e.clone()));
         } else {
             let on = !settings.disabled.contains(&t.name);
-            groups.toggles.push((t.name.clone(), on));
+            groups.toggles.push((t.name.clone(), t.display.clone(), on));
         }
     }
     groups
@@ -456,11 +459,11 @@ pub fn applied_text(report: &ApplyReport) -> String {
     for t in &report.targets {
         match &t.status {
             TargetStatus::Applied(ReloadStatus::Restart(hint)) => {
-                lines.push(format!("{}: {hint}", t.name));
+                lines.push(format!("{}: {hint}", t.display));
             }
             TargetStatus::Applied(ReloadStatus::Failed(reason)) => lines.push(format!(
                 "Could not reload {} ({reason}); restart it to see the colours.",
-                t.name
+                t.display
             )),
             _ => {}
         }
@@ -2343,7 +2346,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             };
             let groups = sheet_groups(&sheet.targets, &state.settings);
-            if !groups.toggles.iter().any(|(n, _)| *n == name) {
+            if !groups.toggles.iter().any(|(n, _, _)| *n == name) {
                 return Vec::new();
             }
             let changed = if on {
@@ -4048,16 +4051,52 @@ mod tests {
         }
     }
 
-    const BUILTINS: [&str; 8] = [
+    /// The built-in targets' display names, in id order.
+    const BUILTIN_DISPLAYS: [&str; 8] = [
         "btop",
         "cava",
-        "cosmic-desktop",
-        "cosmic-term",
+        "COSMIC desktop",
+        "COSMIC Terminal",
         "fastfetch",
         "lsd",
-        "nvim",
+        "Neovim",
         "zsh",
     ];
+
+    fn info(name: &str, display: &str, detected: bool, broken: Option<String>) -> TargetInfo {
+        TargetInfo {
+            name: name.to_string(),
+            display: display.to_string(),
+            builtin: true,
+            live: false,
+            detected,
+            enabled: true,
+            broken,
+        }
+    }
+
+    #[test]
+    fn sheet_groups_use_display_names() {
+        let infos = vec![
+            info("cosmic-term", "COSMIC Terminal", true, None),
+            info("nvim", "Neovim", false, None),
+            info("bad", "bad", true, Some("broken".into())),
+        ];
+        let g = sheet_groups(&infos, &Settings::default());
+        assert_eq!(
+            g.toggles,
+            vec![(
+                "cosmic-term".to_string(),
+                "COSMIC Terminal".to_string(),
+                true
+            )]
+        );
+        assert_eq!(
+            g.broken,
+            vec![("bad".to_string(), "bad".to_string(), "broken".to_string())]
+        );
+        assert_eq!(g.not_installed, vec!["Neovim".to_string()]);
+    }
 
     #[test]
     fn sheet_groups_targets() {
@@ -4083,14 +4122,14 @@ mod tests {
         );
         assert_eq!(first.pair_note, None);
         let groups = sheet_groups(&first.targets, &state.settings);
-        assert_eq!(groups.toggles, [("a".to_string(), true)]);
+        assert_eq!(groups.toggles, [("a".to_string(), "a".to_string(), true)]);
         assert_eq!(groups.broken.len(), 1, "{:?}", groups.broken);
         assert_eq!(groups.broken[0].0, "bad");
-        assert!(groups.broken[0].1.contains("bogus"), "{:?}", groups.broken);
-        assert_eq!(groups.not_installed, BUILTINS);
+        assert!(groups.broken[0].2.contains("bogus"), "{:?}", groups.broken);
+        assert_eq!(groups.not_installed, BUILTIN_DISPLAYS);
         assert_eq!(
             groups.not_installed_line().as_deref(),
-            Some(format!("Not installed: {}", BUILTINS.join(", ")).as_str())
+            Some(format!("Not installed: {}", BUILTIN_DISPLAYS.join(", ")).as_str())
         );
 
         // A pair that is not in the store is left out, and the sheet says so.
@@ -4111,7 +4150,7 @@ mod tests {
         );
         let groups = sheet_groups(&alone.targets, &state.settings);
         assert!(groups.toggles.is_empty() && groups.broken.is_empty());
-        assert_eq!(groups.not_installed, BUILTINS);
+        assert_eq!(groups.not_installed, BUILTIN_DISPLAYS);
     }
 
     #[test]
@@ -4133,7 +4172,7 @@ mod tests {
             BTreeSet::from(["a".to_string()])
         );
         let groups = sheet_groups(&sheet(&state).targets, &state.settings);
-        assert_eq!(groups.toggles, [("a".to_string(), false)]);
+        assert_eq!(groups.toggles, [("a".to_string(), "a".to_string(), false)]);
 
         // A target that is not a toggle cannot be turned off.
         drive(&mut state, Msg::SetTarget("zsh".to_string(), false));
@@ -4198,18 +4237,21 @@ mod tests {
             targets: vec![
                 TargetResult {
                     name: "btop".to_string(),
+                    display: "btop".to_string(),
                     status: TargetStatus::Applied(ReloadStatus::Restart(
                         "restart btop to see it".to_string(),
                     )),
                     warnings: vec![],
                 },
                 TargetResult {
-                    name: "cava".to_string(),
+                    name: "cosmic-term".to_string(),
+                    display: "COSMIC Terminal".to_string(),
                     status: TargetStatus::Applied(ReloadStatus::Failed("exit 1".to_string())),
                     warnings: vec!["a warning".to_string()],
                 },
                 TargetResult {
                     name: "lsd".to_string(),
+                    display: "lsd".to_string(),
                     status: TargetStatus::Skipped(SkipReason::NotInstalled),
                     warnings: vec![],
                 },
@@ -4219,7 +4261,7 @@ mod tests {
             applied_text(&report),
             "Applied to 2 apps\n\
              btop: restart btop to see it\n\
-             Could not reload cava (exit 1); restart it to see the colours.\n\
+             Could not reload COSMIC Terminal (exit 1); restart it to see the colours.\n\
              a warning"
         );
         let write = |rolled_back| ApplyFailure::Write {

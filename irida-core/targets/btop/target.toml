@@ -1,4 +1,5 @@
 name = "btop"
+display = "btop"
 detect = { binary = "btop", config = "~/.config/btop" }
 
 [[file]]

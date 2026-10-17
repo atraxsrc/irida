@@ -1,4 +1,5 @@
 name = "fastfetch"
+display = "fastfetch"
 detect = { binary = "fastfetch", config = "~/.config/fastfetch" }
 
 [[file]]

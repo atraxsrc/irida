@@ -1,4 +1,5 @@
 name = "nvim"
+display = "Neovim"
 detect = { binary = "nvim", config = "~/.config/nvim" }
 
 [[file]]

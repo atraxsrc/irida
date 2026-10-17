@@ -14,25 +14,22 @@ pub fn view<'a>(state: &'a State, sheet: &'a ApplySheet) -> widget::Dialog<'a, M
     if let Some(note) = &sheet.pair_note {
         list = list.push(text::caption(note.clone()));
     }
-    for (name, on) in groups.toggles {
-        let toggle = widget::toggler(on).on_toggle({
-            let name = name.clone();
-            move |v| Msg::SetTarget(name.clone(), v)
-        });
+    for (name, display, on) in groups.toggles {
+        let toggle = widget::toggler(on).on_toggle(move |v| Msg::SetTarget(name.clone(), v));
         list = list.push(
             widget::Row::new()
                 .spacing(12)
-                .push(text::body(name).width(Length::Fill))
+                .push(text::body(display).width(Length::Fill))
                 .push(toggle),
         );
     }
-    for (name, error) in groups.broken {
+    for (_, display, error) in groups.broken {
         let row = widget::Row::new()
             .spacing(12)
             .push(
                 widget::Column::new()
                     .width(Length::Fill)
-                    .push(text::body(name))
+                    .push(text::body(display))
                     .push(text::caption(error)),
             )
             .push(widget::toggler(false));
