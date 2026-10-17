@@ -18,7 +18,7 @@ use crate::target::{
     FileEntry, LoadedTarget, Source, Target, WriteKind, is_detected, is_executable, load_targets,
 };
 use crate::template::{Renderer, check_syntax};
-use crate::write::{atomic_write, resolve_write_path, set_block, set_key};
+use crate::write::{KeyOpts, atomic_write, resolve_write_path, set_block, set_key};
 
 /// Apply records kept after an apply.
 pub(crate) const KEEP_RECORDS: usize = 10;
@@ -254,8 +254,15 @@ enum Edit {
     },
     Key {
         key: String,
+        separator: String,
+        /// The line Irida wrote.
+        written: String,
+        place: Option<String>,
+        section: Option<String>,
+        repeatable: bool,
         before: Option<String>,
         appended_newline: bool,
+        created_section: bool,
     },
     /// A native key file with the parts undo puts back one by one; never empty.
     Native(Vec<NativeUndo>),
@@ -287,14 +294,26 @@ impl PlannedWrite {
             }],
             Edit::Key {
                 key,
+                separator,
+                written,
+                place,
+                section,
+                repeatable,
                 before,
                 appended_newline,
+                created_section,
             } => vec![Entry::Key {
                 path,
                 blob,
                 key: key.clone(),
+                separator: separator.clone(),
+                written: written.clone(),
+                place: place.clone(),
+                section: section.clone(),
+                repeatable: *repeatable,
                 before: before.clone(),
                 appended_newline: *appended_newline,
+                created_section: *created_section,
             }],
             Edit::Native(undo) => undo
                 .iter()
@@ -530,14 +549,24 @@ fn plan_file(
         _ => {
             let key = f.key.clone().ok_or_else(|| skip(&"key needs key"))?;
             let value = rendered.trim_end_matches(['\n', '\r']);
-            let edit = set_key(existing.as_deref(), &key, value);
+            let opts = KeyOpts {
+                separator: f.separator.clone().unwrap_or_else(|| " = ".to_string()),
+                ..KeyOpts::default()
+            };
+            let edit = set_key(existing.as_deref(), &key, value, &opts);
             Ok(Some(PlannedWrite {
                 path,
                 contents: edit.contents,
                 edit: Edit::Key {
+                    written: format!("{key}{}{value}", opts.separator),
                     key,
+                    separator: opts.separator,
+                    place: None,
+                    section: None,
+                    repeatable: opts.repeatable,
                     before: edit.before,
                     appended_newline: edit.appended_newline,
+                    created_section: edit.created_section,
                 },
             }))
         }

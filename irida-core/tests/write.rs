@@ -4,7 +4,8 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 
 use irida_core::write::{
-    BlockError, atomic_write, resolve_write_path, restore_block, restore_key, set_block, set_key,
+    BlockError, KeyOpts, KeyScope, atomic_write, resolve_write_path, restore_block, restore_key,
+    set_block, set_key,
 };
 
 #[test]
@@ -62,26 +63,100 @@ fn block_on_missing_file() {
 
 #[test]
 fn key_replace_append_create_restore() {
+    let o = KeyOpts::default();
     let src = "a = 1\ncolor_theme = \"Default\"\nb = 2\n";
-    let e = set_key(Some(src), "color_theme", "\"irida\"");
+    let e = set_key(Some(src), "color_theme", "\"irida\"", &o);
     assert_eq!(e.contents, "a = 1\ncolor_theme = \"irida\"\nb = 2\n");
     assert_eq!(e.before.as_deref(), Some("color_theme = \"Default\""));
     assert_eq!(
         restore_key(
             &e.contents,
             "color_theme",
+            "color_theme = \"irida\"",
             e.before.as_deref(),
-            e.appended_newline
+            e.appended_newline,
+            false,
+            &o
         ),
         src
     );
 
-    let e = set_key(Some("a = 1"), "color_theme", "\"irida\"");
+    let e = set_key(Some("a = 1"), "color_theme", "\"irida\"", &o);
     assert_eq!(e.contents, "a = 1\ncolor_theme = \"irida\"\n");
-    assert_eq!(restore_key(&e.contents, "color_theme", None, true), "a = 1");
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "color_theme",
+            "color_theme = \"irida\"",
+            None,
+            true,
+            false,
+            &o
+        ),
+        "a = 1"
+    );
 
-    let e = set_key(None, "color_theme", "\"irida\"");
+    let e = set_key(None, "color_theme", "\"irida\"", &o);
     assert_eq!(e.contents, "color_theme = \"irida\"\n");
+}
+
+fn sep(s: &str) -> KeyOpts {
+    KeyOpts {
+        separator: s.into(),
+        ..KeyOpts::default()
+    }
+}
+
+#[test]
+fn separator_space_matches_and_writes() {
+    let o = sep(" ");
+    let e = set_key(
+        Some("font_size 12\ninclude   old.conf\n"),
+        "include",
+        "irida.conf",
+        &o,
+    );
+    assert_eq!(e.contents, "font_size 12\ninclude irida.conf\n");
+    assert_eq!(e.before.as_deref(), Some("include   old.conf"));
+}
+
+#[test]
+fn separator_equals_without_spaces() {
+    let o = sep("=");
+    let e = set_key(
+        Some("--style=plain\n--theme=\"TwoDark\"\n"),
+        "--theme",
+        "irida",
+        &o,
+    );
+    assert_eq!(e.contents, "--style=plain\n--theme=irida\n");
+    let back = restore_key(
+        &e.contents,
+        "--theme",
+        "--theme=irida",
+        e.before.as_deref(),
+        false,
+        false,
+        &o,
+    );
+    assert_eq!(back, "--style=plain\n--theme=\"TwoDark\"\n");
+}
+
+#[test]
+fn separator_does_not_match_a_longer_key() {
+    let o = sep(" ");
+    let e = set_key(Some("includes x\n"), "include", "irida.conf", &o);
+    assert_eq!(e.contents, "includes x\ninclude irida.conf\n");
+    assert_eq!(e.before, None);
+}
+
+#[test]
+fn default_opts_keep_old_behaviour() {
+    let o = KeyOpts::default();
+    assert_eq!(o.scope, KeyScope::End);
+    assert!(!o.repeatable);
+    let e = set_key(Some("a = 1\n"), "a", "2", &o);
+    assert_eq!(e.contents, "a = 2\n");
 }
 
 #[test]

@@ -373,3 +373,37 @@ fn every_builtin_has_display() {
         assert!(target.def.display.is_some(), "{} lacks display", t.name);
     }
 }
+
+#[test]
+fn separator_only_on_key_writes() {
+    let env = TestEnv::new();
+    put(
+        &env,
+        "s",
+        "name = \"s\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"file\"\ntemplate = \"a\"\nseparator = \" \"\n",
+        &["a"],
+    );
+    assert!(matches!(
+        find(&load_targets(&env.dirs), "s").result,
+        Err(TargetError::Invalid(_))
+    ));
+    put(
+        &env,
+        "e",
+        "name = \"e\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"key\"\nkey = \"k\"\ntemplate = \"a\"\nseparator = \"\"\n",
+        &["a"],
+    );
+    assert!(matches!(
+        find(&load_targets(&env.dirs), "e").result,
+        Err(TargetError::Invalid(_))
+    ));
+    put(
+        &env,
+        "t",
+        "name = \"t\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"key\"\nkey = \"include\"\ntemplate = \"a\"\nseparator = \" \"\n",
+        &["a"],
+    );
+    let all = load_targets(&env.dirs);
+    let t = find(&all, "t").result.as_ref().unwrap();
+    assert_eq!(t.def.files[0].separator.as_deref(), Some(" "));
+}

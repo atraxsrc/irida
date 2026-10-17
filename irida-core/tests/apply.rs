@@ -5,7 +5,7 @@ use std::fs;
 use std::os::unix::fs::{PermissionsExt, symlink};
 use std::path::{Path, PathBuf};
 
-use common::{TestEnv, palette};
+use common::{TestEnv, apply_only, palette};
 use hex_color::HexColor;
 use irida_core::apply::{
     ApplyError, ApplyReport, ApplyRequest, Ctx, SkipReason, TargetInfo, TargetStatus, UndoError,
@@ -1216,4 +1216,32 @@ fn status_and_report_carry_display() {
     env.write(".config/btop/btop.conf", "color_theme = \"Default\"\n");
     let report = common::apply_only(&env, &palette("ember"), "btop").unwrap();
     assert_eq!(report.get("btop").unwrap().display, "btop");
+}
+
+const D_TOML: &str = r#"name = "d"
+detect = {}
+
+[[file]]
+path = "~/.config/d/d.conf"
+write = "key"
+template = "d.tmpl"
+key = "include"
+separator = " "
+"#;
+
+#[test]
+fn key_with_space_separator_round_trips() {
+    let env = TestEnv::new();
+    put_target(&env, "d", D_TOML, &[("d.tmpl", "{{ slug }}.conf\n")]);
+    let conf = env.write(".config/d/d.conf", "font 12\ninclude mine.conf\n");
+    apply_only(&env, &palette("ember"), "d").unwrap();
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "font 12\ninclude ember.conf\n"
+    );
+    common::undo(&env);
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "font 12\ninclude mine.conf\n"
+    );
 }

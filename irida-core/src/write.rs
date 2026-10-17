@@ -213,17 +213,58 @@ pub fn restore_block(
     }
 }
 
+/// Where a key line lives in its file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum KeyScope {
+    /// Anywhere; a missing line is appended at the end.
+    End,
+    /// Before the first `[section]` header.
+    Top,
+    /// Inside the named `[section]`.
+    Section(String),
+}
+
+/// How a key line is matched and written.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyOpts {
+    /// The exact text between key and value, `" = "` by default.
+    pub separator: String,
+    pub scope: KeyScope,
+    /// The key may appear more than once: only a line carrying Irida's own
+    /// value matches, any other line with the key is left alone.
+    pub repeatable: bool,
+}
+
+impl Default for KeyOpts {
+    fn default() -> KeyOpts {
+        KeyOpts {
+            separator: " = ".to_string(),
+            scope: KeyScope::End,
+            repeatable: false,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct KeyEdit {
     pub contents: String,
     pub before: Option<String>,
     pub appended_newline: bool,
+    /// Irida added the `[section]` header too.
+    pub created_section: bool,
 }
 
-fn is_key_line(line: &str, key: &str) -> bool {
-    line.trim_start()
-        .strip_prefix(key)
-        .is_some_and(|rest| rest.trim_start().starts_with('='))
+/// Whether `line` is `key`, optional spaces, then the separator's first
+/// non-space character; a separator with no such character needs whitespace
+/// and something after it.
+fn is_key_line(line: &str, key: &str, separator: &str) -> bool {
+    let Some(rest) = line.trim_start().strip_prefix(key) else {
+        return false;
+    };
+    match separator.trim().chars().next() {
+        Some(c) => rest.trim_start().starts_with(c),
+        None => rest.starts_with(char::is_whitespace) && !rest.trim().is_empty(),
+    }
 }
 
 fn strip_eol(line: &str) -> (&str, &str) {
@@ -233,11 +274,14 @@ fn strip_eol(line: &str) -> (&str, &str) {
     }
 }
 
-pub fn set_key(existing: Option<&str>, key: &str, value: &str) -> KeyEdit {
+pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -> KeyEdit {
     let text = existing.unwrap_or("");
-    let new_line = format!("{key} = {value}");
+    let new_line = format!("{key}{}{value}", opts.separator);
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    if let Some(i) = lines.iter().position(|l| is_key_line(l, key)) {
+    if let Some(i) = lines
+        .iter()
+        .position(|l| is_key_line(l, key, &opts.separator))
+    {
         let (old, eol) = strip_eol(lines[i]);
         let contents = format!(
             "{}{new_line}{eol}{}",
@@ -248,6 +292,7 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str) -> KeyEdit {
             contents,
             before: Some(old.to_string()),
             appended_newline: false,
+            created_section: false,
         };
     }
     let mut contents = text.to_string();
@@ -261,17 +306,27 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str) -> KeyEdit {
         contents,
         before: None,
         appended_newline,
+        created_section: false,
     }
 }
 
+/// Put back the line a `set_key` replaced, or remove the one it added.
+/// `written` is the line Irida wrote.
 pub fn restore_key(
     current: &str,
     key: &str,
+    written: &str,
     before: Option<&str>,
     appended_newline: bool,
+    created_section: bool,
+    opts: &KeyOpts,
 ) -> String {
+    let _ = (written, created_section);
     let lines: Vec<&str> = current.split_inclusive('\n').collect();
-    let Some(i) = lines.iter().position(|l| is_key_line(l, key)) else {
+    let Some(i) = lines
+        .iter()
+        .position(|l| is_key_line(l, key, &opts.separator))
+    else {
         return current.to_string();
     };
     match before {

@@ -11,7 +11,32 @@ use crate::dirs::Dirs;
 use crate::live;
 use crate::native::cosmic_term::{self, Undone};
 use crate::palette::Mode;
-use crate::write::{atomic_write, resolve_write_path, restore_block, restore_key};
+use crate::write::{
+    KeyOpts, KeyScope, atomic_write, resolve_write_path, restore_block, restore_key,
+};
+
+fn default_separator() -> String {
+    " = ".to_string()
+}
+
+/// The matching rules a key entry was written with.
+fn key_opts(
+    separator: &str,
+    place: Option<&str>,
+    section: Option<&str>,
+    repeatable: bool,
+) -> KeyOpts {
+    let scope = match (place, section) {
+        (_, Some(s)) => KeyScope::Section(s.to_string()),
+        (Some("top"), None) => KeyScope::Top,
+        _ => KeyScope::End,
+    };
+    KeyOpts {
+        separator: separator.to_string(),
+        scope,
+        repeatable,
+    }
+}
 
 /// One file an apply touched. `blob` names a file inside the record folder holding
 /// the bytes before the apply; `None` means the file did not exist. Entries for
@@ -38,9 +63,23 @@ pub enum Entry {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         blob: Option<String>,
         key: String,
+        /// The text between key and value; records from v0.1 lack it.
+        #[serde(default = "default_separator")]
+        separator: String,
+        /// The line Irida wrote; empty in records from v0.1.
+        #[serde(default, skip_serializing_if = "String::is_empty")]
+        written: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        place: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        section: Option<String>,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        repeatable: bool,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         before: Option<String>,
         appended_newline: bool,
+        #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+        created_section: bool,
     },
     /// One COSMIC Terminal colour scheme; `name` is the scheme Irida wrote at
     /// `id`, `before` its RON before the write, `None` when the id was free.
@@ -422,11 +461,26 @@ fn undo_edit(dir: &Path, e: &Entry) -> io::Result<()> {
         }
         Entry::Key {
             key,
+            separator,
+            written,
+            place,
+            section,
+            repeatable,
             before,
             appended_newline,
+            created_section,
             ..
         } => {
-            let text = restore_key(&current, key, before.as_deref(), *appended_newline);
+            let opts = key_opts(separator, place.as_deref(), section.as_deref(), *repeatable);
+            let text = restore_key(
+                &current,
+                key,
+                written,
+                before.as_deref(),
+                *appended_newline,
+                *created_section,
+                &opts,
+            );
             let empty = text.is_empty();
             (text, empty)
         }

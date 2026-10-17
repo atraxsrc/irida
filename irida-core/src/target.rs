@@ -41,6 +41,9 @@ pub struct FileEntry {
     /// Write only when the file does not exist yet.
     #[serde(default)]
     pub create_only: bool,
+    /// For `key` writes: the exact text between key and value, `" = "` when absent.
+    #[serde(default)]
+    pub separator: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -184,6 +187,12 @@ fn build(
         }
         if f.create_only && f.write != WriteKind::File {
             return invalid(format!("{}: create_only needs write = \"file\"", f.path));
+        }
+        if f.separator.is_some() && f.write != WriteKind::Key {
+            return invalid(format!("{}: separator needs write = \"key\"", f.path));
+        }
+        if f.separator.as_deref() == Some("") {
+            return invalid(format!("{}: separator must not be empty", f.path));
         }
         if !templates.contains_key(&f.template) {
             return invalid(format!("{}: missing template {}", f.path, f.template));

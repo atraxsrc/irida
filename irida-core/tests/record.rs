@@ -7,7 +7,7 @@ use std::path::{Path, PathBuf};
 use common::TestEnv;
 use irida_core::dirs::Dirs;
 use irida_core::record::{self, Entry, RecordWriter, RestoreMode};
-use irida_core::write::{atomic_write, set_block, set_key};
+use irida_core::write::{KeyOpts, atomic_write, set_block, set_key};
 
 fn read_opt(path: &Path) -> Option<String> {
     fs::read_to_string(path).ok()
@@ -30,14 +30,20 @@ fn apply_block(w: &mut RecordWriter, path: &Path, body: &str) {
 /// Capture `path`, set a key in it and record the matching entry.
 fn apply_key(w: &mut RecordWriter, path: &Path, key: &str, value: &str) {
     let blob = w.capture(path).unwrap();
-    let edit = set_key(read_opt(path).as_deref(), key, value);
+    let edit = set_key(read_opt(path).as_deref(), key, value, &KeyOpts::default());
     atomic_write(path, edit.contents.as_bytes()).unwrap();
     w.push(Entry::Key {
         path: path.to_path_buf(),
         blob,
         key: key.to_string(),
+        separator: " = ".to_string(),
+        written: format!("{key} = {value}"),
+        place: None,
+        section: None,
+        repeatable: false,
         before: edit.before,
         appended_newline: edit.appended_newline,
+        created_section: false,
     });
 }
 
@@ -360,4 +366,28 @@ fn abort_removes_only_its_folder() {
     assert_eq!(record::latest(&env.dirs).unwrap(), Some(rec));
     let blob = applies.join("1").join(blob.unwrap());
     assert_eq!(fs::read_to_string(blob).unwrap(), "old a\n");
+}
+
+/// A key entry written by v0.1, before separator and friends existed, still
+/// loads and restores.
+#[test]
+fn v0_1_key_entry_loads_and_restores() {
+    let env = TestEnv::new();
+    let conf = env.write(".config/btop/btop.conf", "color_theme = \"irida\"\n");
+    let dir = env.dirs.state.join("irida/applies/7");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(
+        dir.join("record.toml"),
+        format!(
+            "id = 7\npalette = \"ember\"\n\n[[entries]]\nkind = \"key\"\npath = \"{}\"\nkey = \"color_theme\"\nbefore = \"color_theme = \\\"Default\\\"\"\nappended_newline = false\n",
+            conf.display()
+        ),
+    )
+    .unwrap();
+    let rec = record::load(&env.dirs, 7).expect("loads");
+    assert!(record::restore(&env.dirs, &rec, RestoreMode::Undo).is_empty());
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "color_theme = \"Default\"\n"
+    );
 }
