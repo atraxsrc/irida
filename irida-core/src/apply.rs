@@ -837,6 +837,23 @@ fn add_session_entries(rec: &mut RecordWriter, writes: &[&PlannedWrite]) -> io::
             }
             continue;
         }
+        if let Edit::Key { key, written, .. } = &w.edit {
+            // Undo must recognise the line this apply wrote there.
+            for e in rec.entries_mut() {
+                if let Entry::Key {
+                    path,
+                    key: k,
+                    written: wr,
+                    ..
+                } = e
+                    && *path == w.path
+                    && k == key
+                {
+                    wr.clone_from(written);
+                }
+            }
+            continue;
+        }
         let Edit::Native(undo) = &w.edit else {
             continue;
         };

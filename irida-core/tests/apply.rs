@@ -1397,3 +1397,17 @@ fn target_note_is_reported_on_apply() {
         t.warnings
     );
 }
+
+#[test]
+fn undo_leaves_a_key_line_the_user_changed() {
+    let env = TestEnv::new();
+    put_c(&env);
+    let c_conf = env.write(".config/c/c.conf", "a = 1\ntheme = old\n");
+    run(&env, &palette("ember")).unwrap();
+    assert_eq!(read(&c_conf), "a = 1\ntheme = ember\n");
+    fs::write(&c_conf, "a = 1\ntheme = mine\n").unwrap();
+
+    let report = undo(&ctx(&env)).unwrap();
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    assert_eq!(read(&c_conf), "a = 1\ntheme = mine\n");
+}

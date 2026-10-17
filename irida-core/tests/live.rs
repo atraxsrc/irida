@@ -578,3 +578,25 @@ fn session_open_is_false_without_a_marker() {
         tmp.path()
     )));
 }
+
+#[test]
+fn keep_then_undo_restores_a_key_line_rewritten_in_the_session() {
+    let env = TestEnv::new();
+    put_cava(&env);
+    put_target(
+        &env,
+        "c",
+        "name = \"c\"\ndetect = {}\nlive = true\n\n[[file]]\npath = \"~/.config/c/c.conf\"\nwrite = \"key\"\nkey = \"theme\"\ntemplate = \"t.tmpl\"\n",
+        &[("t.tmpl", "{{ slug }}\n")],
+    );
+    let c_conf = env.write(".config/c/c.conf", "a = 1\ntheme = old\n");
+    let mut s = LiveSession::start(&ctx(&env), "ember").unwrap();
+    session_apply(&mut s, &env, &palette("ember"));
+    session_apply(&mut s, &env, &palette("noir"));
+    assert_eq!(read(&c_conf), "a = 1\ntheme = noir\n");
+    s.keep(&ctx(&env)).unwrap();
+
+    let report = apply::undo(&ctx(&env)).unwrap();
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    assert_eq!(read(&c_conf), "a = 1\ntheme = old\n");
+}

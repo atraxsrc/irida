@@ -678,3 +678,44 @@ fn indented_key_line_keeps_its_indent() {
     let e = set_key(Some(src), "include", "irida.conf", &rep());
     assert_eq!(e.contents, "  include  a.conf\n  include irida.conf\n");
 }
+
+#[test]
+fn restore_key_leaves_a_line_the_user_changed() {
+    let o = KeyOpts::default();
+    let e = set_key(Some("a = 1\ntheme = old\n"), "theme", "irida", &o);
+    let edited = e.contents.replace("theme = irida", "theme = mine");
+    let out = restore_key(
+        &edited,
+        "theme",
+        "theme = irida",
+        e.before.as_deref(),
+        e.appended_newline,
+        false,
+        &o,
+    );
+    assert_eq!(out, "a = 1\ntheme = mine\n");
+
+    // An added line the user changed stays too.
+    let e = set_key(Some("a = 1\n"), "theme", "irida", &o);
+    let edited = e.contents.replace("theme = irida", "theme = mine");
+    assert_eq!(
+        restore_key(&edited, "theme", "theme = irida", None, false, false, &o),
+        edited
+    );
+}
+
+#[test]
+fn restore_key_without_written_line_matches_any_value() {
+    // Records from v0.1 do not say which line Irida wrote.
+    let o = KeyOpts::default();
+    let out = restore_key(
+        "a = 1\ntheme = mine\n",
+        "theme",
+        "",
+        Some("theme = old"),
+        false,
+        false,
+        &o,
+    );
+    assert_eq!(out, "a = 1\ntheme = old\n");
+}

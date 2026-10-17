@@ -389,19 +389,19 @@ fn key_value<'l>(line: &'l str, key: &str, separator: &str) -> Option<&'l str> {
     Some(rest.trim())
 }
 
-/// The line in `range` that `set_key` would replace, or that it wrote: for a
-/// repeatable key only a line whose value equals `written`'s.
+/// The first line in `range` with `key`; with `own`, only a line whose value
+/// equals `own`'s. A line `own` has no value for matches any line with the key.
 fn find_line(
     lines: &[&str],
     range: std::ops::Range<usize>,
     key: &str,
-    written: Option<&str>,
-    opts: &KeyOpts,
+    own: Option<&str>,
+    separator: &str,
 ) -> Option<usize> {
-    let want = written.and_then(|w| key_value(w, key, &opts.separator));
+    let want = own.and_then(|w| key_value(w, key, separator));
     range.into_iter().find(|&i| match want {
-        Some(v) if opts.repeatable => key_value(lines[i], key, &opts.separator) == Some(v),
-        _ => is_key_line(lines[i], key, &opts.separator),
+        Some(v) => key_value(lines[i], key, separator) == Some(v),
+        None => is_key_line(lines[i], key, separator),
     })
 }
 
@@ -412,7 +412,9 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let (range, insert) = locate(&lines, &opts.scope);
     let end = range.end;
-    if let Some(i) = find_line(&lines, range, key, Some(&new_line), opts) {
+    // A repeatable key replaces only its own line, any other key any line.
+    let own = opts.repeatable.then_some(new_line.as_str());
+    if let Some(i) = find_line(&lines, range, key, own, &opts.separator) {
         // A value that opens a bracket and closes it on a later line (a TOML
         // array over several lines) is replaced as a whole.
         let mut j = i;
@@ -477,8 +479,10 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
 }
 
 /// Put back the line a `set_key` replaced, or remove the one it added.
-/// `written` is the line Irida wrote; `created_section` removes the header
-/// Irida added when nothing else is left under it.
+/// `written` is the line Irida wrote, and only a line with its value is
+/// touched; an empty `written` (a v0.1 record) matches any line with the key.
+/// `created_section` removes the header Irida added when nothing else is left
+/// under it.
 pub fn restore_key(
     current: &str,
     key: &str,
@@ -490,7 +494,8 @@ pub fn restore_key(
 ) -> String {
     let lines: Vec<&str> = current.split_inclusive('\n').collect();
     let (range, _) = locate(&lines, &opts.scope);
-    let Some(i) = find_line(&lines, range, key, Some(written), opts) else {
+    // Only the line Irida wrote: one the user has changed since is theirs.
+    let Some(i) = find_line(&lines, range, key, Some(written), &opts.separator) else {
         return current.to_string();
     };
     if let Some(old) = before {
