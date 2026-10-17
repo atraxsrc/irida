@@ -2787,6 +2787,7 @@ dependencies = [
  "serde",
  "tempfile",
  "tokio",
+ "zbus",
 ]
 
 [[package]]

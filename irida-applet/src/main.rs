@@ -1,11 +1,29 @@
-//! The Irida panel applet. The libcosmic window comes in a later task.
+//! The Irida panel applet: saved palettes in the COSMIC panel, applied with a
+//! click. See `docs/superpowers/specs/2026-10-17-panel-applet-design.md`.
 
-// Used by the window once it exists.
-#[allow(dead_code)]
+mod actions;
 mod copy;
-#[allow(dead_code)]
 mod menu;
-#[allow(dead_code)]
 mod panel;
+mod window;
 
-fn main() {}
+use std::process::ExitCode;
+
+use irida_core::apply::Ctx;
+
+fn main() -> ExitCode {
+    let ctx = match Ctx::for_app() {
+        Ok(ctx) => ctx,
+        Err(e) => {
+            eprintln!("irida-applet: {e}");
+            return ExitCode::from(2);
+        }
+    };
+    match cosmic::applet::run::<window::Window>(ctx) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("irida-applet: {e}");
+            ExitCode::from(1)
+        }
+    }
+}
