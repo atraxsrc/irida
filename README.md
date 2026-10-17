@@ -64,6 +64,7 @@ result to your desktop, terminal, editor and tools in one step.
 | foot | `irida.ini`, included from `foot.ini` (1.26 or newer) | |
 | Helix | `themes/irida.toml`, selected in `config.toml` | |
 | bat | `themes/irida.tmTheme`, selected in `config`, cache rebuilt; after undo run `bat cache --build` (or `--clear`); `BAT_THEME` in your shell wins | |
+| tmux | A marked block in `~/.config/tmux/tmux.conf`, read after `~/.tmux.conf` (3.1 or newer) | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in

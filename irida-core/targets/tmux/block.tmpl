@@ -1,0 +1,13 @@
+# {{ name }} ({{ mode }}) for tmux, written by Irida.
+set -g status-style "bg={{ pane }},fg={{ text }}"
+set -g window-status-style "bg={{ pane }},fg={{ muted }}"
+set -g window-status-current-style "bg={{ container }},fg={{ accent }},bold"
+set -g window-status-activity-style "bg={{ pane }},fg={{ warning }}"
+set -g pane-border-style "fg={{ container }}"
+set -g pane-active-border-style "fg={{ accent }}"
+set -g message-style "bg={{ container }},fg={{ text }}"
+set -g message-command-style "bg={{ container }},fg={{ accent }}"
+set -g mode-style "bg={{ mix(background, "accent", 0.35) }},fg={{ text }}"
+set -g display-panes-active-colour "{{ accent }}"
+set -g display-panes-colour "{{ muted }}"
+set -g clock-mode-colour "{{ accent }}"

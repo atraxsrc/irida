@@ -1,0 +1,30 @@
+# Checked against the tmux(1) man page and tmux's Makefile.am (TMUX_CONF) and
+# cfg.c on 2026-10-18: tmux loads every file of /etc/tmux.conf, ~/.tmux.conf,
+# $XDG_CONFIG_HOME/tmux/tmux.conf and ~/.config/tmux/tmux.conf that exists, in
+# that order (~/.config/tmux from 3.1, $XDG_CONFIG_HOME from 3.2). A block in
+# the XDG file is read last, so it wins over a ~/.tmux.conf. Styles take
+# "#rrggbb" colours. Needs tmux 3.1 or newer.
+name = "tmux"
+display = "tmux"
+detect = { binary = "tmux" }
+
+[[file]]
+path = "~/.config/tmux/tmux.conf"
+write = "block"
+comment = "#"
+template = "block.tmpl"
+
+# source-file re-reads the config in a running server; with no server the
+# next one reads it at start.
+[reload]
+command = "tmux info >/dev/null 2>&1 || exit 0; tmux source-file \"${XDG_CONFIG_HOME:-$HOME/.config}/tmux/tmux.conf\""
+hint = "run tmux source-file on your tmux.conf, or start a new tmux server"
+
+[[rice]]
+path = "tmux/{{ slug }}.conf"
+template = "block.tmpl"
+
+[[rice]]
+path = "tmux/install.sh"
+template = "install.sh.tmpl"
+executable = true
