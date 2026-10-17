@@ -1,7 +1,7 @@
 //! Drafting a palette from wallpaper colours.
 //!
-//! A port of `docs/superpowers/specs/2026-10-16-wallpaper-draft.js`, function
-//! by function, so its vectors match: pixels to OKLab, a seeded k-means with
+//! A port of the JavaScript reference draft from Irida's design, function by
+//! function, so its vectors match: pixels to OKLab, a seeded k-means with
 //! k = 8, then 13 roles whose lightness and chroma come from Ember (dark) and
 //! Ember Day (light). The wallpaper only decides the neutral cast, the accent
 //! and how far each semantic hue leans toward a nearby wallpaper colour. Every
