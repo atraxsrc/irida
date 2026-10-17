@@ -1,5 +1,5 @@
 [workspace]
-members = ["irida-core", "irida"]
+members = ["irida-core", "irida", "irida-applet"]
 resolver = "3"
 
 [workspace.package]
