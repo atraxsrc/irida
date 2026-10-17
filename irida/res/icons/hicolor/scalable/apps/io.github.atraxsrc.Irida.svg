@@ -1,12 +1,9 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="28" fill="#15171C"/>
-  <g fill="none" stroke-width="4.5" stroke-linecap="round">
-    <path stroke="#D85A5A" d="M 14 89 A 50 50 0 0 1 114 89"/>
-    <path stroke="#E8713A" d="M 20 89 A 44 44 0 0 1 108 89"/>
-    <path stroke="#D9A441" d="M 26 89 A 38 38 0 0 1 102 89"/>
-    <path stroke="#8FB58A" d="M 32 89 A 32 32 0 0 1 96 89"/>
-    <path stroke="#7FB7B3" d="M 38 89 A 26 26 0 0 1 90 89"/>
-    <path stroke="#7FA3C7" d="M 44 89 A 20 20 0 0 1 84 89"/>
-    <path stroke="#B08BC4" d="M 50 89 A 14 14 0 0 1 78 89"/>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 1024 1024">
+  <rect width="1024" height="1024" rx="224" fill="#151515"/>
+  <rect x="164" y="614" width="92" height="233" rx="10" fill="#21B1B1"/>
+  <rect x="285" y="141" width="92" height="706" rx="10" fill="#EF282D"/>
+  <rect x="406" y="392" width="92" height="455" rx="10" fill="#F5358B"/>
+  <rect x="527" y="297" width="92" height="550" rx="10" fill="#8F42D0"/>
+  <rect x="648" y="434" width="92" height="413" rx="10" fill="#2C71EA"/>
+  <rect x="768" y="614" width="92" height="233" rx="10" fill="#42B75C"/>
 </svg>
