@@ -2762,7 +2762,7 @@ dependencies = [
 
 [[package]]
 name = "irida"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "assert_cmd",
  "base64",
@@ -2779,7 +2779,7 @@ dependencies = [
 
 [[package]]
 name = "irida-applet"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "cosmic-config 1.0.0 (git+https://github.com/pop-os/libcosmic?rev=e1f2cd2e52226aa50d59bb2cd6d43ffe290106ed)",
  "iced_test",
@@ -2794,7 +2794,7 @@ dependencies = [
 
 [[package]]
 name = "irida-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64",
  "cosmic-config 1.0.0 (git+https://github.com/pop-os/libcosmic?rev=e1f2cd2e52226aa50d59bb2cd6d43ffe290106ed)",

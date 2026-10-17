@@ -52,6 +52,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.0" date="2026-10-17">
+      <description>
+        <p>New from wallpaper drafts a palette from an image, and the preview draws over it. A panel applet applies saved palettes from the COSMIC panel. The editor is split into a Palette workspace and a Preview workspace.</p>
+      </description>
+    </release>
     <release version="0.1.0" date="2026-10-17">
       <description>
         <p>First release.</p>
