@@ -1,0 +1,17 @@
+// {{ name }} ({{ mode }}) for zellij, written by Irida.
+{%- set bg = term.background or pane %}
+themes {
+    {% if export %}{{ slug }}{% else %}irida{% endif %} {
+        fg "{{ term.foreground }}"
+        bg "{{ bg }}"
+        black "{{ term.normal.black }}"
+        red "{{ term.normal.red }}"
+        green "{{ term.normal.green }}"
+        yellow "{{ term.normal.yellow }}"
+        blue "{{ term.normal.blue }}"
+        magenta "{{ term.normal.magenta }}"
+        cyan "{{ term.normal.cyan }}"
+        white "{{ term.normal.white }}"
+        orange "{{ accent }}"
+    }
+}

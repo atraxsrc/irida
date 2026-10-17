@@ -1,0 +1,36 @@
+# Checked against zellij.dev/documentation (themes, legacy-themes) and
+# zellij's CHANGELOG on 2026-10-18: themes are KDL, `themes { <name> { ... } }`,
+# loaded from CONFIG_DIR/themes; the legacy palette (fg bg black red green
+# yellow blue magenta cyan white orange, quoted hex) is still supported; the
+# theme is chosen with `theme "<name>"` in config.kdl, while theme_dark plus
+# theme_light switch automatically and win over it. Config reloads at runtime
+# from 0.41.0; a changed file in the themes folder reloads live from 0.45.0.
+name = "zellij"
+display = "zellij"
+detect = { binary = "zellij", config = "~/.config/zellij" }
+
+[[file]]
+path = "~/.config/zellij/themes/irida.kdl"
+write = "file"
+template = "irida.kdl.tmpl"
+
+[[file]]
+path = "~/.config/zellij/config.kdl"
+write = "key"
+key = "theme"
+separator = " "
+note_replaced = true
+note_overrides = ["theme_dark", "theme_light"]
+template = "theme.tmpl"
+
+[reload]
+hint = "zellij 0.45 or newer picks the theme up live; restart older sessions"
+
+[[rice]]
+path = "zellij/{{ slug }}.kdl"
+template = "irida.kdl.tmpl"
+
+[[rice]]
+path = "zellij/install.sh"
+template = "install.sh.tmpl"
+executable = true

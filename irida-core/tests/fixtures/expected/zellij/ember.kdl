@@ -1,0 +1,16 @@
+// Ember (dark) for zellij, written by Irida.
+themes {
+    ember {
+        fg "#D6D9E0"
+        bg "#1B1E24"
+        black "#2A2F38"
+        red "#D85A5A"
+        green "#8FB58A"
+        yellow "#D9A441"
+        blue "#7FA3C7"
+        magenta "#B08BC4"
+        cyan "#7FB7B3"
+        white "#D6D9E0"
+        orange "#E8713A"
+    }
+}

@@ -329,7 +329,7 @@ pub fn readme_skeleton(p: &Palette, block: &str) -> String {
          - Settings, Desktop, Appearance, {slot}: import `cosmic/{stem}.ron`\n\
          - COSMIC Terminal, View, Color schemes, {slot}: import `cosmic-term/{stem}-term.ron`\n\
          - btop: copy `btop/{stem}.theme` to `~/.config/btop/themes/` and pick it in btop\n\
-         - `./nvim/install.sh`, `./fastfetch/install.sh`, `./lsd/install.sh`, `./zsh/install.sh`, `./cava/install.sh`, `./ghostty/install.sh`, `./delta/install.sh`, `./fish/install.sh`, `./eza/install.sh`, `./kitty/install.sh`, `./alacritty/install.sh`, `./foot/install.sh`, `./helix/install.sh`, `./bat/install.sh` and `./tmux/install.sh`\n\
+         - `./nvim/install.sh`, `./fastfetch/install.sh`, `./lsd/install.sh`, `./zsh/install.sh`, `./cava/install.sh`, `./ghostty/install.sh`, `./delta/install.sh`, `./fish/install.sh`, `./eza/install.sh`, `./kitty/install.sh`, `./alacritty/install.sh`, `./foot/install.sh`, `./helix/install.sh`, `./bat/install.sh`, `./tmux/install.sh` and `./zellij/install.sh`\n\
          \n\
          ## License\n\
          \n\

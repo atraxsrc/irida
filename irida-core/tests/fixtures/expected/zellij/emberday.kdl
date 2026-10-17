@@ -1,0 +1,16 @@
+// Ember Day (light) for zellij, written by Irida.
+themes {
+    emberday {
+        fg "#2B2E36"
+        bg "#DDD9D1"
+        black "#2B2E36"
+        red "#9E3A3A"
+        green "#4C6B45"
+        yellow "#8A5E12"
+        blue "#2F5C8A"
+        magenta "#6E4E8C"
+        cyan "#2E6E6A"
+        white "#6B6F78"
+        orange "#A4441A"
+    }
+}
