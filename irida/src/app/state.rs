@@ -4052,12 +4052,13 @@ mod tests {
     }
 
     /// The built-in targets' display names, in id order.
-    const BUILTIN_DISPLAYS: [&str; 11] = [
+    const BUILTIN_DISPLAYS: [&str; 12] = [
         "btop",
         "cava",
         "COSMIC desktop",
         "COSMIC Terminal",
         "delta",
+        "eza",
         "fastfetch",
         "fish",
         "Ghostty",
