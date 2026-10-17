@@ -645,3 +645,36 @@ fn lf_files_stay_lf() {
     let e = set_block(Some("a\n"), "#", "x\n").unwrap();
     assert!(!e.contents.contains('\r'));
 }
+
+#[test]
+fn indented_key_line_keeps_its_indent() {
+    let src = "[general]\n    import = [\"a.toml\"]\n\tlive_config_reload = true\n";
+    let e = set_key(Some(src), "import", "[\"irida.toml\"]", &section("general"));
+    assert_eq!(
+        e.contents,
+        "[general]\n    import = [\"irida.toml\"]\n\tlive_config_reload = true\n"
+    );
+    assert_eq!(e.before.as_deref(), Some("    import = [\"a.toml\"]"));
+    assert_eq!(
+        undo_key(
+            &e,
+            "import",
+            "import = [\"irida.toml\"]",
+            &section("general")
+        ),
+        src
+    );
+
+    // Applying again finds the indented line it wrote and leaves it as is.
+    let again = set_key(
+        Some(&e.contents),
+        "import",
+        "[\"irida.toml\"]",
+        &section("general"),
+    );
+    assert_eq!(again.contents, e.contents);
+
+    let src = "  include  a.conf\n  include  irida.conf\n";
+    let e = set_key(Some(src), "include", "irida.conf", &rep());
+    assert_eq!(e.contents, "  include  a.conf\n  include irida.conf\n");
+}

@@ -426,8 +426,10 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
         }
         let span = lines[i..=j].concat();
         let (old, line_eol) = strip_eol(&span);
+        // The replaced line keeps its indent.
+        let indent = &lines[i][..lines[i].len() - lines[i].trim_start().len()];
         let contents = format!(
-            "{}{new_line}{line_eol}{}",
+            "{}{indent}{new_line}{line_eol}{}",
             lines[..i].concat(),
             lines[j + 1..].concat()
         );
