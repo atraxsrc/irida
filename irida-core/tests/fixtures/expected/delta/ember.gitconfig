@@ -1,0 +1,29 @@
+# Ember (dark) for delta, written by Irida. Syntax colours come from
+# bat's theme; this feature sets backgrounds, line numbers and decorations.
+[delta "ember"]
+    dark = true
+    minus-style = syntax "#4A2D32"
+    minus-emph-style = syntax "#7A3C3F"
+    minus-non-emph-style = minus-style
+    plus-style = syntax "#38443E"
+    plus-emph-style = syntax "#556A57"
+    plus-non-emph-style = plus-style
+    zero-style = syntax
+    line-numbers = true
+    line-numbers-left-style = "#7C8290"
+    line-numbers-right-style = "#7C8290"
+    line-numbers-minus-style = "#D85A5A"
+    line-numbers-plus-style = "#8FB58A"
+    line-numbers-zero-style = "#7C8290"
+    file-style = bold "#E8713A"
+    file-decoration-style = "#E8713A" ul
+    hunk-header-style = file line-number syntax
+    hunk-header-decoration-style = "#7C8290" box
+    hunk-header-file-style = "#E8713A"
+    hunk-header-line-number-style = "#D9A441"
+    commit-style = bold "#D9A441"
+    commit-decoration-style = "#D9A441" box ul
+    blame-palette = "#1B1E24" "#2A2D33"
+    merge-conflict-ours-diff-header-style = bold "#8FB58A"
+    merge-conflict-theirs-diff-header-style = bold "#7FA3C7"
+    whitespace-error-style = "#D85A5A" reverse

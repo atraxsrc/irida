@@ -1,0 +1,4 @@
+[include]
+    path = ~/.config/delta/irida.gitconfig
+[delta]
+    features = irida

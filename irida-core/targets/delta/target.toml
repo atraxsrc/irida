@@ -1,0 +1,34 @@
+# Checked against dandavison.github.io/delta (configuration, custom-themes,
+# features) and delta's src/git_config on 2026-10-17.
+name = "delta"
+display = "delta"
+# The binary is `delta`; Debian's /usr/bin/git-delta is an unrelated tool.
+detect = { binary = "delta", config = "~/.gitconfig" }
+
+# A theme is a named feature that sets dark or light.
+[[file]]
+path = "~/.config/delta/irida.gitconfig"
+write = "file"
+template = "irida.gitconfig.tmpl"
+
+# A block at the end of the global git config that carries its own section
+# headers, so it is valid wherever it lands: git allows repeated [include]
+# and [delta] sections, and the last value of a single-valued key wins.
+[[file]]
+path = "~/.gitconfig"
+write = "block"
+comment = "#"
+template = "gitconfig-block.tmpl"
+
+# delta reads git config once per invocation; nothing runs long enough to signal.
+[reload]
+hint = "takes effect on the next git command"
+
+[[rice]]
+path = "delta/{{ slug }}.gitconfig"
+template = "irida.gitconfig.tmpl"
+
+[[rice]]
+path = "delta/install.sh"
+template = "install.sh.tmpl"
+executable = true
