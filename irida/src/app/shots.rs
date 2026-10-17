@@ -2,6 +2,7 @@
 //! stock dark theme. Run with
 //! `IRIDA_SHOTS=<folder> cargo test -p irida shots -- --ignored`.
 
+use std::fs;
 use std::path::{Path, PathBuf};
 
 use cosmic::iced::{Font, Length, Size};
@@ -31,6 +32,43 @@ fn start(tmp: &TempDir, slug: &str) -> State {
             ..Settings::default()
         })
         .unwrap();
+    open(tmp, dirs)
+}
+
+/// Like `start`, with `image` stored on `slug` so the preview draws over it.
+fn start_with_image(tmp: &TempDir, slug: &str, image: &Path) -> State {
+    let dirs = Dirs::under(tmp.path());
+    let store = Store::new(dirs.clone());
+    for mut p in starters() {
+        if p.slug == slug {
+            p.image = Some(image.to_str().expect("the image path is utf-8").to_string());
+        }
+        store.save_version(&p).unwrap();
+    }
+    store
+        .save_settings(&Settings {
+            last_palette: Some(slug.to_string()),
+            ..Settings::default()
+        })
+        .unwrap();
+    open(tmp, dirs)
+}
+
+/// First run: no settings file, COSMIC wallpaper set to the two-tone vector.
+fn first_run(tmp: &TempDir) -> State {
+    let dirs = Dirs::under(tmp.path());
+    let store = Store::new(dirs.clone());
+    for p in starters() {
+        store.save_version(&p).unwrap();
+    }
+    let image = tmp.path().join("pictures/two-tone.png");
+    fs::create_dir_all(image.parent().unwrap()).unwrap();
+    vector_png("two-tone", &image);
+    cosmic_wallpaper(tmp, &image);
+    open(tmp, dirs)
+}
+
+fn open(tmp: &TempDir, dirs: Dirs) -> State {
     let path = std::env::var_os("PATH")
         .map(|p| std::env::split_paths(&p).collect())
         .unwrap_or_default();
@@ -98,4 +136,46 @@ fn shots() {
     let tmp = TempDir::new().unwrap();
     let state = start(&tmp, "emberday");
     shoot(&state, &folder, "editor-light");
+
+    let tmp = TempDir::new().unwrap();
+    let state = first_run(&tmp);
+    shoot(&state, &folder, "first-run");
+
+    let tmp = TempDir::new().unwrap();
+    let image = tmp.path().join("pictures/two-tone.png");
+    fs::create_dir_all(image.parent().unwrap()).unwrap();
+    vector_png("two-tone", &image);
+    let state = start_with_image(&tmp, "ember", &image);
+    shoot(&state, &folder, "editor-image");
+}
+
+const VECTORS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../irida-core/tests/fixtures/draft/vectors.json"
+);
+
+/// The reference vector `case` written as a 40 by 25 PNG at `path`.
+fn vector_png(case: &str, path: &Path) {
+    use base64::Engine;
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(VECTORS).unwrap()).unwrap();
+    let rgba = base64::engine::general_purpose::STANDARD
+        .decode(v[case]["rgba"].as_str().unwrap())
+        .unwrap();
+    image::RgbaImage::from_raw(40, 25, rgba)
+        .unwrap()
+        .save(path)
+        .unwrap();
+}
+
+/// COSMIC's `all` background key under the temp config, pointing at `image`.
+fn cosmic_wallpaper(tmp: &TempDir, image: &Path) {
+    let dir = Dirs::under(tmp.path())
+        .config
+        .join("cosmic/com.system76.CosmicBackground/v1");
+    fs::create_dir_all(&dir).unwrap();
+    let entry = format!(
+        "(\n    output: \"all\",\n    source: Path({:?}),\n    filter_by_theme: #true,\n    rotation_frequency: 3600,\n    filter_method: Lanczos,\n    scaling_mode: Zoom,\n    sampling_method: Alphanumeric,\n)",
+        image.to_str().unwrap()
+    );
+    fs::write(dir.join("all"), entry).unwrap();
 }
