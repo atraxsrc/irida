@@ -5,15 +5,22 @@ use cosmic::Element;
 use cosmic::iced::Length;
 use cosmic::widget::{self, button, text};
 
+use std::collections::BTreeMap;
+use std::path::PathBuf;
+
 use irida_core::apply::TargetInfo;
 
 use super::caption;
-use super::preview;
+use super::preview::{self, ImageStatus};
 use super::scene::scene;
 use super::state::{Msg, PairChoice, SplitColumn, SplitView, State, VersionChoice};
 
 /// Two previews side by side, each under its label.
-pub fn view(v: SplitView, targets: &[TargetInfo]) -> Element<'static, Msg> {
+pub fn view(
+    v: SplitView,
+    targets: &[TargetInfo],
+    images: &BTreeMap<PathBuf, ImageStatus>,
+) -> Element<'static, Msg> {
     let left_head = match v.versions {
         Some(choice) => versions(choice),
         None => text::heading(v.left.label.clone()).into(),
@@ -21,8 +28,8 @@ pub fn view(v: SplitView, targets: &[TargetInfo]) -> Element<'static, Msg> {
     let right_head = text::heading(v.right.label.clone()).into();
     widget::Row::new()
         .spacing(16)
-        .push(column(left_head, v.left, targets))
-        .push(column(right_head, v.right, targets))
+        .push(column(left_head, v.left, targets, images))
+        .push(column(right_head, v.right, targets, images))
         .into()
 }
 
@@ -30,13 +37,20 @@ fn column(
     head: Element<'static, Msg>,
     c: SplitColumn,
     targets: &[TargetInfo],
+    images: &BTreeMap<PathBuf, ImageStatus>,
 ) -> Element<'static, Msg> {
     let body: Element<'static, Msg> = match c.palette {
-        Some(p) => widget::Column::new()
-            .spacing(8)
-            .push(preview::view(scene(&p)))
-            .push(caption::line(targets))
-            .into(),
+        Some(p) => {
+            let image = p
+                .image
+                .as_ref()
+                .and_then(|path| images.get(std::path::Path::new(path)));
+            widget::Column::new()
+                .spacing(8)
+                .push(preview::view(scene(&p), image))
+                .push(caption::line(targets))
+                .into()
+        }
         None => text::body(c.note.unwrap_or_default()).into(),
     };
     widget::Column::new()

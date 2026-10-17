@@ -1,15 +1,72 @@
 //! The preview scene view: draws a `Scene` with libcosmic widgets. It only
 //! reads the scene; every colour is decided in `scene.rs`.
 
+use std::path::Path;
+
 use cosmic::Element;
 use cosmic::iced::font::{Family, Style as FontStyle, Weight};
 use cosmic::iced::widget::{rich_text, span, text::Span as RichSpan};
-use cosmic::iced::{Alignment, Background, Border, Color, Font, Length};
+use cosmic::iced::{Alignment, Background, Border, Color, ContentFit, Font, Length};
 use cosmic::widget::{self, container, text};
+use image::ImageReader;
 use irida_core::color::Rgb;
 
 use super::scene::{CardColors, Scene, Span};
 use super::state::Msg;
+
+/// A decoded wallpaper, or the reason the flat background is used instead.
+#[derive(Debug)]
+pub enum ImageStatus {
+    Ready {
+        width: u32,
+        height: u32,
+        rgba: Vec<u8>,
+    },
+    Missing,
+}
+
+const PREVIEW_LONGEST: u32 = 1280;
+
+/// Decode `path` once. Missing, unreadable, or not an image is `Missing`.
+/// A side longer than 1280 px is scaled down so the cache stays small.
+pub fn load_preview_image(path: &Path) -> ImageStatus {
+    let Ok(reader) = ImageReader::open(path) else {
+        return ImageStatus::Missing;
+    };
+    let Ok(reader) = reader.with_guessed_format() else {
+        return ImageStatus::Missing;
+    };
+    let Ok(img) = reader.decode() else {
+        return ImageStatus::Missing;
+    };
+    let img = img.to_rgba8();
+    let (w, h) = img.dimensions();
+    if w == 0 || h == 0 {
+        return ImageStatus::Missing;
+    }
+    let longest = w.max(h);
+    if longest <= PREVIEW_LONGEST {
+        return ImageStatus::Ready {
+            width: w,
+            height: h,
+            rgba: img.into_raw(),
+        };
+    }
+    let scale = |side: u32| -> u32 {
+        let scaled = (u64::from(side) * u64::from(PREVIEW_LONGEST) + u64::from(longest) / 2)
+            / u64::from(longest);
+        u32::try_from(scaled).unwrap_or(PREVIEW_LONGEST).max(1)
+    };
+    let width = scale(w);
+    let height = scale(h);
+    let rgba = image::imageops::resize(&img, width, height, image::imageops::FilterType::Triangle)
+        .into_raw();
+    ImageStatus::Ready {
+        width,
+        height,
+        rgba,
+    }
+}
 
 /// libcosmic embeds Noto Sans Mono, so the box drawing always lines up.
 const MONO: Font = Font {
@@ -20,6 +77,12 @@ const MONO_SIZE: f32 = 13.;
 
 fn color(c: Rgb) -> Color {
     Color::from_rgb8(c.r, c.g, c.b)
+}
+
+fn color_a(c: Rgb, alpha: f32) -> Color {
+    let mut color = color(c);
+    color.a = alpha;
+    color
 }
 
 /// One line of styled monospace text.
@@ -76,8 +139,16 @@ fn block(bg: Rgb, w: f32, h: f32, radius: f32) -> Element<'static, Msg> {
 }
 
 /// A window-like box: the panel, the terminal or Neovim.
-fn pane<'a>(content: impl Into<Element<'a, Msg>>, bg: Rgb) -> Element<'a, Msg> {
-    fill(content, bg, 8.)
+fn pane<'a>(content: impl Into<Element<'a, Msg>>, bg: Rgb, alpha: f32) -> Element<'a, Msg> {
+    container(content)
+        .style(move |_| container::Style {
+            background: Some(Background::Color(color_a(bg, alpha))),
+            border: Border {
+                radius: 8.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        })
         .padding([10, 12])
         .width(Length::Fill)
         .into()
@@ -196,21 +267,71 @@ fn card(c: CardColors) -> Element<'static, Msg> {
         .spacing(10)
         .push(text::heading("Appearance").class(cosmic::theme::Text::Color(color(c.title))))
         .push(fill(inner, c.container, 8.).padding(12).width(Length::Fill));
-    pane(window, c.window)
+    pane(window, c.window, 1.)
 }
 
-/// The whole preview scene for one palette.
-pub fn view(s: Scene) -> Element<'static, Msg> {
+/// The whole preview scene for one palette. `image` draws behind it when ready.
+pub fn view(s: Scene, image: Option<&ImageStatus>) -> Element<'static, Msg> {
+    let over = matches!(image, Some(ImageStatus::Ready { .. }));
+    let panel_a = if over { 0.92 } else { 1. };
+    let term_a = if over { 0.96 } else { 1. };
     let terminal = lines(s.terminal)
         .push(widget::Space::new().height(Length::Fixed(10.)))
         .push(btop(s.btop, s.terminal_fg))
         .push(widget::Space::new().height(Length::Fixed(10.)))
         .push(cava(s.cava));
-    widget::Column::new()
+    let column = widget::Column::new()
         .spacing(12)
-        .push(pane(line(s.panel), s.panel_bg))
-        .push(pane(terminal, s.terminal_bg))
-        .push(pane(lines(s.nvim), s.nvim_bg))
+        .push(pane(line(s.panel), s.panel_bg, panel_a))
+        .push(pane(terminal, s.terminal_bg, term_a))
+        .push(pane(lines(s.nvim), s.nvim_bg, term_a))
         .push(card(s.card))
-        .into()
+        .width(Length::Fill);
+    let Some(ImageStatus::Ready {
+        width,
+        height,
+        rgba,
+    }) = image
+    else {
+        return column.into();
+    };
+    let handle = widget::image::Handle::from_rgba(*width, *height, rgba.clone());
+    let photo = widget::image(handle)
+        .content_fit(ContentFit::Cover)
+        .width(Length::Fill)
+        .height(Length::Fill);
+    cosmic::iced::widget::stack([photo.into(), column.into()]).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ImageStatus;
+    use super::load_preview_image;
+
+    #[test]
+    fn load_preview_image_reads_a_png_and_rejects_text() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let png = tmp.path().join("two.png");
+        image::RgbaImage::from_pixel(4, 4, image::Rgba([1, 2, 3, 255]))
+            .save(&png)
+            .unwrap();
+        match load_preview_image(&png) {
+            ImageStatus::Ready {
+                width,
+                height,
+                rgba,
+            } => {
+                assert_eq!((width, height), (4, 4));
+                assert_eq!(rgba.len(), 64);
+            }
+            ImageStatus::Missing => panic!("a png is readable"),
+        }
+        let text = tmp.path().join("note.txt");
+        std::fs::write(&text, "not an image").unwrap();
+        assert!(matches!(load_preview_image(&text), ImageStatus::Missing));
+        assert!(matches!(
+            load_preview_image(&tmp.path().join("gone.png")),
+            ImageStatus::Missing
+        ));
+    }
 }

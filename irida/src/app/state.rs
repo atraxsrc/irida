@@ -1113,6 +1113,8 @@ pub struct State {
     pub settings_unreadable: bool,
     /// Targets as of the last refresh, for the caption.
     pub targets: Vec<TargetInfo>,
+    /// Decoded preview images, keyed by path. Missing files stay `Missing`.
+    pub images: BTreeMap<PathBuf, crate::app::preview::ImageStatus>,
     pub entries: Vec<EntrySummary>,
     pub current: Option<Current>,
     pub dialog: Option<Dialog>,
@@ -1167,6 +1169,7 @@ impl State {
             settings: Settings::default(),
             settings_unreadable: false,
             targets: Vec::new(),
+            images: BTreeMap::new(),
             entries: Vec::new(),
             current: None,
             dialog: None,
@@ -1551,7 +1554,59 @@ impl State {
         });
         let mut effects = vec![Effect::LoadVersions(slug.clone())];
         effects.extend(self.remember(slug));
+        self.retain_images();
         effects
+    }
+
+    /// Decode `path` once. A second call keeps the cached result.
+    fn remember_image(&mut self, path: &std::path::Path) {
+        if self.images.contains_key(path) {
+            return;
+        }
+        self.images.insert(
+            path.to_path_buf(),
+            crate::app::preview::load_preview_image(path),
+        );
+    }
+
+    fn shown_image_paths(&self) -> Vec<PathBuf> {
+        let mut paths = Vec::new();
+        let push = |p: &Palette, paths: &mut Vec<PathBuf>| {
+            if let Some(image) = &p.image {
+                paths.push(PathBuf::from(image));
+            }
+        };
+        if let Some(Current::Editable { saved, working, .. }) = &self.current {
+            if let Some(saved) = saved {
+                push(saved, &mut paths);
+            }
+            push(working, &mut paths);
+        }
+        if let Some(p) = &self.pair_palette {
+            push(p, &mut paths);
+        }
+        if let Some((_, Ok(p))) = &self.compare_version {
+            push(p, &mut paths);
+        }
+        paths
+    }
+
+    /// Keep images the open palette and the compare columns still show.
+    fn retain_images(&mut self) {
+        let keep = self.shown_image_paths();
+        for path in &keep {
+            self.remember_image(path);
+        }
+        self.images.retain(|path, _| keep.iter().any(|k| k == path));
+    }
+
+    pub fn image_status(
+        &self,
+        image: &Option<String>,
+    ) -> Option<&crate::app::preview::ImageStatus> {
+        image
+            .as_ref()
+            .and_then(|path| self.images.get(std::path::Path::new(path)))
     }
 
     /// Write `slug` as `settings.last_palette`, unless it is already there or
@@ -1599,6 +1654,7 @@ impl State {
                     saved: None,
                     working: p,
                 });
+                self.retain_images();
                 Vec::new()
             }
             // On Discard the edits go at once, so a save cannot bury the
@@ -2751,6 +2807,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             let text = match *lookup {
                 PairLookup::Found(p) => {
                     state.pair_palette = Some(p);
+                    state.retain_images();
                     return Vec::new();
                 }
                 PairLookup::None => "It has no pair to show.".to_string(),
@@ -2878,6 +2935,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             if state.open_is(&slug) && state.split == Split::Saved(VersionRef::Version(n)) {
                 let result = result.map_err(|e| format!("Could not read version {n}: {e}"));
                 state.compare_version = Some((n, result));
+                state.retain_images();
             }
             Vec::new()
         }
@@ -4162,6 +4220,21 @@ mod tests {
             vec![("bad".to_string(), "bad".to_string(), "broken".to_string())]
         );
         assert_eq!(g.not_installed, vec!["Neovim".to_string()]);
+    }
+
+    #[test]
+    fn missing_image_is_cached_as_missing() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let toasts = state.toasts.len();
+        let missing = tmp.path().join("gone.png");
+        state.remember_image(&missing);
+        assert!(matches!(
+            state.images.get(&missing),
+            Some(crate::app::preview::ImageStatus::Missing)
+        ));
+        assert_eq!(state.toasts.len(), toasts);
     }
 
     #[test]
