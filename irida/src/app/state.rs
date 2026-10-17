@@ -4052,8 +4052,9 @@ mod tests {
     }
 
     /// The built-in targets' display names, in id order.
-    const BUILTIN_DISPLAYS: [&str; 16] = [
+    const BUILTIN_DISPLAYS: [&str; 17] = [
         "Alacritty",
+        "bat",
         "btop",
         "cava",
         "COSMIC desktop",

@@ -655,6 +655,7 @@ fn only_help_names_every_builtin() {
         "alacritty",
         "foot",
         "helix",
+        "bat",
     ] {
         assert!(help.contains(id), "{id} missing from --only help:\n{help}");
     }

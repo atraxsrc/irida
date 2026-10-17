@@ -1,0 +1,38 @@
+# Checked against github.com/sharkdp/bat#readme (Configuration file, Adding
+# new themes), batcat(1) and bat 0.24.0 on 2026-10-17: the config file is
+# `$(bat --config-file)`, ~/.config/bat/config by default, one argument per
+# line, `--theme=name` with or without quotes; custom themes are Sublime
+# .tmTheme files in `$(bat --config-dir)/themes/`, named by their file stem,
+# and need `bat cache --build` after any change. BAT_THEME in the
+# environment wins over the config file. Debian installs the binary as
+# `batcat`; the README's `bat` symlink makes it detectable here.
+name = "bat"
+display = "bat"
+detect = { binary = "bat" }
+
+[[file]]
+path = "~/.config/bat/themes/irida.tmTheme"
+write = "file"
+template = "irida.tmTheme.tmpl"
+
+[[file]]
+path = "~/.config/bat/config"
+write = "key"
+key = "--theme"
+separator = "="
+template = "theme.tmpl"
+
+# A rebuild of bat's theme cache, not a reload: it runs after apply only, so
+# after undo the cache keeps the last theme until it is run again.
+[reload]
+command = "cd ~ && bat cache --build"
+hint = "run bat cache --build"
+
+[[rice]]
+path = "bat/{{ slug }}.tmTheme"
+template = "irida.tmTheme.tmpl"
+
+[[rice]]
+path = "bat/install.sh"
+template = "install.sh.tmpl"
+executable = true

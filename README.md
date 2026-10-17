@@ -61,6 +61,7 @@ result to your desktop, terminal, editor and tools in one step.
 | Alacritty | `themes/irida.toml`, imported from `[general]` (0.14 or newer) | |
 | foot | `irida.ini`, included from `foot.ini` (1.26 or newer) | |
 | Helix | `themes/irida.toml`, selected in `config.toml` | |
+| bat | `themes/irida.tmTheme`, selected in `config`, cache rebuilt; after undo run `bat cache --build`; `BAT_THEME` in your shell wins | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in
