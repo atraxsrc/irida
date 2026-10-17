@@ -139,7 +139,12 @@ fn block(bg: Rgb, w: f32, h: f32, radius: f32) -> Element<'static, Msg> {
 }
 
 /// A window-like box: the panel, the terminal or Neovim.
-fn pane<'a>(content: impl Into<Element<'a, Msg>>, bg: Rgb, alpha: f32) -> Element<'a, Msg> {
+fn pane<'a>(
+    content: impl Into<Element<'a, Msg>>,
+    bg: Rgb,
+    alpha: f32,
+    width: Length,
+) -> Element<'a, Msg> {
     container(content)
         .style(move |_| container::Style {
             background: Some(Background::Color(color_a(bg, alpha))),
@@ -150,9 +155,13 @@ fn pane<'a>(content: impl Into<Element<'a, Msg>>, bg: Rgb, alpha: f32) -> Elemen
             ..Default::default()
         })
         .padding([10, 12])
-        .width(Length::Fill)
+        .width(width)
         .into()
 }
+
+/// The settings window's width on the preview desktop: beside Neovim at the
+/// default window size, under it when the preview is narrower.
+const CARD_WIDTH: f32 = 230.;
 
 fn lines(lines: Vec<Vec<Span>>) -> widget::Column<'static, Msg, cosmic::Theme> {
     lines
@@ -267,25 +276,41 @@ fn card(c: CardColors) -> Element<'static, Msg> {
         .spacing(10)
         .push(text::heading("Appearance").class(cosmic::theme::Text::Color(color(c.title))))
         .push(fill(inner, c.container, 8.).padding(12).width(Length::Fill));
-    pane(window, c.window, 1.)
+    pane(window, c.window, 1., Length::Fixed(CARD_WIDTH))
 }
 
-/// The whole preview scene for one palette. `image` draws behind it when ready.
+/// The whole preview scene for one palette, drawn as a small desktop: the
+/// panel across the top, the terminal under it on the left, then Neovim with
+/// the settings window beside it, and the background showing to the right,
+/// between and below the windows. On a narrow preview the settings window
+/// wraps under Neovim. `image` draws behind it all when ready, and the
+/// terminal and Neovim let a little of it through.
 pub fn view(s: Scene, image: Option<&ImageStatus>) -> Element<'static, Msg> {
     let over = matches!(image, Some(ImageStatus::Ready { .. }));
     let panel_a = if over { 0.92 } else { 1. };
-    let term_a = if over { 0.96 } else { 1. };
+    let term_a = if over { 0.88 } else { 1. };
     let terminal = lines(s.terminal)
         .push(widget::Space::new().height(Length::Fixed(10.)))
         .push(btop(s.btop, s.terminal_fg))
         .push(widget::Space::new().height(Length::Fixed(10.)))
         .push(cava(s.cava));
+    let bottom = widget::flex_row(vec![
+        pane(lines(s.nvim), s.nvim_bg, term_a, Length::Shrink),
+        card(s.card),
+    ])
+    .column_spacing(16)
+    .row_spacing(16)
+    .align_items(Alignment::Start)
+    .width(Length::Fill);
+    let desktop = widget::Column::new()
+        .spacing(16)
+        .padding([16, 24, 24, 24])
+        .push(pane(terminal, s.terminal_bg, term_a, Length::Shrink))
+        .push(bottom)
+        .width(Length::Fill);
     let column = widget::Column::new()
-        .spacing(12)
-        .push(pane(line(s.panel), s.panel_bg, panel_a))
-        .push(pane(terminal, s.terminal_bg, term_a))
-        .push(pane(lines(s.nvim), s.nvim_bg, term_a))
-        .push(card(s.card))
+        .push(pane(line(s.panel), s.panel_bg, panel_a, Length::Fill))
+        .push(desktop)
         .width(Length::Fill);
     let Some(ImageStatus::Ready {
         width,
