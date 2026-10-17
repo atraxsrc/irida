@@ -52,6 +52,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.2.2" date="2026-10-17">
+      <description>
+        <p>The wallpaper behind the preview stays inside the preview instead of covering the role tiles and the colour editor.</p>
+      </description>
+    </release>
     <release version="0.2.1" date="2026-10-17">
       <description>
         <p>The preview stays on screen while you edit: roles are tiles on the left, and a role opens in a column on the right instead of a separate tab.</p>
