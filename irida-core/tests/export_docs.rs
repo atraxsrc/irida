@@ -7,9 +7,11 @@ use std::process::Command;
 use common::{TestEnv, fixture_text, palette};
 use irida_core::export::{ExportReport, ExportRequest, ExportStatus, export};
 use irida_core::export_docs::{
-    README_BEGIN, README_END, SHOWCASE_BEGIN, SHOWCASE_END, readme_block, showcase_block,
+    README_BEGIN, README_END, SHOWCASE_BEGIN, SHOWCASE_END, readme_block, readme_names,
+    showcase_block,
 };
 use irida_core::palette::Palette;
+use irida_core::role::Role;
 use irida_core::write::{BlockError, replace_marked};
 
 fn run(env: &TestEnv, p: &Palette, pair: Option<&Palette>, folder: &Path) -> ExportReport {
@@ -72,13 +74,81 @@ fn readme_block_matches() {
     }
 }
 
+/// Ember's display names without the ones equal to their capitalised role.
+fn ember_named() -> std::collections::BTreeMap<Role, String> {
+    let mut want = palette("ember").names;
+    for role in [Role::Pane, Role::Muted, Role::Comment] {
+        want.remove(&role);
+    }
+    want
+}
+
+#[test]
+fn readme_names_round_trip() {
+    let ember = palette("ember");
+    let emberday = palette("emberday");
+    let want = ember_named();
+    assert_eq!(want.len(), 10);
+    let text = format!(
+        "{README_BEGIN}\n{}{README_END}\n",
+        readme_block(&ember, Some(&emberday))
+    );
+    assert_eq!(readme_names(&text), want);
+    assert!(readme_names(&readme_block(&ember, None)).is_empty());
+
+    let wrapped = format!(
+        "# Title\n\n{README_BEGIN}\n\n{}\n{README_END}\n\nfooter\n",
+        readme_block(&ember, None)
+    );
+    assert_eq!(readme_names(&wrapped), want);
+
+    let mut noted = ember.clone();
+    noted.notes = Some("Warm greys.\n\nA second paragraph.".into());
+    let text = format!(
+        "{README_BEGIN}\n\n{}\n{README_END}\n",
+        readme_block(&noted, None)
+    );
+    assert_eq!(readme_names(&text), want);
+
+    let broken = format!(
+        "{README_BEGIN}\n| Role | Color | Hex |\n|---|---|---|\n| Nope | ![#15171C](x) Night | `#15171C` |\n{README_END}\n"
+    );
+    assert!(readme_names(&broken).is_empty());
+    assert!(readme_names(&format!("{README_BEGIN}\nno end\n")).is_empty());
+}
+
+#[test]
+fn readme_names_with_pipes_and_slashes_round_trip() {
+    let mut ember = palette("ember");
+    ember.names.insert(Role::Container, "Soot / Ash".into());
+    ember.names.insert(Role::Pane, "Deep|Pane".into());
+    ember.names.insert(Role::Text, r"Fog \| mist/haze\".into());
+    ember.names.insert(Role::Accent, "a | b".into());
+    let mut want = ember.names.clone();
+    for role in [Role::Muted, Role::Comment] {
+        want.remove(&role);
+    }
+    let block = readme_block(&ember, None);
+    let text = format!("{README_BEGIN}\n\n{block}\n{README_END}\n");
+    assert_eq!(readme_names(&text), want);
+    for line in block.lines().filter(|l| l.starts_with('|')) {
+        let unescaped = line.replace(r"\\", "").replace(r"\|", "");
+        assert_eq!(unescaped.matches('|').count(), 4, "{line}");
+    }
+    let showcase = showcase_block(&ember);
+    let row = showcase.lines().find(|l| l.contains(", accent")).unwrap();
+    assert!(row.starts_with(r"| a \| b, accent |"), "{row}");
+}
+
 #[test]
 fn readme_block_transparent_and_alone() {
     let mut p = palette("ember");
-    p.pins.set(
-        irida_core::slot::Slot::Background,
-        irida_core::slot::PinValue::None,
-    );
+    p.pins
+        .set(
+            irida_core::slot::Slot::Background,
+            irida_core::slot::PinValue::None,
+        )
+        .expect("background can be none");
     let block = readme_block(&p, None);
     assert!(
         block.contains(" Pane, transparent | `#1B1E24` |"),

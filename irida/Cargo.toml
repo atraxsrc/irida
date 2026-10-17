@@ -4,12 +4,42 @@ version = "0.1.0"
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+description = "Design a colour palette and apply it to COSMIC"
+homepage = "https://github.com/atraxsrc/irida"
+repository = "https://github.com/atraxsrc/irida"
 
 [dependencies]
 irida-core = { path = "../irida-core" }
 clap.workspace = true
+libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "e1f2cd2e52226aa50d59bb2cd6d43ffe290106ed", default-features = false, features = ["winit", "wayland", "tokio", "xdg-portal", "dbus-config", "about"] }
+tokio = { version = "1", features = ["rt", "time"] }
 
 [dev-dependencies]
 assert_cmd.workspace = true
 predicates.workspace = true
 tempfile.workspace = true
+base64 = "0.22"
+image = { version = "0.25", default-features = false, features = ["png"] }
+serde_json = "1"
+
+[package.metadata.deb]
+name = "irida"
+copyright = "2026 atraxsrc"
+license-file = ["../LICENSE", "0"]
+section = "utils"
+priority = "optional"
+depends = "$auto"
+changelog = "../target/deb/changelog"
+extended-description = """\
+Irida is a palette designer for the COSMIC desktop. Pick a palette, draft one
+from a wallpaper, or edit its thirteen roles while the preview and the
+contrast ratios follow every change. Apply it to the COSMIC desktop, COSMIC
+Terminal, btop, Neovim, fastfetch, lsd, zsh and cava, and undo it in one step.
+Link a dark and a light palette as a pair, compare with saved versions, and
+export a complete rice repository."""
+assets = [
+    ["target/release/irida", "usr/bin/", "755"],
+    ["res/io.github.atraxsrc.Irida.desktop", "usr/share/applications/", "644"],
+    ["res/io.github.atraxsrc.Irida.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["res/icons/hicolor/scalable/apps/io.github.atraxsrc.Irida.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
+]

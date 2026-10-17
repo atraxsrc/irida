@@ -69,6 +69,7 @@ fn apply_sets_theme_and_key() {
             palette: &p,
             pair: None,
             only: Some(vec!["btop".into()]),
+            live_only: false,
         },
     )
     .unwrap();

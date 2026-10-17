@@ -67,19 +67,22 @@ fn emberday_is_exact() {
 fn pins_propagate() {
     let mut p = palette("ember");
     p.pins
-        .set(slot("normal.red"), PinValue::Color(hex("#FF0000")));
+        .set(slot("normal.red"), PinValue::Color(hex("#FF0000")))
+        .expect("colour pins are always allowed");
     let d = derive(&p);
     assert_eq!(d.slot(slot("dim.red")).unwrap(), hex("#A40C0E"));
     assert_eq!(d.slot(slot("bright.red")).unwrap(), hex("#FF1F1F"));
 
     let mut p = palette("ember");
     p.pins
-        .set(slot("bright.white"), PinValue::Color(hex("#FFFFFF")));
+        .set(slot("bright.white"), PinValue::Color(hex("#FFFFFF")))
+        .expect("colour pins are always allowed");
     assert_eq!(derive(&p).term.bright_foreground, hex("#FFFFFF"));
 
     let mut p = palette("ember");
     p.pins
-        .set(slot("normal.white"), PinValue::Color(hex("#FFFFFF")));
+        .set(slot("normal.white"), PinValue::Color(hex("#FFFFFF")))
+        .expect("colour pins are always allowed");
     assert_eq!(
         derive(&p).slot(slot("bright.white")).unwrap(),
         hex("#E2E4E9")
@@ -87,14 +90,17 @@ fn pins_propagate() {
 
     let mut p = palette("emberday");
     p.pins
-        .set(slot("bright.black"), PinValue::Color(hex("#000000")));
+        .set(slot("bright.black"), PinValue::Color(hex("#000000")))
+        .expect("colour pins are always allowed");
     assert_eq!(derive(&p).term.bright_foreground, hex("#000000"));
 }
 
 #[test]
 fn background_none() {
     let mut p = palette("ember");
-    p.pins.set(slot("background"), PinValue::None);
+    p.pins
+        .set(slot("background"), PinValue::None)
+        .expect("background can be none");
     let d = derive(&p);
     assert_eq!(d.term.background, None);
     assert_eq!(d.term.to_scheme("x").background, None);

@@ -86,12 +86,159 @@ fn list_shows_saved() {
 }
 
 #[test]
-fn no_args_prints_help() {
+fn no_display_message() {
     let tmp = TempDir::new().unwrap();
     irida(&tmp)
+        .env_remove("WAYLAND_DISPLAY")
+        .env_remove("DISPLAY")
         .assert()
         .code(2)
-        .stderr(predicate::str::contains("Usage"));
+        .stdout("")
+        .stderr("irida: no display found; run irida --help for the command line\n");
+    irida(&tmp)
+        .env("WAYLAND_DISPLAY", "")
+        .env("DISPLAY", "")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("no display found"));
+    irida(&tmp)
+        .arg("--help")
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("Usage"))
+        .stdout(predicate::str::contains("draft"));
+}
+
+const VECTORS: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../irida-core/tests/fixtures/draft/vectors.json"
+);
+
+/// The reference vector `case` written as a 40 by 25 PNG at `path`.
+fn vector_png(case: &str, path: &Path) {
+    use base64::Engine;
+    let v: serde_json::Value = serde_json::from_str(&fs::read_to_string(VECTORS).unwrap()).unwrap();
+    let rgba = base64::engine::general_purpose::STANDARD
+        .decode(v[case]["rgba"].as_str().unwrap())
+        .unwrap();
+    image::RgbaImage::from_raw(40, 25, rgba)
+        .unwrap()
+        .save(path)
+        .unwrap();
+}
+
+/// The stdout of a run that must exit 0.
+fn ok_stdout(cmd: &mut Command) -> String {
+    String::from_utf8(cmd.assert().code(0).get_output().stdout.clone()).unwrap()
+}
+
+fn stored(tmp: &TempDir, slug: &str) -> String {
+    fs::read_to_string(
+        tmp.path()
+            .join("home/.local/share/irida/palettes")
+            .join(slug)
+            .join("palette.toml"),
+    )
+    .unwrap()
+}
+
+#[test]
+fn draft_saves_and_refuses() {
+    let tmp = TempDir::new().unwrap();
+    let png = tmp.path().join("two-tone.png");
+    vector_png("two-tone", &png);
+    let out = ok_stdout(irida(&tmp).arg("draft").arg(&png));
+    assert!(
+        out.starts_with("saved twotone (Two Tone, dark)\nTwo Tone (dark)\n"),
+        "{out}"
+    );
+    assert!(out.ends_with("all pass\n"), "{out}");
+    let text = stored(&tmp, "twotone");
+    assert!(text.contains("name = \"Two Tone\""), "{text}");
+    assert!(text.contains("mode = \"dark\""), "{text}");
+    let versions = tmp
+        .path()
+        .join("home/.local/share/irida/palettes/twotone/versions/1.toml");
+    assert_eq!(fs::read_to_string(versions).unwrap(), text);
+
+    irida(&tmp)
+        .arg("draft")
+        .arg(&png)
+        .assert()
+        .code(2)
+        .stdout("")
+        .stderr("irida: a palette called twotone already exists; pass --name\n");
+    assert_eq!(stored(&tmp, "twotone"), text, "unchanged");
+
+    let out = ok_stdout(irida(&tmp).arg("draft").arg(&png).args([
+        "--name",
+        "Night Sky",
+        "--mode",
+        "light",
+    ]));
+    assert!(
+        out.starts_with("saved nightsky (Night Sky, light)\n"),
+        "{out}"
+    );
+    assert!(stored(&tmp, "nightsky").contains("mode = \"light\""));
+    irida(&tmp).args(["check", "nightsky"]).assert().code(0);
+}
+
+#[test]
+fn draft_every_vector_passes_check() {
+    let tmp = TempDir::new().unwrap();
+    for case in ["two-tone", "flat", "grey", "noise", "pastel"] {
+        let png = tmp.path().join(format!("{case}.png"));
+        vector_png(case, &png);
+        let name = format!("Vector {}", case.replace('-', " "));
+        irida(&tmp)
+            .arg("draft")
+            .arg(&png)
+            .args(["--name", &name])
+            .assert()
+            .code(0);
+        let slug: String = name
+            .chars()
+            .filter(char::is_ascii_alphabetic)
+            .collect::<String>()
+            .to_lowercase();
+        irida(&tmp)
+            .args(["check", &slug])
+            .assert()
+            .code(0)
+            .stdout(predicate::str::contains("all pass"));
+    }
+}
+
+#[test]
+fn draft_refuses_bad_input() {
+    let tmp = TempDir::new().unwrap();
+    let text = tmp.path().join("notes.png");
+    fs::write(&text, "hello").unwrap();
+    irida(&tmp)
+        .arg("draft")
+        .arg(&text)
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains("could not be read as an image"));
+    let png = tmp.path().join("two-tone.png");
+    vector_png("two-tone", &png);
+    for bad in ["Bad-Name", "2024", ""] {
+        irida(&tmp)
+            .arg("draft")
+            .arg(&png)
+            .args(["--name", bad])
+            .assert()
+            .code(2)
+            .stderr(predicate::str::starts_with("irida: "));
+    }
+    irida(&tmp)
+        .arg("draft")
+        .arg(&png)
+        .args(["--mode", "dim"])
+        .assert()
+        .code(2);
+    assert!(!tmp.path().join("home/.local/share/irida/palettes").exists());
 }
 
 /// A temp home with stored palettes, a btop config, and only fake apps on
@@ -205,6 +352,64 @@ fn undo_nothing() {
         .assert()
         .code(2)
         .stderr(predicate::str::starts_with("irida: "));
+}
+
+#[test]
+fn undo_refuses_during_live_session() {
+    let tmp = TempDir::new().unwrap();
+    apply_env(&tmp)
+        .args(["apply", "ember", "--only", "btop"])
+        .assert()
+        .code(0);
+    // A live session whose record is apply 1.
+    let marker = tmp.path().join("home/.local/state/irida/live.toml");
+    fs::write(&marker, "palette = \"ember\"\nrecord = 1\n").unwrap();
+    apply_env(&tmp)
+        .arg("undo")
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "A live session is open; keep or revert it in Irida first",
+        ));
+    assert!(
+        tmp.path()
+            .join("home/.local/state/irida/applies/1")
+            .is_dir()
+    );
+
+    fs::remove_file(&marker).unwrap();
+    apply_env(&tmp).arg("undo").assert().code(0);
+}
+
+#[test]
+fn apply_refuses_during_live_session() {
+    let tmp = TempDir::new().unwrap();
+    apply_env(&tmp)
+        .args(["apply", "ember", "--only", "btop"])
+        .assert()
+        .code(0);
+    let state = tmp.path().join("home/.local/state/irida");
+    let conf = tmp.path().join("home/.config/btop/themes/irida.theme");
+    let applied = fs::read(&conf).unwrap();
+    // A live session whose record is apply 1.
+    let marker = state.join("live.toml");
+    fs::write(&marker, "palette = \"ember\"\nrecord = 1\n").unwrap();
+    apply_env(&tmp)
+        .args(["apply", "emberday", "--only", "btop"])
+        .assert()
+        .code(2)
+        .stderr(predicate::str::contains(
+            "A live session is open; keep or revert it in Irida first",
+        ));
+    assert_eq!(fs::read(&conf).unwrap(), applied, "nothing written");
+    assert!(!state.join("applies/2").exists(), "no record made");
+
+    fs::remove_file(&marker).unwrap();
+    apply_env(&tmp)
+        .args(["apply", "emberday", "--only", "btop"])
+        .assert()
+        .code(0);
+    assert!(state.join("applies/2").is_dir());
 }
 
 #[test]
@@ -378,4 +583,48 @@ fn apply_all_then_undo() {
     apply_env(&tmp).arg("undo").assert().code(0);
     assert_eq!(config_listing(&tmp), before);
     assert_eq!(fs::read_to_string(&zshrc).unwrap(), "export X=1\n");
+}
+
+/// Copy a folder tree.
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).unwrap();
+    for entry in fs::read_dir(from).unwrap() {
+        let entry = entry.unwrap();
+        let target = to.join(entry.file_name());
+        if entry.file_type().unwrap().is_dir() {
+            copy_tree(&entry.path(), &target);
+        } else {
+            fs::copy(entry.path(), &target).unwrap();
+        }
+    }
+}
+
+#[test]
+fn rice_notes_reach_stderr() {
+    let tmp = TempDir::new().unwrap();
+    let noir = tmp.path().join("cosmic-noir-theme");
+    copy_tree(
+        &Path::new(EMBER_RICE).with_file_name("cosmic-noir-theme"),
+        &noir,
+    );
+    let scheme = noir.join("cosmic-term/Noir-term.ron");
+    let text = fs::read_to_string(&scheme).unwrap();
+    assert_eq!(text.matches("foreground: \"#CCD0CF\"").count(), 1);
+    fs::write(
+        &scheme,
+        text.replace("foreground: \"#CCD0CF\"", "foreground: \"#CCD0CF80\""),
+    )
+    .unwrap();
+    let note = "irida: note: foreground: alpha 128 in the terminal scheme was dropped; Irida colours are opaque\n";
+    irida(&tmp)
+        .arg("check")
+        .arg(&noir)
+        .assert()
+        .code(0)
+        .stderr(predicate::str::contains(note));
+    irida(&tmp)
+        .arg("check")
+        .arg(EMBER_RICE)
+        .assert()
+        .stderr(predicate::str::contains("note:").not());
 }

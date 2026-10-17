@@ -8,12 +8,16 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::dirs::Dirs;
+use crate::live;
+use crate::native::cosmic_term::{self, Undone};
+use crate::palette::Mode;
 use crate::write::{atomic_write, resolve_write_path, restore_block, restore_key};
 
 /// One file an apply touched. `blob` names a file inside the record folder holding
-/// the bytes before the apply; `None` means the file did not exist.
+/// the bytes before the apply; `None` means the file did not exist. Entries for
+/// parts of one COSMIC Terminal key file share that file's blob.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "lowercase")]
+#[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Entry {
     File {
         path: PathBuf,
@@ -38,20 +42,50 @@ pub enum Entry {
         before: Option<String>,
         appended_newline: bool,
     },
+    /// One COSMIC Terminal colour scheme; `name` is the scheme Irida wrote at
+    /// `id`, `before` its RON before the write, `None` when the id was free.
+    TermScheme {
+        path: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<String>,
+        mode: Mode,
+        id: u64,
+        #[serde(default)]
+        name: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+    },
+    /// One syntax theme field of one COSMIC Terminal profile; `before` is the
+    /// RON of its value.
+    TermProfileTheme {
+        path: PathBuf,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        blob: Option<String>,
+        profile: u64,
+        field: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+    },
 }
 
 impl Entry {
     pub fn path(&self) -> &Path {
         match self {
-            Entry::File { path, .. } | Entry::Block { path, .. } | Entry::Key { path, .. } => path,
+            Entry::File { path, .. }
+            | Entry::Block { path, .. }
+            | Entry::Key { path, .. }
+            | Entry::TermScheme { path, .. }
+            | Entry::TermProfileTheme { path, .. } => path,
         }
     }
 
     pub fn blob(&self) -> Option<&str> {
         match self {
-            Entry::File { blob, .. } | Entry::Block { blob, .. } | Entry::Key { blob, .. } => {
-                blob.as_deref()
-            }
+            Entry::File { blob, .. }
+            | Entry::Block { blob, .. }
+            | Entry::Key { blob, .. }
+            | Entry::TermScheme { blob, .. }
+            | Entry::TermProfileTheme { blob, .. } => blob.as_deref(),
         }
     }
 }
@@ -69,7 +103,8 @@ pub struct Record {
 pub enum RestoreMode {
     /// Put every file back byte for byte.
     Rollback,
-    /// Remove only Irida's blocks and keys, keeping later user edits.
+    /// Remove only Irida's blocks, keys, terminal schemes and profile fields,
+    /// keeping later user edits.
     Undo,
 }
 
@@ -131,11 +166,23 @@ pub struct RecordWriter {
     blobs: usize,
 }
 
+/// A writer's entries and blob count at one moment, to go back to with `rewind`.
+pub(crate) struct Checkpoint {
+    entries: Vec<Entry>,
+    blobs: usize,
+}
+
 impl RecordWriter {
-    /// Start a record in a new folder numbered one above the highest existing one.
+    /// Start a record in a new folder numbered one above the highest existing
+    /// one, and above the record a live marker names, so a marker left behind
+    /// never names a new normal record.
     pub fn create(dirs: &Dirs, palette_slug: &str) -> io::Result<RecordWriter> {
         private_dir(&applies_dir(dirs), true)?;
-        let id = record_ids(dirs)?.last().map_or(1, |n| n + 1);
+        let highest = record_ids(dirs)?
+            .last()
+            .copied()
+            .max(live::marker_record(dirs));
+        let id = highest.map_or(1, |n| n + 1);
         let dir = record_dir(dirs, id);
         private_dir(&dir, false)?;
         Ok(RecordWriter {
@@ -147,6 +194,35 @@ impl RecordWriter {
             },
             blobs: 0,
         })
+    }
+
+    /// Continue the finished record `id`: reload `record.toml`, and number new
+    /// blobs after every file already in its `files` folder.
+    pub fn reopen(dirs: &Dirs, id: u32) -> io::Result<RecordWriter> {
+        let record = load(dirs, id)?;
+        if record.id != id {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("apply record {id} names itself {}", record.id),
+            ));
+        }
+        let dir = record_dir(dirs, id);
+        let blobs = match fs::read_dir(dir.join("files")) {
+            Ok(rd) => rd
+                .filter_map(Result::ok)
+                .filter_map(|e| e.file_name().into_string().ok()?.parse::<usize>().ok())
+                .map(|n| n + 1)
+                .max()
+                .unwrap_or(0),
+            Err(e) if is_absent(&e) => 0,
+            Err(e) => return Err(e),
+        };
+        Ok(RecordWriter { dir, record, blobs })
+    }
+
+    /// Whether the record already has an entry for `path`.
+    pub fn has(&self, path: &Path) -> bool {
+        self.record.entries.iter().any(|e| e.path() == path)
     }
 
     /// Copy the current bytes of `path` into the record. `None` when it does not exist.
@@ -177,36 +253,113 @@ impl RecordWriter {
         fs::remove_dir_all(&self.dir)
     }
 
-    /// Write `record.toml` and return the record.
-    pub fn finish(self) -> io::Result<Record> {
+    /// Write `record.toml` through a temporary file, removing one a crash left first.
+    pub fn save(&mut self) -> io::Result<()> {
         let text = toml::to_string(&self.record).map_err(io::Error::other)?;
         let tmp = self.dir.join(format!(".{RECORD_FILE}.tmp"));
+        match fs::remove_file(&tmp) {
+            Err(e) if e.kind() != io::ErrorKind::NotFound => return Err(e),
+            _ => {}
+        }
         let result = write_private(&tmp, text.as_bytes())
             .and_then(|()| fs::rename(&tmp, self.dir.join(RECORD_FILE)));
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
         }
-        result?;
+        result
+    }
+
+    /// Write `record.toml` and return the record.
+    pub fn finish(mut self) -> io::Result<Record> {
+        self.save()?;
         Ok(self.record)
+    }
+
+    pub(crate) fn record(&self) -> &Record {
+        &self.record
+    }
+
+    pub(crate) fn entries_mut(&mut self) -> &mut Vec<Entry> {
+        &mut self.record.entries
+    }
+
+    /// The blob `path`'s entries share and its bytes; `None` when the file
+    /// did not exist when it was captured, or the record has no entry for it.
+    pub(crate) fn captured(&self, path: &Path) -> io::Result<Option<(String, Vec<u8>)>> {
+        let Some(name) = self
+            .record
+            .entries
+            .iter()
+            .find(|e| e.path() == path)
+            .and_then(Entry::blob)
+        else {
+            return Ok(None);
+        };
+        let bytes = fs::read(self.dir.join(name))?;
+        Ok(Some((name.to_string(), bytes)))
+    }
+
+    pub(crate) fn checkpoint(&self) -> Checkpoint {
+        Checkpoint {
+            entries: self.record.entries.clone(),
+            blobs: self.blobs,
+        }
+    }
+
+    /// Go back to `cp` and save; the blobs captured since are deleted once the
+    /// saved record no longer names them, and kept when saving fails.
+    pub(crate) fn rewind(&mut self, cp: Checkpoint) -> io::Result<()> {
+        self.record.entries = cp.entries;
+        self.save()?;
+        for n in cp.blobs..self.blobs {
+            match fs::remove_file(self.dir.join(format!("files/{n}"))) {
+                Err(e) if !is_absent(&e) => return Err(e),
+                _ => {}
+            }
+        }
+        self.blobs = cp.blobs;
+        Ok(())
     }
 }
 
-/// The newest finished record, if any.
+fn parse_record(path: &Path, text: &str) -> io::Result<Record> {
+    toml::from_str(text).map_err(|e| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("{}: {e}", path.display()),
+        )
+    })
+}
+
+/// The finished record `id`; `NotFound` when it has no `record.toml`.
+pub fn load(dirs: &Dirs, id: u32) -> io::Result<Record> {
+    let path = record_dir(dirs, id).join(RECORD_FILE);
+    parse_record(&path, &fs::read_to_string(&path)?)
+}
+
+/// Whether record `id` is finished: its folder holds a `record.toml`.
+pub(crate) fn exists(dirs: &Dirs, id: u32) -> bool {
+    record_dir(dirs, id).join(RECORD_FILE).is_file()
+}
+
+/// Record folder numbers, ascending, without the open live session's record.
+fn closed_ids(dirs: &Dirs) -> io::Result<Vec<u32>> {
+    let live = live::marker_record(dirs);
+    let mut ids = record_ids(dirs)?;
+    ids.retain(|id| Some(*id) != live);
+    Ok(ids)
+}
+
+/// The newest finished record, if any, leaving out an open live session's.
 pub fn latest(dirs: &Dirs) -> io::Result<Option<Record>> {
-    for id in record_ids(dirs)?.into_iter().rev() {
+    for id in closed_ids(dirs)?.into_iter().rev() {
         let path = record_dir(dirs, id).join(RECORD_FILE);
         let text = match fs::read_to_string(&path) {
             Ok(t) => t,
             Err(e) if e.kind() == io::ErrorKind::NotFound => continue,
             Err(e) => return Err(e),
         };
-        let rec = toml::from_str(&text).map_err(|e| {
-            io::Error::new(
-                io::ErrorKind::InvalidData,
-                format!("{}: {e}", path.display()),
-            )
-        })?;
-        return Ok(Some(rec));
+        return parse_record(&path, &text).map(Some);
     }
     Ok(None)
 }
@@ -219,8 +372,10 @@ pub fn restore(dirs: &Dirs, rec: &Record, mode: RestoreMode) -> Vec<(PathBuf, io
         .rev()
         .filter_map(|e| {
             let result = match (mode, e) {
-                (RestoreMode::Undo, Entry::Block { .. } | Entry::Key { .. }) => undo_edit(e),
-                _ => put_back(&dir, e.path(), e.blob()),
+                (RestoreMode::Undo, Entry::File { .. }) | (RestoreMode::Rollback, _) => {
+                    put_back(&dir, e.path(), e.blob())
+                }
+                (RestoreMode::Undo, _) => undo_edit(&dir, e),
             };
             result.err().map(|err| (e.path().to_path_buf(), err))
         })
@@ -236,38 +391,63 @@ fn put_back(dir: &Path, path: &Path, blob: Option<&str>) -> io::Result<()> {
 }
 
 /// Delete the file `path` names, through symlinks, so a link itself is kept.
-fn remove(path: &Path) -> io::Result<()> {
+pub(crate) fn remove(path: &Path) -> io::Result<()> {
     match fs::remove_file(resolve_write_path(path)?) {
         Err(e) if !is_absent(&e) => Err(e),
         _ => Ok(()),
     }
 }
 
-/// Take Irida's block or key out of the current file, keeping everything else.
-fn undo_edit(e: &Entry) -> io::Result<()> {
+/// Take Irida's block, key, scheme or profile field out of the current file,
+/// keeping everything else. A COSMIC Terminal key file that no longer parses
+/// gets the recorded copy back instead.
+fn undo_edit(dir: &Path, e: &Entry) -> io::Result<()> {
     let path = e.path();
     let current = match fs::read_to_string(path) {
         Ok(t) => t,
         Err(err) if is_absent(&err) => return Ok(()),
         Err(err) => return Err(err),
     };
-    let restored = match e {
+    let (restored, empty) = match e {
         Entry::Block {
             comment,
             before,
             appended_newline,
             ..
-        } => restore_block(&current, comment, before.as_deref(), *appended_newline)
-            .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?,
+        } => {
+            let text = restore_block(&current, comment, before.as_deref(), *appended_newline)
+                .map_err(|err| io::Error::new(io::ErrorKind::InvalidData, err))?;
+            let empty = text.is_empty();
+            (text, empty)
+        }
         Entry::Key {
             key,
             before,
             appended_newline,
             ..
-        } => restore_key(&current, key, before.as_deref(), *appended_newline),
+        } => {
+            let text = restore_key(&current, key, before.as_deref(), *appended_newline);
+            let empty = text.is_empty();
+            (text, empty)
+        }
+        Entry::TermScheme {
+            id, name, before, ..
+        } => match cosmic_term::undo_scheme(&current, *id, name, before.as_deref())? {
+            Undone::Text { text, empty } => (text, empty),
+            Undone::Unparsable => return put_back(dir, path, e.blob()),
+        },
+        Entry::TermProfileTheme {
+            profile,
+            field,
+            before,
+            ..
+        } => match cosmic_term::undo_profile_theme(&current, *profile, field, before.as_deref())? {
+            Undone::Text { text, empty } => (text, empty),
+            Undone::Unparsable => return put_back(dir, path, e.blob()),
+        },
         Entry::File { .. } => return Ok(()),
     };
-    if e.blob().is_none() && restored.is_empty() {
+    if e.blob().is_none() && empty {
         return remove(path);
     }
     if restored == current {
@@ -280,9 +460,10 @@ pub fn delete(dirs: &Dirs, id: u32) -> io::Result<()> {
     fs::remove_dir_all(record_dir(dirs, id))
 }
 
-/// Keep the `keep` newest records and delete the rest.
+/// Keep the `keep` newest records and delete the rest. An open live
+/// session's record is never deleted and does not count.
 pub fn prune(dirs: &Dirs, keep: usize) -> io::Result<()> {
-    let ids = record_ids(dirs)?;
+    let ids = closed_ids(dirs)?;
     let excess = ids.len().saturating_sub(keep);
     for id in &ids[..excess] {
         delete(dirs, *id)?;

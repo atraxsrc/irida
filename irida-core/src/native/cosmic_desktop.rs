@@ -249,6 +249,7 @@ fn plan_one(
             out.writes.push(KeyFileWrite {
                 path: real_builder.join(key),
                 contents,
+                undo: Vec::new(),
             });
         }
     }
@@ -257,6 +258,7 @@ fn plan_one(
         out.writes.push(KeyFileWrite {
             path: real_theme.join(key),
             contents,
+            undo: Vec::new(),
         });
     }
     Ok(())
@@ -276,6 +278,7 @@ pub(crate) fn plan(palettes: &[&Palette], dirs: &Dirs) -> Result<NativePlan, Tar
         out.writes.push(KeyFileWrite {
             path: mode_dir.join("is_dark"),
             contents: (p.mode == Mode::Dark).to_string(),
+            undo: Vec::new(),
         });
         let auto = fs::read_to_string(mode_dir.join("auto_switch"))
             .ok()

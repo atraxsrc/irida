@@ -5,8 +5,10 @@ use std::path::{Path, PathBuf};
 
 use common::{TestEnv, fixture, fixture_text, palette};
 use irida_core::derive::derive;
-use irida_core::import::{import_rice, is_rice_folder};
+use irida_core::export::{ExportRequest, ExportStatus, export};
+use irida_core::import::{import_rice, import_rice_with_notes, is_rice_folder};
 use irida_core::native::cosmic_desktop::export_ron;
+use irida_core::role::Role;
 use irida_core::store::{Store, StoreError};
 
 const RICES: [(&str, &str); 4] = [
@@ -44,7 +46,11 @@ fn copy_repo(env: &TestEnv, slug: &str) -> PathBuf {
 fn imports_all_four() {
     for (slug, _) in RICES {
         let got = import_rice(&repo(slug)).unwrap_or_else(|e| panic!("{e}"));
-        let want = palette(slug);
+        let mut want = palette(slug);
+        // A name that is the role's own, such as Pane, is the default.
+        for role in [Role::Pane, Role::Muted, Role::Comment] {
+            want.names.remove(&role);
+        }
         assert_eq!(got.name, want.name, "{slug}");
         assert_eq!(got.slug, want.slug, "{slug}");
         assert_eq!(got.mode, want.mode, "{slug}");
@@ -144,4 +150,197 @@ fn store_resolves_rice_folders() {
         }
         other => panic!("expected NotFound, got {other:?}"),
     }
+}
+
+#[test]
+fn export_then_import_keeps_names() {
+    let env = TestEnv::new();
+    let ember = palette("ember");
+    let emberday = palette("emberday");
+    let parent = env.tmp.path().join("out");
+    let report = export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &ember,
+            pair: Some(&emberday),
+            folder: &parent,
+        },
+    )
+    .unwrap();
+    assert!(!report.repo.join("scripts/contrast.py").exists());
+
+    let mut want = ember.names.clone();
+    for role in [Role::Pane, Role::Muted, Role::Comment] {
+        want.remove(&role);
+    }
+    let (got, notes) = import_rice_with_notes(&report.repo).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(got.names, want);
+    assert_eq!(got.roles, ember.roles);
+    assert!(notes.is_empty(), "{notes:?}");
+    assert_eq!(import_rice(&report.repo).unwrap().names, want);
+}
+
+#[test]
+fn export_into_rice_with_contrast_py_imports_back() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let mut ember = palette("ember");
+    ember.roles.set(
+        Role::Accent,
+        irida_core::color::Rgb::from_hex("#E0602A").unwrap(),
+    );
+    ember.names.insert(Role::Text, "Ink".into());
+    ember.names.insert(Role::Container, "Soot / Ash".into());
+    ember
+        .names
+        .insert(Role::Magenta, r#"Heather "wild" \ moor"#.into());
+    let report = export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &ember,
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let line = |path: &str| {
+        report
+            .lines
+            .iter()
+            .find(|l| l.path == path)
+            .map(|l| l.status.clone())
+    };
+    assert_eq!(line("scripts/contrast.py"), Some(ExportStatus::Updated));
+    assert_eq!(
+        line("README.md"),
+        Some(ExportStatus::Skipped("no irida markers".into()))
+    );
+    let script = fs::read_to_string(copy.join("scripts/contrast.py")).unwrap();
+    assert!(script.contains("def lum(h):"), "{script}");
+    assert!(
+        script.contains(r##"("Text", "Ink", "#D6D9E0", True),"##),
+        "{script}"
+    );
+    assert!(
+        script.contains(r##"("Containers", "Soot \x2f Ash / Pane", ["#22262E", "#1B1E24"]),"##),
+        "{script}"
+    );
+
+    let mut want = ember.names.clone();
+    for role in [Role::Pane, Role::Muted, Role::Comment] {
+        want.remove(&role);
+    }
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(got.roles, ember.roles);
+    assert_eq!(got.names, want);
+}
+
+#[test]
+fn partial_names_round_trip_through_contrast_py() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let mut ember = palette("ember");
+    ember.names.clear();
+    ember.names.insert(Role::Text, "Ink".into());
+    ember.names.insert(Role::Container, "Soot / Ash".into());
+    export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &ember,
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let script = fs::read_to_string(copy.join("scripts/contrast.py")).unwrap();
+    assert!(
+        script.contains(r##"("Accent", "Accent", "#E8713A", True),"##),
+        "{script}"
+    );
+
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(got.names, ember.names);
+}
+
+#[test]
+fn control_and_blank_names_through_contrast_py() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let mut ember = palette("ember");
+    ember.names.insert(Role::Text, "Ink\nDeep".into());
+    export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &ember,
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let path = copy.join("scripts/contrast.py");
+    let script = fs::read_to_string(&path).unwrap();
+    // The newline is escaped, so the line stays one valid Python string.
+    assert!(script.contains(r#"("Text", "Ink\x0aDeep", "#), "{script}");
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
+    assert_eq!(
+        got.names.get(&Role::Text).map(String::as_str),
+        Some("Ink\nDeep")
+    );
+
+    // A blank name in a hand-made script is no name, as in the README.
+    let blank = script.replace(r#"("Text", "Ink\x0aDeep", "#, r#"("Text", " ", "#);
+    assert_ne!(blank, script);
+    fs::write(&path, blank).unwrap();
+    let got = import_rice(&copy).unwrap_or_else(|e| panic!("{e}"));
+    assert!(!got.names.contains_key(&Role::Text), "{:?}", got.names);
+    got.validate().unwrap();
+}
+
+#[test]
+fn contrast_py_of_another_shape_is_flagged() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "ember");
+    let script = copy.join("scripts/contrast.py");
+    fs::write(&script, "print('mine')\n").unwrap();
+    let report = export(
+        &env.dirs,
+        &ExportRequest {
+            palette: &palette("ember"),
+            pair: None,
+            folder: &copy,
+        },
+    )
+    .unwrap();
+    let line = report
+        .lines
+        .iter()
+        .find(|l| l.path == "scripts/contrast.py")
+        .map(|l| l.status.clone());
+    assert_eq!(line, Some(ExportStatus::Stale));
+    assert_eq!(fs::read_to_string(&script).unwrap(), "print('mine')\n");
+}
+
+#[test]
+fn alpha_is_reported() {
+    let env = TestEnv::new();
+    let copy = copy_repo(&env, "noir");
+    let scheme = copy.join("cosmic-term/Noir-term.ron");
+    let text = fs::read_to_string(&scheme).unwrap();
+    assert_eq!(text.matches("foreground: \"#CCD0CF\"").count(), 1);
+    fs::write(
+        &scheme,
+        text.replace("foreground: \"#CCD0CF\"", "foreground: \"#CCD0CF80\""),
+    )
+    .unwrap();
+
+    let (got, notes) = import_rice_with_notes(&copy).unwrap_or_else(|e| panic!("{e}"));
+    let want = import_rice(&repo("noir")).unwrap();
+    assert_eq!(got.roles.get(Role::Text).to_hex(), "#CCD0CF");
+    assert_eq!(got.roles, want.roles);
+    assert_eq!(got.pins, want.pins);
+    assert_eq!(
+        notes,
+        ["foreground: alpha 128 in the terminal scheme was dropped; Irida colours are opaque"]
+    );
+    assert_eq!(import_rice(&copy).unwrap(), got);
 }

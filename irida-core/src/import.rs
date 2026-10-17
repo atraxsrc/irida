@@ -1,16 +1,17 @@
 //! Read an existing `cosmic-<slug>-theme` rice repo into a palette.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use cosmic_theme::ThemeBuilder;
 use cosmic_theme::palette::{Srgb, Srgba};
-use regex::Regex;
+use regex::{Captures, NoExpand, Regex};
 
 use crate::color::Rgb;
 use crate::derive::derive;
+use crate::export_docs::{capitalised, name_of, opacity, readme_names};
 use crate::palette::{Mode, Palette, Roles, validate_name, validate_slug};
 use crate::role::Role;
 use crate::slot::{Ansi, PinValue, Pins, Slot, Tone};
@@ -111,11 +112,84 @@ fn hex(s: &str) -> Rgb {
     Rgb::from_hex(s).expect("the patterns only match #RRGGBB")
 }
 
+/// A Python string literal in `scripts/contrast.py`, its text captured.
+const PY_STR: &str = r#""((?:[^"\\]|\\.)*)""#;
+
+/// A role line of `ROLES`: indent, role, name, colour, reads.
+fn role_line() -> Regex {
+    Regex::new(&format!(
+        r#"(?m)^(\s*)\("(Text|Accent|Success|Warning|Error|Blue|Magenta|Cyan|Muted|Comment)", {PY_STR}, "(#[0-9A-Fa-f]{{6}})", (True|False)\),$"#
+    ))
+    .expect("pattern compiles")
+}
+
+/// A surface line of `SURFACES`: indent, label, name, colours.
+fn surface_line() -> Regex {
+    Regex::new(&format!(
+        r#"(?m)^(\s*)\("(Background|Containers|Terminal)", {PY_STR}, \[([^\]]*)\]\),$"#
+    ))
+    .expect("pattern compiles")
+}
+
+fn constant_line(key: &str) -> Regex {
+    Regex::new(&format!(r#"(?m)^{key} = "(#[0-9A-Fa-f]{{6}})"$"#)).expect("pattern compiles")
+}
+
+/// A Python string's text: `\xHH` is that character, and every other
+/// backslash keeps only the character after it.
+fn py_unescape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '\\' => match chars.next() {
+                Some('x') => {
+                    let digits: String = chars.clone().take(2).collect();
+                    if digits.len() == 2 && digits.chars().all(|d| d.is_ascii_hexdigit()) {
+                        let b = u8::from_str_radix(&digits, 16).expect("two hex digits");
+                        out.push(char::from(b));
+                        chars.nth(1);
+                    } else {
+                        out.push('x');
+                    }
+                }
+                next => out.extend(next),
+            },
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// `s` as the inside of a Python string: backslash and quote escaped, and
+/// control characters written `\xHH`, so the line stays valid Python.
+fn py_escape(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for c in s.chars() {
+        match c {
+            '\\' => out.push_str(r"\\"),
+            '"' => out.push_str(r#"\""#),
+            c if (c as u32) < 0x20 || c == '\u{7f}' => {
+                out.push_str(&format!("\\x{:02x}", c as u32))
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+/// [`py_escape`] with `/` written `\x2f`, so the ` / ` between the container
+/// and pane names of `Containers` is the only `/` in the line.
+fn py_escape_half(s: &str) -> String {
+    py_escape(s).replace('/', r"\x2f")
+}
+
 /// Path 1: the roles and names in `scripts/contrast.py`, when it has exactly
 /// one of each. `None` when the file is absent or does not have that shape.
+/// A name that is the capitalised role name is the default, so it is left
+/// out, as in the README.
 fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role, String>)> {
-    let one = |pattern: &str| -> Option<Rgb> {
-        let re = Regex::new(pattern).expect("pattern compiles");
+    let one = |re: Regex| -> Option<Rgb> {
         let found: Vec<_> = re.captures_iter(text).collect();
         match found.as_slice() {
             [c] => Some(hex(&c[1])),
@@ -124,59 +198,112 @@ fn roles_from_contrast(text: &str) -> Option<(BTreeMap<Role, Rgb>, BTreeMap<Role
     };
     let mut roles = BTreeMap::new();
     let mut names = BTreeMap::new();
-    roles.insert(
-        Role::Background,
-        one(r#"(?m)^WINDOW = "(#[0-9A-Fa-f]{6})"$"#)?,
-    );
-    roles.insert(Role::Pane, one(r#"(?m)^PANE = "(#[0-9A-Fa-f]{6})"$"#)?);
+    let mut keep = |role: Role, name: String| {
+        if !name.trim().is_empty() && name != capitalised(role) {
+            names.insert(role, name);
+        }
+    };
+    roles.insert(Role::Background, one(constant_line("WINDOW"))?);
+    roles.insert(Role::Pane, one(constant_line("PANE"))?);
     roles.insert(
         Role::Container,
-        one(r#"(?m)^\s*\("Containers", "[^"]*", \["(#[0-9A-Fa-f]{6})""#)?,
+        one(
+            Regex::new(r#"(?m)^\s*\("Containers", "(?:[^"\\]|\\.)*", \["(#[0-9A-Fa-f]{6})""#)
+                .expect("pattern compiles"),
+        )?,
     );
 
-    let re = Regex::new(
-        r#"(?m)^\s*\("(Text|Accent|Success|Warning|Error|Blue|Magenta|Cyan|Muted|Comment)", "([^"]*)", "(#[0-9A-Fa-f]{6})", (True|False)\),$"#,
-    )
-    .expect("pattern compiles");
-    let found: Vec<_> = re.captures_iter(text).collect();
+    let found: Vec<_> = role_line().captures_iter(text).collect();
     if found.len() != 10 {
         return None;
     }
     for c in &found {
-        let role: Role = c[1].to_lowercase().parse().ok()?;
-        if roles.insert(role, hex(&c[3])).is_some() {
+        let role: Role = c[2].to_lowercase().parse().ok()?;
+        if roles.insert(role, hex(&c[4])).is_some() {
             return None;
         }
-        names.insert(role, c[2].to_string());
+        keep(role, py_unescape(&c[3]));
     }
 
-    let re =
-        Regex::new(r#"(?m)^\s*\("(Background|Containers|Terminal)", "([^"]*)", \[([^\]]*)\]\),$"#)
-            .expect("pattern compiles");
-    let found: Vec<_> = re.captures_iter(text).collect();
+    let found: Vec<_> = surface_line().captures_iter(text).collect();
     if found.len() != 3 {
         return None;
     }
     let mut seen = Vec::new();
     for c in &found {
-        let label = c[1].to_string();
+        let label = c[2].to_string();
         if seen.contains(&label) {
             return None;
         }
         match label.as_str() {
             "Background" => {
-                names.insert(Role::Background, c[2].to_string());
+                keep(Role::Background, py_unescape(&c[3]));
             }
             "Containers" => {
-                let (container, pane) = c[2].split_once(" / ")?;
-                names.insert(Role::Container, container.to_string());
-                names.insert(Role::Pane, pane.to_string());
+                // Split before unescaping: a `/` in a name is written `\x2f`.
+                let (container, pane) = c[3].split_once(" / ")?;
+                keep(Role::Container, py_unescape(container));
+                keep(Role::Pane, py_unescape(pane));
             }
             _ => {}
         }
         seen.push(label);
     }
     Some((roles, names))
+}
+
+/// `scripts/contrast.py` with its palette lines rebuilt from `p`: `WINDOW`,
+/// `PANE`, the three surfaces and the ten roles, each in place, so the
+/// script's own code and every other line stay as written. `None` when the
+/// file does not have the shape path 1 reads.
+pub(crate) fn refresh_contrast(text: &str, p: &Palette) -> Option<String> {
+    roles_from_contrast(text)?;
+    let hex = |role: Role| p.roles.get(role).to_hex();
+    let name = |role: Role| py_escape(&name_of(p, role));
+    let text = constant_line("WINDOW").replace(
+        text,
+        NoExpand(&format!(r#"WINDOW = "{}""#, hex(Role::Background))),
+    );
+    let text =
+        constant_line("PANE").replace(&text, NoExpand(&format!(r#"PANE = "{}""#, hex(Role::Pane))));
+    let text = surface_line().replace_all(&text, |c: &Captures| {
+        let (label, colors) = match &c[2] {
+            "Background" => (name(Role::Background), vec![hex(Role::Background)]),
+            "Containers" => (
+                format!(
+                    "{} / {}",
+                    py_escape_half(&name_of(p, Role::Container)),
+                    py_escape_half(&name_of(p, Role::Pane))
+                ),
+                vec![hex(Role::Container), hex(Role::Pane)],
+            ),
+            _ => (
+                format!("{}, {}", name(Role::Pane), opacity(p)),
+                vec![hex(Role::Pane)],
+            ),
+        };
+        let colors = colors
+            .iter()
+            .map(|h| format!("\"{h}\""))
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(r#"{}("{}", "{label}", [{colors}]),"#, &c[1], &c[2])
+    });
+    let text = role_line().replace_all(&text, |c: &Captures| {
+        let role: Role = c[2]
+            .to_lowercase()
+            .parse()
+            .expect("the pattern names roles");
+        format!(
+            r#"{}("{}", "{}", "{}", {}),"#,
+            &c[1],
+            &c[2],
+            name(role),
+            hex(role),
+            &c[5]
+        )
+    });
+    Some(text.into_owned())
 }
 
 /// The `cmt` colour of the repo's Neovim colorscheme.
@@ -260,6 +387,31 @@ fn roles_from_files(
     Ok(roles)
 }
 
+/// The terminal scheme slots `roles_from_files` reads roles from.
+const ROLE_SOURCES: [Slot; 6] = [
+    Slot::Background,
+    Slot::Foreground,
+    Slot::DimForeground,
+    Slot::Ansi(Tone::Normal, Ansi::Blue),
+    Slot::Ansi(Tone::Normal, Ansi::Magenta),
+    Slot::Ansi(Tone::Normal, Ansi::Cyan),
+];
+
+/// One note per slot in `used` whose scheme colour is not opaque.
+fn alpha_notes(scheme: &ColorScheme, used: &BTreeSet<Slot>) -> Vec<String> {
+    used.iter()
+        .filter_map(|&slot| {
+            let c = scheme.raw(slot)?;
+            (c.a < 255).then(|| {
+                format!(
+                    "{slot}: alpha {} in the terminal scheme was dropped; Irida colours are opaque",
+                    c.a
+                )
+            })
+        })
+        .collect()
+}
+
 /// Pin every slot the scheme sets to something other than its derived value,
 /// in stages so a pinned normal colour is not pinned again in its brights and dims.
 fn pin_scheme(p: &mut Palette, scheme: &ColorScheme) {
@@ -283,15 +435,22 @@ fn pin_scheme(p: &mut Palette, scheme: &ColorScheme) {
             if let Some(c) = scheme.slot(slot)
                 && derived.slot(slot) != Some(c)
             {
-                p.pins.set(slot, PinValue::Color(c));
+                p.pins
+                    .set(slot, PinValue::Color(c))
+                    .expect("colour pins are always allowed");
             }
         }
     }
     let derived = derive(p);
     match scheme.slot(Slot::Background) {
-        None => p.pins.set(Slot::Background, PinValue::None),
+        None => p
+            .pins
+            .set(Slot::Background, PinValue::None)
+            .expect("background can be none"),
         Some(c) if derived.slot(Slot::Background) != Some(c) => {
-            p.pins.set(Slot::Background, PinValue::Color(c));
+            p.pins
+                .set(Slot::Background, PinValue::Color(c))
+                .expect("colour pins are always allowed");
         }
         Some(_) => {}
     }
@@ -373,6 +532,12 @@ fn read_scheme(
 /// Read a rice repo folder into a palette. Slots that differ from their
 /// derived values become pins, so the terminal scheme round-trips.
 pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
+    import_rice_with_notes(dir).map(|(p, _)| p)
+}
+
+/// [`import_rice`], plus a note for every terminal scheme colour whose alpha
+/// was dropped on the way into a role or a pin.
+pub fn import_rice_with_notes(dir: &Path) -> Result<(Palette, Vec<String>), ImportError> {
     let slug = rice_slug(dir).ok_or_else(|| {
         err(
             dir,
@@ -406,12 +571,18 @@ pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
     } else {
         None
     };
+    let mut used = BTreeSet::new();
     let (roles, names) = match from_contrast {
         Some(found) => found,
-        None => (
-            roles_from_files(dir, &slug, &ron_path, &builder, &scheme_path, &scheme)?,
-            BTreeMap::new(),
-        ),
+        None => {
+            let roles = roles_from_files(dir, &slug, &ron_path, &builder, &scheme_path, &scheme)?;
+            used.extend(ROLE_SOURCES);
+            // Display names are optional: an unreadable README gives none.
+            let names = fs::read_to_string(dir.join("README.md"))
+                .map(|t| readme_names(&t))
+                .unwrap_or_default();
+            (roles, names)
+        }
     };
     let roles = Roles::new(Role::ALL.map(|r| roles[&r]));
 
@@ -426,17 +597,22 @@ pub fn import_rice(dir: &Path) -> Result<Palette, ImportError> {
         pins: Pins::default(),
     };
     pin_scheme(&mut p, &scheme);
+    used.extend(p.pins.iter().map(|(slot, _)| slot));
+    let notes = alpha_notes(&scheme, &used);
 
     let inner = builder.palette.as_ref();
     let derived = derive(&p);
     let neutral_10 = from_srgba(inner.neutral_10);
     if derived.neutral_10 != neutral_10 {
         p.pins
-            .set(Slot::CosmicNeutral10, PinValue::Color(neutral_10));
+            .set(Slot::CosmicNeutral10, PinValue::Color(neutral_10))
+            .expect("colour pins are always allowed");
     }
     let gray_2 = from_srgba(inner.gray_2);
     if derived.gray_2 != gray_2 {
-        p.pins.set(Slot::CosmicGray2, PinValue::Color(gray_2));
+        p.pins
+            .set(Slot::CosmicGray2, PinValue::Color(gray_2))
+            .expect("colour pins are always allowed");
     }
-    Ok(p)
+    Ok((p, notes))
 }

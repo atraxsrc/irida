@@ -6,7 +6,7 @@ pub mod cosmic_term;
 use std::path::PathBuf;
 
 use crate::dirs::Dirs;
-use crate::palette::Palette;
+use crate::palette::{Mode, Palette};
 use crate::target::{NativeKind, TargetError};
 
 /// The full new contents of one config key file.
@@ -14,6 +14,30 @@ use crate::target::{NativeKind, TargetError};
 pub struct KeyFileWrite {
     pub path: PathBuf,
     pub contents: String,
+    /// What undo puts back inside the file; empty for a plain key file, which
+    /// undo restores whole.
+    pub undo: Vec<NativeUndo>,
+}
+
+/// One part of a key file an apply changed. `before` is the RON of that scheme,
+/// or of that field's value, before the write; `None` when it was absent.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NativeUndo {
+    /// One COSMIC Terminal colour scheme, by id, in `color_schemes_<mode>`.
+    /// `name` is the name Irida wrote there, so undo can tell Irida's scheme
+    /// from one the user put at the same id later.
+    TermScheme {
+        mode: Mode,
+        id: u64,
+        name: String,
+        before: Option<String>,
+    },
+    /// One syntax theme field of one COSMIC Terminal profile, in `profiles`.
+    TermProfileTheme {
+        profile: u64,
+        field: String,
+        before: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -50,6 +74,16 @@ pub fn export(kind: NativeKind, p: &Palette) -> Vec<ExportFile> {
     match kind {
         NativeKind::CosmicTerm => cosmic_term::export(p),
         NativeKind::CosmicDesktop => cosmic_desktop::export(p),
+    }
+}
+
+/// The config-shape error a native target would hit when planned, found by
+/// reading its keys; nothing is planned or written. COSMIC desktop reads bad
+/// keys as defaults with a warning, so it has none.
+pub fn check(kind: NativeKind, dirs: &Dirs) -> Result<(), TargetError> {
+    match kind {
+        NativeKind::CosmicTerm => cosmic_term::check(dirs),
+        NativeKind::CosmicDesktop => Ok(()),
     }
 }
 

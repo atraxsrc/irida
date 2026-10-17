@@ -48,7 +48,7 @@ snapshots, compare, pairs in the UI, try it live.
 writable or readable from the sandbox, so every cargo command runs with:
 
 ```bash
-export RUSTUP_HOME=/home/0xdev1/.rustup CARGO_HOME=<scratchpad>/cargo-home \
+export RUSTUP_HOME=~/.rustup CARGO_HOME=<scratchpad>/cargo-home \
        HOME=<scratchpad>/home GIT_CONFIG_GLOBAL=/dev/null CARGO_NET_GIT_FETCH_WITH_CLI=true
 ```
 
