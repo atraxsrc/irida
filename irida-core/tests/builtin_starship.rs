@@ -6,21 +6,26 @@ use std::process::Command;
 
 use common::{TestEnv, fixture_text, palette, render_apply, render_export, undo};
 use irida_core::apply::{ApplyReport, ApplyRequest, Ctx, TargetStatus, apply};
+use irida_core::live::LiveSession;
 use irida_core::store::Settings;
 use irida_core::template::Renderer;
 
-/// Apply Starship with a fake `starship` binary on the path, so the target is
+/// A context with a fake `starship` binary on the path, so the target is
 /// detected.
-fn apply_with_binary(env: &TestEnv) -> ApplyReport {
+fn ctx_with_binary(env: &TestEnv) -> Ctx {
     let bin = env.tmp.path().join("bin");
     fs::create_dir_all(&bin).unwrap();
     let starship = bin.join("starship");
     fs::write(&starship, "#!/bin/sh\nexit 0\n").unwrap();
     fs::set_permissions(&starship, fs::Permissions::from_mode(0o755)).unwrap();
-    let ctx = Ctx {
+    Ctx {
         dirs: env.dirs.clone(),
         path: vec![bin],
-    };
+    }
+}
+
+fn apply_with_binary(env: &TestEnv) -> ApplyReport {
+    let ctx = ctx_with_binary(env);
     apply(
         &ctx,
         &Settings::default(),
@@ -175,4 +180,37 @@ fn starship_config_env_is_followed() {
             .contains("palette = \"irida\"")
     );
     assert!(!env.dirs.home.join(".config/starship.toml").exists());
+}
+
+/// Starship rereads its config at every prompt, so it is live: a session
+/// writes it, Revert puts the file back, and Keep leaves one undo.
+#[test]
+fn live_session_reverts_and_keeps() {
+    let text = "format = \"$all\"\n";
+    for keep in [false, true] {
+        let env = TestEnv::new();
+        let conf = env.write(".config/starship.toml", text);
+        let ctx = ctx_with_binary(&env);
+        let mut s = LiveSession::start(&ctx, "ember").unwrap();
+        for slug in ["ember", "noir"] {
+            let req = ApplyRequest {
+                palette: &palette(slug),
+                pair: None,
+                only: None,
+                live_only: false,
+            };
+            let report = s.apply(&ctx, &Settings::default(), &req).unwrap();
+            let t = report.get("starship").unwrap();
+            assert!(matches!(t.status, TargetStatus::Applied(_)), "{t:?}");
+        }
+        let after = fs::read_to_string(&conf).unwrap();
+        assert!(after.contains("palette = \"irida\"\n"), "{after}");
+        if keep {
+            s.keep(&ctx).unwrap();
+            irida_core::apply::undo(&ctx).unwrap();
+        } else {
+            s.revert(&ctx).unwrap().expect("a report");
+        }
+        assert_eq!(fs::read_to_string(&conf).unwrap(), text, "keep {keep}");
+    }
 }

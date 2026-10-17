@@ -975,7 +975,7 @@ fn listing(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     out
 }
 
-const LIVE: [&str; 3] = ["cava", "cosmic-desktop", "cosmic-term"];
+const LIVE: [&str; 4] = ["cava", "cosmic-desktop", "cosmic-term", "starship"];
 
 /// The display name a built-in target's `target.toml` sets.
 fn builtin_display(name: &str) -> String {

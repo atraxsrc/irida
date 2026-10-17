@@ -8,6 +8,8 @@
 name = "starship"
 display = "Starship"
 detect = { binary = "starship" }
+# Read on every prompt, so a live session shows at the next prompt.
+live = true
 
 [[file]]
 path = "${STARSHIP_CONFIG:-~/.config/starship.toml}"
