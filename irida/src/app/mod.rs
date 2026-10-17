@@ -320,26 +320,28 @@ fn content(state: &State) -> Element<'_, Msg> {
                     .width(Length::FillPortion(2))
                     .max_width(480.),
             )
-            .push(
-                widget::Column::new()
+            .push({
+                let split = state.split_view();
+                let mut column = widget::Column::new()
                     .spacing(12)
                     .width(Length::FillPortion(3))
                     .push(
-                        widget::scrollable(match state.split_view() {
+                        widget::scrollable(match split {
                             Some(split) => compare::view(split, &state.targets, &state.images),
-                            None => widget::Column::new()
-                                .spacing(12)
-                                .push(preview::view(
-                                    scene::scene(working),
-                                    state.image_status(&working.image),
-                                ))
-                                .push(caption::line(&state.targets))
-                                .into(),
+                            None => preview::view(
+                                scene::scene(working),
+                                state.image_status(&working.image),
+                            ),
                         })
                         .height(Length::Fill),
-                    )
-                    .push(roles::notes(working)),
-            )
+                    );
+                // Under the preview, outside its scroll, so it stays on screen.
+                // Compare keeps one caption under each column, inside the scroll.
+                if state.split == state::Split::Off {
+                    column = column.push(caption::line(&state.targets));
+                }
+                column.push(roles::notes(working))
+            })
             .into(),
         Some(Current::Unreadable { slug, error, text }) => header::unreadable(slug, error, text),
         None => text::body(state.empty_text()).into(),

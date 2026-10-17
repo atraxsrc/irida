@@ -44,11 +44,14 @@ pub fn line(targets: &[TargetInfo]) -> Element<'static, Msg> {
         children.push(text::body("Nothing to colour").into());
     } else if !cap.written.is_empty() {
         children.push(text::caption("Colours").into());
-        children.push(
-            text::body(cap.written.join(" · "))
-                .width(Length::Fill)
-                .into(),
-        );
+        // One widget per name, so the row wraps between names and Change
+        // stays after the last one.
+        for (i, name) in cap.written.iter().enumerate() {
+            if i > 0 {
+                children.push(text::body("·").into());
+            }
+            children.push(text::body(name.clone()).into());
+        }
     }
     if !cap.off.is_empty() {
         let names: Vec<&str> = cap.off.iter().map(String::as_str).collect();
