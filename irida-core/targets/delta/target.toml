@@ -3,7 +3,8 @@
 name = "delta"
 display = "delta"
 # The binary is `delta`; Debian's /usr/bin/git-delta is an unrelated tool.
-detect = { binary = "delta", config = "~/.gitconfig" }
+# Detected by the binary only: every git user has a ~/.gitconfig.
+detect = { binary = "delta" }
 
 # A theme is a named feature that sets dark or light.
 [[file]]

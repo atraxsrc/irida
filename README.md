@@ -54,7 +54,7 @@ result to your desktop, terminal, editor and tools in one step.
 | lsd | `colors.yaml` and `config.yaml` | |
 | zsh | A marked block in `~/.zshrc` | |
 | Ghostty | `themes/irida`, selected in `config` | |
-| delta | `~/.config/delta/irida.gitconfig`, included from `~/.gitconfig` | |
+| delta | `~/.config/delta/irida.gitconfig`, included from `~/.gitconfig` (created if your git config lives only under `~/.config/git`) | |
 | fish | `conf.d/irida.fish` | |
 | eza | `theme.yml` | |
 

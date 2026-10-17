@@ -5,7 +5,9 @@ use std::os::unix::fs::PermissionsExt;
 use std::process::Command;
 
 use common::{TestEnv, apply_only, fixture_text, palette, render_apply, render_export, undo};
-use irida_core::apply::{ApplyReport, ApplyRequest, Ctx, TargetStatus, apply};
+use irida_core::apply::{
+    ApplyError, ApplyReport, ApplyRequest, Ctx, SkipReason, TargetStatus, apply,
+};
 use irida_core::palette::Palette;
 use irida_core::reload::ReloadStatus;
 use irida_core::store::Settings;
@@ -143,16 +145,40 @@ fn apply_creates_gitconfig_and_undo_removes_it() {
 }
 
 #[test]
+fn gitconfig_alone_is_not_delta() {
+    let env = TestEnv::new();
+    let gc = env.write(".gitconfig", "[user]\n    name = x\n");
+    let results = match apply_only(&env, &palette("ember"), "delta") {
+        Err(ApplyError::NothingToApply(results)) => results,
+        other => panic!("expected NothingToApply, got {other:?}"),
+    };
+    let delta = results.iter().find(|t| t.name == "delta").unwrap();
+    assert_eq!(
+        delta.status,
+        TargetStatus::Skipped(SkipReason::NotInstalled)
+    );
+    assert_eq!(fs::read_to_string(&gc).unwrap(), "[user]\n    name = x\n");
+    assert!(!env.dirs.home.join(".config/delta").exists());
+}
+
+#[test]
+fn install_script_replaces_features_without_aborting() {
+    let script = render_export("ember", "delta", "install.sh.tmpl");
+    assert!(script.contains("--replace-all delta.features"), "{script}");
+    assert!(script.contains("--get-all delta.features"), "{script}");
+}
+
+#[test]
 fn apply_keeps_existing_gitconfig() {
     let env = TestEnv::new();
     let gc = env.write(".gitconfig", "[user]\n    name = x\n");
-    apply_only(&env, &palette("ember"), "delta").unwrap();
+    apply_with_binary(&env, &palette("ember"));
     let body = render_apply("ember", "delta", "gitconfig-block.tmpl");
     assert_eq!(
         fs::read_to_string(&gc).unwrap(),
         format!("[user]\n    name = x\n# >>> irida >>>\n{body}# <<< irida <<<\n")
     );
-    apply_only(&env, &palette("emberday"), "delta").unwrap();
+    apply_with_binary(&env, &palette("emberday"));
     let text = fs::read_to_string(&gc).unwrap();
     assert_eq!(text.matches("# >>> irida >>>").count(), 1);
     assert!(text.starts_with("[user]\n    name = x\n"), "{text}");
