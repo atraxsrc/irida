@@ -3,7 +3,8 @@
 #
 #   ./alacritty/install.sh
 #
-# Copies emberday.toml to ~/.config/alacritty/themes/ and, when
+# Copies emberday.toml to ~/.config/alacritty/themes/ (or under
+# $XDG_CONFIG_HOME) and, when
 # alacritty.toml has no import line naming it yet, appends a [general]
 # section with the import (Alacritty 0.14 or newer). An existing import
 # array, or an existing [general] section, is left for you to edit by hand,
@@ -24,10 +25,14 @@ backup() {
 }
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-dest="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty"
+cfg="${XDG_CONFIG_HOME:-}"
+case "$cfg" in /*) ;; *) cfg="$HOME/.config" ;; esac
+# The config folder as the include line names it: ~/ inside the home folder.
+case "$cfg" in "$HOME"/?*) shown="~/${cfg#"$HOME"/}" ;; *) shown="$cfg" ;; esac
+dest="$cfg/alacritty"
 conf="$dest/alacritty.toml"
 theme="$dest/themes/emberday.toml"
-import="~/.config/alacritty/themes/emberday.toml"
+import="$shown/alacritty/themes/emberday.toml"
 
 if ! command -v alacritty >/dev/null 2>&1 && [ ! -d "$dest" ]; then
     echo "  alacritty not installed, skipped"

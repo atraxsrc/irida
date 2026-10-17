@@ -107,3 +107,57 @@ fn a_backup_never_replaces_an_older_one() {
         "mine\n"
     );
 }
+
+/// Runs `target`'s Ember install script with `xdg` as XDG_CONFIG_HOME and
+/// returns the config file it edited.
+fn run_with_xdg(env: &TestEnv, target: &str, theme: &str, xdg: &std::path::Path) -> String {
+    let rice = env.tmp.path().join("rice").join(target);
+    fs::create_dir_all(&rice).unwrap();
+    fs::write(
+        rice.join("install.sh"),
+        render_export("ember", target, "install.sh.tmpl"),
+    )
+    .unwrap();
+    fs::write(rice.join(format!("ember.{theme}")), "x\n").unwrap();
+    fs::create_dir_all(xdg.join(target)).unwrap();
+    let out = Command::new("/bin/bash")
+        .arg(rice.join("install.sh"))
+        .env_clear()
+        .env("HOME", &env.dirs.home)
+        .env("XDG_CONFIG_HOME", xdg)
+        .env("TMPDIR", env.tmp.path())
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let conf = match target {
+        "foot" => "foot/foot.ini",
+        _ => "alacritty/alacritty.toml",
+    };
+    fs::read_to_string(xdg.join(conf)).unwrap()
+}
+
+#[test]
+fn include_lines_follow_xdg_config_home() {
+    let env = TestEnv::new();
+    let inside = env.dirs.home.join("cfg");
+    let foot = run_with_xdg(&env, "foot", "ini", &inside);
+    assert!(foot.starts_with("include=~/cfg/foot/ember.ini\n"), "{foot}");
+    let alacritty = run_with_xdg(&env, "alacritty", "toml", &inside);
+    assert!(
+        alacritty.contains("import = [\"~/cfg/alacritty/themes/ember.toml\"]"),
+        "{alacritty}"
+    );
+
+    let env = TestEnv::new();
+    let outside = env.tmp.path().join("elsewhere");
+    let foot = run_with_xdg(&env, "foot", "ini", &outside);
+    let want = format!("include={}/foot/ember.ini\n", outside.display());
+    assert!(foot.starts_with(&want), "{foot}");
+    let alacritty = run_with_xdg(&env, "alacritty", "toml", &outside);
+    let want = format!(
+        "import = [\"{}/alacritty/themes/ember.toml\"]",
+        outside.display()
+    );
+    assert!(alacritty.contains(&want), "{alacritty}");
+}

@@ -3,7 +3,7 @@
 #
 #   ./foot/install.sh
 #
-# Copies emberday.ini to ~/.config/foot/ and puts
+# Copies emberday.ini to ~/.config/foot/ (or $XDG_CONFIG_HOME/foot/) and puts
 # "include=~/.config/foot/emberday.ini" at the top of foot.ini (include
 # is a [main] option, so it must come before any section) unless it is there
 # already. Needs foot 1.26 or newer. Backs up a differing theme file to
@@ -24,9 +24,13 @@ backup() {
 }
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-dest="${XDG_CONFIG_HOME:-$HOME/.config}/foot"
+cfg="${XDG_CONFIG_HOME:-}"
+case "$cfg" in /*) ;; *) cfg="$HOME/.config" ;; esac
+# The config folder as the include line names it: ~/ inside the home folder.
+case "$cfg" in "$HOME"/?*) shown="~/${cfg#"$HOME"/}" ;; *) shown="$cfg" ;; esac
+dest="$cfg/foot"
 conf="$dest/foot.ini"
-line="include=~/.config/foot/emberday.ini"
+line="include=$shown/foot/emberday.ini"
 
 if ! command -v foot >/dev/null 2>&1 && [ ! -d "$dest" ]; then
     echo "  foot not installed, skipped"
