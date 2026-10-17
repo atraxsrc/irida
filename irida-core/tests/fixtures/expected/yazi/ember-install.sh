@@ -5,7 +5,7 @@
 #
 # Copies ember.yazi/ to ~/.config/yazi/flavors/ (or under
 # $XDG_CONFIG_HOME) and, when theme.toml has no [flavor] section yet, adds
-# one with dark and light both set to ember (yazi 0.4 or newer). An
+# one with dark and light both set to ember (yazi 25.12.29 or newer). An
 # existing [flavor] section is left for you to edit by hand. Backs up
 # differing flavor files to <file>.bak. Restart yazi to see it. Safe to run
 # again.

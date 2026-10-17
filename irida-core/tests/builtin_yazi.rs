@@ -121,3 +121,21 @@ fn apply_without_theme_toml_creates_flavor_section() {
     undo(&env);
     assert!(!conf.exists());
 }
+
+/// The flavor uses `[mgr]` (25.5.28), `[cmp]` (25.2.26) and `url` filetype
+/// rules (25.12.29), so 25.12.29 is the version every user-facing text names.
+#[test]
+fn stated_floor_matches_flavor() {
+    let floor = "25.12.29";
+    let readme = fs::read_to_string(common::fixture("../../../README.md")).unwrap();
+    let row = readme.lines().find(|l| l.starts_with("| yazi |")).unwrap();
+    assert!(row.contains(floor), "{row}");
+    assert!(common::target_file("yazi", "target.toml").contains(floor));
+    assert!(render_export("ember", "yazi", "install.sh.tmpl").contains(floor));
+    for old in [
+        row.to_string(),
+        render_export("ember", "yazi", "install.sh.tmpl"),
+    ] {
+        assert!(!old.contains("0.4 or newer"), "{old}");
+    }
+}

@@ -4,7 +4,9 @@
 # under the user's theme.toml) and tmtheme.xml (code preview highlighting);
 # the other files the docs list are for publishing. theme.toml picks a flavor
 # per terminal background with `dark` and `light` under [flavor], from 0.4.0,
-# which replaced the older `use` key (no longer read).
+# which replaced the older `use` key (no longer read). The flavor uses [mgr]
+# (25.5.28), [cmp] (25.2.26) and `url` filetype rules (25.12.29), so it
+# needs yazi 25.12.29 or newer.
 name = "yazi"
 display = "yazi"
 detect = { binary = "yazi", config = "~/.config/yazi" }
