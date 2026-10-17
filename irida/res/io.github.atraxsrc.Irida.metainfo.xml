@@ -52,6 +52,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.0" date="2026-10-18">
+      <description>
+        <p>Four new targets: tmux, zellij, yazi and Starship. Starship and tmux apply live. A target may write several blocks and key lines into one file, and review fixes to undo, live sessions and the install scripts.</p>
+      </description>
+    </release>
     <release version="0.2.2" date="2026-10-17">
       <description>
         <p>The wallpaper behind the preview stays inside the preview instead of covering the role tiles and the colour editor.</p>
