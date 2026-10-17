@@ -1,0 +1,68 @@
+# {{ name }} ({{ mode }}) for eza, written by Irida. Only the keys below
+# change; everything else keeps eza's defaults. File names follow LS_COLORS
+# when that is set.
+{%- set sizes = ramp("muted", "warning", 5) %}
+colourful: true
+filekinds:
+  normal: {foreground: "{{ text }}"}
+  directory: {foreground: "{{ blue }}", is_bold: true}
+  symlink: {foreground: "{{ cyan }}"}
+  pipe: {foreground: "{{ warning }}"}
+  block_device: {foreground: "{{ warning }}"}
+  char_device: {foreground: "{{ warning }}"}
+  socket: {foreground: "{{ warning }}"}
+  special: {foreground: "{{ magenta }}"}
+  executable: {foreground: "{{ success }}", is_bold: true}
+  mount_point: {foreground: "{{ accent }}"}
+perms:
+  user_read: {foreground: "{{ text }}"}
+  user_write: {foreground: "{{ warning }}"}
+  user_execute_file: {foreground: "{{ success }}"}
+  user_execute_other: {foreground: "{{ success }}"}
+  group_read: {foreground: "{{ muted }}"}
+  group_write: {foreground: "{{ muted }}"}
+  group_execute: {foreground: "{{ muted }}"}
+  other_read: {foreground: "{{ muted }}"}
+  other_write: {foreground: "{{ muted }}"}
+  other_execute: {foreground: "{{ muted }}"}
+  special_user_file: {foreground: "{{ magenta }}"}
+  special_other: {foreground: "{{ muted }}"}
+  attribute: {foreground: "{{ muted }}"}
+size:
+  major: {foreground: "{{ muted }}"}
+  minor: {foreground: "{{ muted }}"}
+  number_byte: {foreground: "{{ sizes[0] }}"}
+  number_kilo: {foreground: "{{ sizes[1] }}"}
+  number_mega: {foreground: "{{ sizes[2] }}"}
+  number_giga: {foreground: "{{ sizes[3] }}"}
+  number_huge: {foreground: "{{ sizes[4] }}"}
+  unit_byte: {foreground: "{{ muted }}"}
+  unit_kilo: {foreground: "{{ muted }}"}
+  unit_mega: {foreground: "{{ muted }}"}
+  unit_giga: {foreground: "{{ muted }}"}
+  unit_huge: {foreground: "{{ muted }}"}
+users:
+  user_you: {foreground: "{{ accent }}", is_bold: true}
+  user_root: {foreground: "{{ error }}"}
+  user_other: {foreground: "{{ muted }}"}
+  group_yours: {foreground: "{{ accent }}"}
+  group_other: {foreground: "{{ muted }}"}
+  group_root: {foreground: "{{ error }}"}
+links:
+  normal: {foreground: "{{ cyan }}"}
+  multi_link_file: {foreground: "{{ magenta }}"}
+git:
+  new: {foreground: "{{ success }}"}
+  modified: {foreground: "{{ warning }}"}
+  deleted: {foreground: "{{ error }}"}
+  renamed: {foreground: "{{ cyan }}"}
+  ignored: {foreground: "{{ muted }}"}
+  conflicted: {foreground: "{{ error }}"}
+git_repo:
+  branch_main: {foreground: "{{ success }}"}
+  branch_other: {foreground: "{{ warning }}"}
+  git_clean: {foreground: "{{ success }}"}
+  git_dirty: {foreground: "{{ warning }}"}
+date: {foreground: "{{ muted }}"}
+punctuation: {foreground: "{{ comment }}"}
+header: {foreground: "{{ muted }}", is_underline: true}

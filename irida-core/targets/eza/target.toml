@@ -1,0 +1,23 @@
+# Checked against eza's man/eza_colors-explanation.5.md (keys and style
+# fields) and the eza-themes README (location, "#RRGGBB" colours, only the
+# keys you set override the defaults) on 2026-10-17. eza reads
+# ~/.config/eza/theme.yml (or $EZA_CONFIG_DIR/theme.yml) on every run.
+# LS_COLORS and EZA_COLORS still win for file names, so the zsh block's
+# LS_COLORS keeps colouring them; this file colours the rest of the listing.
+name = "eza"
+display = "eza"
+detect = { binary = "eza", config = "~/.config/eza" }
+
+[[file]]
+path = "~/.config/eza/theme.yml"
+write = "file"
+template = "theme.yml.tmpl"
+
+[[rice]]
+path = "eza/theme.yml"
+template = "theme.yml.tmpl"
+
+[[rice]]
+path = "eza/install.sh"
+template = "install.sh.tmpl"
+executable = true

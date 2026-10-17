@@ -1,0 +1,67 @@
+# Ember (dark) for eza, written by Irida. Only the keys below
+# change; everything else keeps eza's defaults. File names follow LS_COLORS
+# when that is set.
+colourful: true
+filekinds:
+  normal: {foreground: "#D6D9E0"}
+  directory: {foreground: "#7FA3C7", is_bold: true}
+  symlink: {foreground: "#7FB7B3"}
+  pipe: {foreground: "#D9A441"}
+  block_device: {foreground: "#D9A441"}
+  char_device: {foreground: "#D9A441"}
+  socket: {foreground: "#D9A441"}
+  special: {foreground: "#B08BC4"}
+  executable: {foreground: "#8FB58A", is_bold: true}
+  mount_point: {foreground: "#E8713A"}
+perms:
+  user_read: {foreground: "#D6D9E0"}
+  user_write: {foreground: "#D9A441"}
+  user_execute_file: {foreground: "#8FB58A"}
+  user_execute_other: {foreground: "#8FB58A"}
+  group_read: {foreground: "#7C8290"}
+  group_write: {foreground: "#7C8290"}
+  group_execute: {foreground: "#7C8290"}
+  other_read: {foreground: "#7C8290"}
+  other_write: {foreground: "#7C8290"}
+  other_execute: {foreground: "#7C8290"}
+  special_user_file: {foreground: "#B08BC4"}
+  special_other: {foreground: "#7C8290"}
+  attribute: {foreground: "#7C8290"}
+size:
+  major: {foreground: "#7C8290"}
+  minor: {foreground: "#7C8290"}
+  number_byte: {foreground: "#7C8290"}
+  number_kilo: {foreground: "#938C83"}
+  number_mega: {foreground: "#AA9473"}
+  number_giga: {foreground: "#C29C5E"}
+  number_huge: {foreground: "#D9A441"}
+  unit_byte: {foreground: "#7C8290"}
+  unit_kilo: {foreground: "#7C8290"}
+  unit_mega: {foreground: "#7C8290"}
+  unit_giga: {foreground: "#7C8290"}
+  unit_huge: {foreground: "#7C8290"}
+users:
+  user_you: {foreground: "#E8713A", is_bold: true}
+  user_root: {foreground: "#D85A5A"}
+  user_other: {foreground: "#7C8290"}
+  group_yours: {foreground: "#E8713A"}
+  group_other: {foreground: "#7C8290"}
+  group_root: {foreground: "#D85A5A"}
+links:
+  normal: {foreground: "#7FB7B3"}
+  multi_link_file: {foreground: "#B08BC4"}
+git:
+  new: {foreground: "#8FB58A"}
+  modified: {foreground: "#D9A441"}
+  deleted: {foreground: "#D85A5A"}
+  renamed: {foreground: "#7FB7B3"}
+  ignored: {foreground: "#7C8290"}
+  conflicted: {foreground: "#D85A5A"}
+git_repo:
+  branch_main: {foreground: "#8FB58A"}
+  branch_other: {foreground: "#D9A441"}
+  git_clean: {foreground: "#8FB58A"}
+  git_dirty: {foreground: "#D9A441"}
+date: {foreground: "#7C8290"}
+punctuation: {foreground: "#5A6070"}
+header: {foreground: "#7C8290", is_underline: true}
