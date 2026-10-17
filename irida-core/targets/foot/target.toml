@@ -1,0 +1,37 @@
+# Checked against foot.ini(5) (codeberg.org/dnkl/foot, Arch man page for
+# 1.28) and foot's CHANGELOG on 2026-10-17: `include=<path>` is a [main]
+# option, so it sits before the first section header; the path is absolute
+# or starts with `~/`; it may repeat, one path each; an included file has its
+# own section scope, so the theme starts with its own header. Colour
+# sections are [colors-dark] and [colors-light] since 1.26.0 (the old
+# [colors] went in 1.28.0); values are bare RRGGBB; `cursor` takes two
+# values, text then cursor. foot reads its config at start only.
+name = "foot"
+display = "foot"
+detect = { binary = "foot", config = "~/.config/foot" }
+
+[[file]]
+path = "~/.config/foot/irida.ini"
+write = "file"
+template = "irida.ini.tmpl"
+
+[[file]]
+path = "~/.config/foot/foot.ini"
+write = "key"
+key = "include"
+separator = "="
+place = "top"
+repeatable = true
+template = "include.tmpl"
+
+[reload]
+hint = "open a new foot window"
+
+[[rice]]
+path = "foot/{{ slug }}.ini"
+template = "irida.ini.tmpl"
+
+[[rice]]
+path = "foot/install.sh"
+template = "install.sh.tmpl"
+executable = true

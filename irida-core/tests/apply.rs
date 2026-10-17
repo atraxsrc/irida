@@ -973,7 +973,7 @@ fn listing(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     out
 }
 
-const BUILTINS: [&str; 14] = [
+const BUILTINS: [&str; 15] = [
     "alacritty",
     "btop",
     "cava",
@@ -983,6 +983,7 @@ const BUILTINS: [&str; 14] = [
     "eza",
     "fastfetch",
     "fish",
+    "foot",
     "ghostty",
     "kitty",
     "lsd",
@@ -1004,6 +1005,7 @@ fn builtin_display(name: &str) -> &'static str {
         "cava" => "cava",
         "fastfetch" => "fastfetch",
         "fish" => "fish",
+        "foot" => "foot",
         "ghostty" => "Ghostty",
         "kitty" => "kitty",
         "lsd" => "lsd",

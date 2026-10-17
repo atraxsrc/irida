@@ -1,0 +1,31 @@
+# {{ name }} ({{ mode }}) for foot, written by Irida. Both colour themes get
+# the palette, so the colours show whichever one foot starts with.
+{%- set bg = term.background or pane %}
+{%- set select = mix(bg, "accent", 0.35) | strip %}
+{% for section in ["colors-dark", "colors-light"] -%}
+[{{ section }}]
+foreground={{ term.foreground | strip }}
+background={{ bg | strip }}
+cursor={{ bg | strip }} {{ term.cursor | strip }}
+selection-foreground={{ term.foreground | strip }}
+selection-background={{ select }}
+urls={{ blue | strip }}
+jump-labels={{ bg | strip }} {{ accent | strip }}
+regular0={{ term.normal.black | strip }}
+regular1={{ term.normal.red | strip }}
+regular2={{ term.normal.green | strip }}
+regular3={{ term.normal.yellow | strip }}
+regular4={{ term.normal.blue | strip }}
+regular5={{ term.normal.magenta | strip }}
+regular6={{ term.normal.cyan | strip }}
+regular7={{ term.normal.white | strip }}
+bright0={{ term.bright.black | strip }}
+bright1={{ term.bright.red | strip }}
+bright2={{ term.bright.green | strip }}
+bright3={{ term.bright.yellow | strip }}
+bright4={{ term.bright.blue | strip }}
+bright5={{ term.bright.magenta | strip }}
+bright6={{ term.bright.cyan | strip }}
+bright7={{ term.bright.white | strip }}
+
+{% endfor -%}
