@@ -67,6 +67,7 @@ result to your desktop, terminal, editor and tools in one step.
 | tmux | A marked block in `~/.config/tmux/tmux.conf`, read after `~/.tmux.conf` (3.1 or newer) | |
 | zellij | `themes/irida.kdl`, selected in `config.kdl`; 0.45 or newer reloads it live, restart older sessions | |
 | yazi | The flavor `flavors/irida.yazi`, selected for dark and light in `theme.toml` (0.4 or newer) | |
+| Starship | A `[palettes.irida]` table in `starship.toml` (or `$STARSHIP_CONFIG`), selected with `palette` at the top | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in

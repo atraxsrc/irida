@@ -1,0 +1,36 @@
+# Checked against starship.rs/config and starship's src/config.rs on
+# 2026-10-18: the config is ~/.config/starship.toml, or the file named by
+# STARSHIP_CONFIG; `palette = "<name>"` at the top level picks the table
+# [palettes.<name>]. A palette name is looked up before the 16 predefined
+# colour names (black red green yellow blue purple cyan white and their
+# bright- forms), so a palette that sets those names recolours every module
+# style that uses them. Starship reads its config on every prompt.
+name = "starship"
+display = "Starship"
+detect = { binary = "starship" }
+
+[[file]]
+path = "${STARSHIP_CONFIG:-~/.config/starship.toml}"
+write = "key"
+key = "palette"
+place = "top"
+note_replaced = true
+template = "palette.tmpl"
+
+[[file]]
+path = "${STARSHIP_CONFIG:-~/.config/starship.toml}"
+write = "block"
+comment = "#"
+template = "block.tmpl"
+
+[reload]
+hint = "takes effect at the next prompt"
+
+[[rice]]
+path = "starship/{{ slug }}.toml"
+template = "block.tmpl"
+
+[[rice]]
+path = "starship/install.sh"
+template = "install.sh.tmpl"
+executable = true

@@ -1,0 +1,18 @@
+# Ember Day (light) for Starship, written by Irida.
+[palettes.emberday]
+black = "#2B2E36"
+red = "#9E3A3A"
+green = "#4C6B45"
+yellow = "#8A5E12"
+blue = "#2F5C8A"
+purple = "#6E4E8C"
+cyan = "#2E6E6A"
+white = "#6B6F78"
+bright-black = "#25272E"
+bright-red = "#863131"
+bright-green = "#415B3B"
+bright-yellow = "#75500F"
+bright-blue = "#284E75"
+bright-purple = "#5E4277"
+bright-cyan = "#275E5A"
+bright-white = "#5B5E66"

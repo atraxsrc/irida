@@ -1,0 +1,18 @@
+# Ember (dark) for Starship, written by Irida.
+[palettes.ember]
+black = "#2A2F38"
+red = "#D85A5A"
+green = "#8FB58A"
+yellow = "#D9A441"
+blue = "#7FA3C7"
+purple = "#B08BC4"
+cyan = "#7FB7B3"
+white = "#D6D9E0"
+bright-black = "#7C8290"
+bright-red = "#DD6E6E"
+bright-green = "#9CBE98"
+bright-yellow = "#DEAF58"
+bright-blue = "#8EAECE"
+bright-purple = "#B999CB"
+bright-cyan = "#8EC0BC"
+bright-white = "#E2E4E9"
