@@ -300,7 +300,11 @@ pub fn view(s: Scene, image: Option<&ImageStatus>) -> Element<'static, Msg> {
         .content_fit(ContentFit::Cover)
         .width(Length::Fill)
         .height(Length::Fill);
-    cosmic::iced::widget::stack([photo.into(), column.into()]).into()
+    // The column sets the size. The image sits under it and covers that area.
+    cosmic::iced::widget::stack([column.into()])
+        .push_under(photo)
+        .width(Length::Fill)
+        .into()
 }
 
 #[cfg(test)]

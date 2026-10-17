@@ -150,6 +150,7 @@ fn save_import(store: &Store, mut p: Palette, replace: bool) -> Result<Palette, 
         })?;
         p.pair = existing.pair;
         p.notes = existing.notes;
+        p.image = existing.image;
     }
     save(store, &p, !replace).map(|_| p)
 }

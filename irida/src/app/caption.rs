@@ -1,4 +1,5 @@
 use cosmic::Element;
+use cosmic::iced::Length;
 use cosmic::widget::{self, button, text};
 use irida_core::apply::TargetInfo;
 
@@ -43,7 +44,11 @@ pub fn line(targets: &[TargetInfo]) -> Element<'static, Msg> {
         children.push(text::body("Nothing to colour").into());
     } else if !cap.written.is_empty() {
         children.push(text::caption("Colours").into());
-        children.push(text::body(cap.written.join(" · ")).into());
+        children.push(
+            text::body(cap.written.join(" · "))
+                .width(Length::Fill)
+                .into(),
+        );
     }
     if !cap.off.is_empty() {
         let names: Vec<&str> = cap.off.iter().map(String::as_str).collect();
@@ -56,7 +61,7 @@ pub fn line(targets: &[TargetInfo]) -> Element<'static, Msg> {
         children.push(text::caption(phrase).into());
     }
     children.push(button::link("Change…").on_press(Msg::ShowChange).into());
-    widget::flex_row(children).into()
+    widget::flex_row(children).width(Length::Fill).into()
 }
 
 #[cfg(test)]

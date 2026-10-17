@@ -1509,6 +1509,12 @@ impl State {
     }
 
     pub fn header_enabled(&self, item: HeaderItem) -> bool {
+        // The wallpaper screen has its own Apply. Header actions would
+        // edit the palette underneath it. Try it live can still be turned off.
+        if matches!(self.screen, Screen::Wallpaper(_)) {
+            return matches!(item, HeaderItem::TryLive)
+                && matches!(&self.live, Some(live) if live.end.is_none());
+        }
         match item {
             HeaderItem::Mode | HeaderItem::Apply => self.editable(),
             // On, it can always be turned off (unless it is ending).
@@ -1520,6 +1526,23 @@ impl State {
             HeaderItem::Pair => self.stored_palette().is_some(),
             HeaderItem::Compare => self.stored_palette().is_some() && !self.versions.is_empty(),
         }
+    }
+
+    /// The wallpaper screen has saved its draft, so closing the Apply sheet
+    /// can leave the editor on that palette.
+    fn wallpaper_saved(&self) -> bool {
+        let Screen::Wallpaper(d) = &self.screen else {
+            return false;
+        };
+        let Some(Current::Editable {
+            slug,
+            saved: Some(_),
+            ..
+        }) = &self.current
+        else {
+            return false;
+        };
+        slug == &slug_from_name(&d.name)
     }
 
     /// The slug a name gives, or why the name cannot be used for a new
@@ -1577,13 +1600,18 @@ impl State {
     /// the last palette.
     fn open_editable(&mut self, p: Palette) -> Vec<Effect> {
         let slug = p.slug.clone();
+        let leaving_wallpaper = matches!(self.screen, Screen::Wallpaper(_));
         self.reset_editor();
+        self.screen = Screen::Editor;
         self.current = Some(Current::Editable {
             slug: slug.clone(),
             saved: Some(p.clone()),
             working: p,
         });
         let mut effects = vec![Effect::LoadVersions(slug.clone())];
+        if leaving_wallpaper {
+            effects.extend(self.pass_first_run());
+        }
         effects.extend(self.remember(slug));
         self.retain_images();
         effects
@@ -1615,6 +1643,11 @@ impl State {
         }
         if let Some(p) = &self.pair_palette {
             push(p, &mut paths);
+        }
+        if let Screen::Wallpaper(d) = &self.screen
+            && let Some(image) = &d.image
+        {
+            paths.push(image.clone());
         }
         if let Some((_, Ok(p))) = &self.compare_version {
             push(p, &mut paths);
@@ -2068,6 +2101,10 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                             state.versions.insert(0, VersionInfo { n, snapshot: None });
                         }
                     }
+                    let draft_slug = match &state.screen {
+                        Screen::Wallpaper(d) => Some(slug_from_name(&d.name)),
+                        Screen::Editor => None,
+                    };
                     // The list shows the saved name and mode.
                     match state.entries.iter_mut().find(|e| e.slug == p.slug) {
                         Some(e) => {
@@ -2076,7 +2113,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                         }
                         None => effects.push(Effect::ListEntries),
                     }
-                    if matches!(state.screen, Screen::Wallpaper(_)) {
+                    if draft_slug.as_deref() == Some(p.slug.as_str()) {
                         state.reset_editor();
                         state.current = Some(Current::Editable {
                             slug: p.slug.clone(),
@@ -2458,8 +2495,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 state.after_save = None;
             }
             let refresh = matches!(state.dialog, Some(Dialog::Apply(_)));
+            // The draft is already saved. Closing the sheet leaves the editor
+            // on it, so first run is not stuck with Apply disabled.
+            let leave_wallpaper = refresh && state.wallpaper_saved();
             state.dialog = None;
             state.menu_open = false;
+            if leave_wallpaper {
+                state.screen = Screen::Editor;
+            }
             if refresh {
                 vec![Effect::RefreshTargets(state.settings.clone())]
             } else {
@@ -2491,17 +2534,30 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             pair,
             mode,
         } => {
-            // The palette changed while the targets were read.
-            let Some(Current::Editable { working, .. }) = &state.current else {
-                return Vec::new();
-            };
-            if working.slug != slug || state.dialog.is_some() {
+            if state.dialog.is_some() {
                 return Vec::new();
             }
+            // On the wallpaper screen the sheet is for the draft, which is
+            // not the open palette until Apply saves it.
+            let palette = if let Screen::Wallpaper(d) = &state.screen {
+                let draft = State::draft_from(d);
+                if draft.slug != slug {
+                    return Vec::new();
+                }
+                draft
+            } else {
+                let Some(Current::Editable { working, .. }) = &state.current else {
+                    return Vec::new();
+                };
+                if working.slug != slug {
+                    return Vec::new();
+                }
+                working.clone()
+            };
             state.live_targets = any_live_target(&targets);
             state.targets = targets.clone();
             state.dialog = Some(Dialog::Apply(State::apply_sheet(
-                working, targets, *pair, mode,
+                &palette, targets, *pair, mode,
             )));
             Vec::new()
         }
@@ -2510,14 +2566,27 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             state.targets = targets;
             Vec::new()
         }
-        Msg::ShowChange => match state.checked_working("changed") {
-            Ok(palette) => vec![Effect::LoadApplySheet {
-                palette,
-                settings: state.settings.clone(),
-                mode: SheetMode::Change,
-            }],
-            Err(effects) => effects,
-        },
+        Msg::ShowChange => {
+            if let Some(d) = state.wallpaper_draft().filter(|d| d.roles.is_some()) {
+                let palette = State::draft_from(d);
+                return match palette.validate() {
+                    Ok(()) => vec![Effect::LoadApplySheet {
+                        palette,
+                        settings: state.settings.clone(),
+                        mode: SheetMode::Change,
+                    }],
+                    Err(e) => vec![state.toast(format!("Not changed: {e}"))],
+                };
+            }
+            match state.checked_working("changed") {
+                Ok(palette) => vec![Effect::LoadApplySheet {
+                    palette,
+                    settings: state.settings.clone(),
+                    mode: SheetMode::Change,
+                }],
+                Err(effects) => effects,
+            }
+        }
         Msg::SetTarget(name, on) => {
             let Some(Dialog::Apply(sheet)) = &state.dialog else {
                 return Vec::new();
@@ -2568,6 +2637,9 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             ]
         }
         Msg::Applied(Err(failure)) => {
+            if state.wallpaper_saved() {
+                state.screen = Screen::Editor;
+            }
             let text = failure.text();
             let mut effects = if failure.needs_undo() {
                 vec![state.toast_undo(text)]
@@ -2720,7 +2792,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         Msg::Exported(Err(e)) => vec![state.toast(format!("Not exported: {e}"))],
         Msg::ShowWallpaper => {
             state.menu_open = false;
-            state.screen = Screen::Wallpaper(WallpaperDraft::new(true));
+            state.screen = Screen::Wallpaper(WallpaperDraft::new(!state.first_run));
             vec![Effect::FindWallpaper(state.wallpaper_system.clone())]
         }
         Msg::CloseWallpaper => {
@@ -3590,6 +3662,97 @@ mod tests {
         let state = start(&tmp);
         assert!(!state.first_run);
         assert_eq!(open_slug(&state), Some(slug.as_str()));
+    }
+
+    #[test]
+    fn cancelling_apply_after_save_opens_the_editor() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = first_run_ready(&tmp);
+        drive(&mut state, Msg::WallpaperApply);
+        assert!(matches!(state.dialog, Some(Dialog::Apply(_))));
+        assert!(matches!(state.screen, Screen::Wallpaper(_)));
+        drive(&mut state, Msg::CloseDialog);
+        assert!(matches!(state.screen, Screen::Editor));
+        assert_eq!(open_slug(&state), Some("twotone"));
+        assert!(!state.first_run);
+    }
+
+    #[test]
+    fn failed_apply_from_the_screen_opens_the_editor() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = first_run_ready(&tmp);
+        drive(&mut state, Msg::WallpaperApply);
+        drive(&mut state, Msg::Applied(Err(ApplyFailure::NothingToApply)));
+        assert!(matches!(state.screen, Screen::Editor));
+        assert_eq!(open_slug(&state), Some("twotone"));
+    }
+
+    #[test]
+    fn saving_the_open_palette_does_not_start_wallpaper_apply() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        let ember = working(&state).clone();
+        let ui = update(&mut state, Msg::Saved(Ok((2, ember))));
+        assert!(matches!(state.screen, Screen::Wallpaper(_)));
+        assert!(state.dialog.is_none());
+        assert_eq!(open_slug(&state), Some("ember"));
+        assert!(
+            ui.iter()
+                .all(|e| !matches!(e, Effect::LoadApplySheet { .. })),
+            "{ui:?}"
+        );
+    }
+
+    #[test]
+    fn change_on_the_wallpaper_screen_opens_the_sheet() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = first_run_ready(&tmp);
+        let ui = update(&mut state, Msg::ShowChange);
+        assert!(
+            matches!(
+                ui.as_slice(),
+                [Effect::LoadApplySheet {
+                    mode: SheetMode::Change,
+                    ..
+                }]
+            ),
+            "{ui:?}"
+        );
+        drive_effects(&mut state, ui);
+        match &state.dialog {
+            Some(Dialog::Apply(sheet)) => assert_eq!(sheet.mode, SheetMode::Change),
+            other => panic!("{other:?}"),
+        }
+    }
+
+    #[test]
+    fn opening_a_palette_leaves_the_wallpaper_screen() {
+        let tmp = TempDir::new().unwrap();
+        let mut state = first_run_ready(&tmp);
+        let ember = starter("ember");
+        drive(
+            &mut state,
+            Msg::Opened {
+                slug: ember.slug.clone(),
+                result: Ok(ember),
+            },
+        );
+        assert!(matches!(state.screen, Screen::Editor));
+        assert!(!state.first_run);
+        assert_eq!(open_slug(&state), Some("ember"));
+        let store = Store::new(Dirs::under(tmp.path()));
+        assert_eq!(
+            store.settings().unwrap().last_palette.as_deref(),
+            Some("ember")
+        );
+    }
+
+    #[test]
+    fn header_apply_is_off_on_the_wallpaper_screen() {
+        let tmp = TempDir::new().unwrap();
+        let (state, _) = two_tone_dialog(&tmp);
+        assert!(!state.header_enabled(HeaderItem::Apply));
+        assert!(!state.header_enabled(HeaderItem::Mode));
     }
 
     #[test]

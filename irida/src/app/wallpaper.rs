@@ -7,11 +7,9 @@ use cosmic::iced::{Background, Border, Color, ContentFit, Length};
 use cosmic::widget::{self, button, text};
 use irida_core::color::Rgb;
 use irida_core::palette::{Mode, Palette};
-use irida_core::role::Role;
 
 use super::caption;
 use super::preview;
-use super::roles::swatch;
 use super::scene;
 use super::state::{Msg, NO_WALLPAPER, State, WallpaperDraft};
 
@@ -89,20 +87,15 @@ pub fn view<'a>(state: &'a State, d: &'a WallpaperDraft) -> Element<'a, Msg> {
     };
     control = control.push(choose.on_press(Msg::ChooseImage));
 
-    if let Some(roles) = &d.roles {
-        let found = d
-            .clusters
-            .iter()
-            .enumerate()
-            .fold(widget::Row::new().spacing(8), |row, (i, c)| {
-                row.push(cluster_swatch(c.rgb, d.accent_from == Some(i)))
-            });
-        let caption = "Every role passes its contrast minimum.";
-        let drafted = Role::ALL
-            .into_iter()
-            .fold(widget::Row::new().spacing(4), |row, role| {
-                row.push(swatch(Some(roles.get(role)), 20.))
-            });
+    if d.roles.is_some() {
+        let mut input = widget::text_input("Name", d.name.as_str())
+            .on_input(Msg::WallpaperName)
+            .on_submit(|_| Msg::EditRoles);
+        input = match state.name_check(&d.name) {
+            Ok(slug) => input.helper_text(format!("Saved as {slug}")),
+            Err(e) if !e.is_empty() => input.error(e),
+            Err(_) => input.helper_text("Letters and digits, with single spaces"),
+        };
         let modes =
             [Mode::Dark, Mode::Light]
                 .into_iter()
@@ -118,21 +111,19 @@ pub fn view<'a>(state: &'a State, d: &'a WallpaperDraft) -> Element<'a, Msg> {
                     };
                     r.push(b.on_press(Msg::WallpaperMode(m)))
                 });
+        let found = d
+            .clusters
+            .iter()
+            .take(8)
+            .enumerate()
+            .fold(widget::Row::new().spacing(8), |row, (i, c)| {
+                row.push(cluster_swatch(c.rgb, d.accent_from == Some(i)))
+            });
         control = control
-            .push(found)
-            .push(text::caption(caption))
+            .push(input)
             .push(modes)
-            .push(drafted);
-
-        let mut input = widget::text_input("Name", d.name.as_str())
-            .on_input(Msg::WallpaperName)
-            .on_submit(|_| Msg::EditRoles);
-        input = match state.name_check(&d.name) {
-            Ok(slug) => input.helper_text(format!("Saved as {slug}")),
-            Err(e) if !e.is_empty() => input.error(e),
-            Err(_) => input.helper_text("Letters and digits, with single spaces"),
-        };
-        control = control.push(input);
+            .push(found)
+            .push(text::caption("Every role passes its contrast minimum."));
     }
 
     let apply = button::suggested("Apply")
