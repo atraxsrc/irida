@@ -9,7 +9,7 @@ Design a colour palette and apply it to COSMIC and the apps around it.
 ![COSMIC](https://img.shields.io/badge/COSMIC-native_app-2c71ea?style=for-the-badge)
 ![Pop!_OS](https://img.shields.io/badge/Pop!_OS-24.04_LTS-21b1b1?style=for-the-badge&logo=popos&logoColor=white)
 ![Rust](https://img.shields.io/badge/Rust-1.93+-ef282d?style=for-the-badge&logo=rust&logoColor=white)
-![Version](https://img.shields.io/badge/Version-0.2.0-8f42d0?style=for-the-badge)
+![Version](https://img.shields.io/badge/Version-0.2.1-8f42d0?style=for-the-badge)
 ![License](https://img.shields.io/badge/License-MIT-42b75c?style=for-the-badge)
 
 </div>
@@ -74,12 +74,12 @@ change, not a folder.
 
 ## Install
 
-Download `irida_0.2.0-1_amd64.deb` from the
+Download `irida_0.2.1-1_amd64.deb` from the
 [latest release](https://github.com/atraxsrc/irida/releases/latest) and install
 it:
 
 ```sh
-sudo apt install ./irida_0.2.0-1_amd64.deb
+sudo apt install ./irida_0.2.1-1_amd64.deb
 ```
 
 Irida then shows in the launcher. The window needs a graphical session; the
@@ -142,7 +142,7 @@ with a real at-sign in place of `AT`:
 
 ```sh
 DEB_MAINTAINER="..." scripts/deb.sh
-scripts/check-deb.sh target/debian/irida_0.2.0-1_amd64.deb
+scripts/check-deb.sh target/debian/irida_0.2.1-1_amd64.deb
 ```
 
 `scripts/check-deb.sh` checks the files and their modes, the desktop entry,
