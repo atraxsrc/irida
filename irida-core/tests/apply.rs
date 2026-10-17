@@ -1303,3 +1303,64 @@ fn key_at_top_round_trips_without_trailing_newline() {
         "[editor]\nline-number = \"relative\""
     );
 }
+
+const G_TOML: &str = r#"name = "g"
+detect = {}
+
+[[file]]
+path = "~/.config/g/g.toml"
+write = "key"
+template = "g.tmpl"
+key = "import"
+section = "general"
+note_replaced = true
+"#;
+
+#[test]
+fn replaced_key_line_is_noted() {
+    let env = TestEnv::new();
+    put_target(&env, "g", G_TOML, &[("g.tmpl", "[\"{{ slug }}.toml\"]\n")]);
+    let conf = env.write(".config/g/g.toml", "[general]\nimport = [\"mine.toml\"]\n");
+    let note = |report: &ApplyReport| {
+        report
+            .get("g")
+            .unwrap()
+            .warnings
+            .iter()
+            .any(|w| w.contains("replaced your import line; irida undo restores it"))
+    };
+    let report = apply_only(&env, &palette("ember"), "g").unwrap();
+    assert!(note(&report), "{:?}", report.get("g").unwrap().warnings);
+    let report = apply_only(&env, &palette("emberday"), "g").unwrap();
+    assert!(!note(&report), "{:?}", report.get("g").unwrap().warnings);
+
+    fs::write(&conf, "[general]\n").unwrap();
+    let report = apply_only(&env, &palette("ember"), "g").unwrap();
+    assert!(!note(&report), "{:?}", report.get("g").unwrap().warnings);
+}
+
+const H_TOML: &str = r#"name = "h"
+detect = {}
+
+[[file]]
+path = "~/.config/h/h.conf"
+write = "key"
+template = "h.tmpl"
+key = "include"
+separator = " "
+repeatable = true
+"#;
+
+#[test]
+fn repeatable_key_round_trips() {
+    let env = TestEnv::new();
+    put_target(&env, "h", H_TOML, &[("h.tmpl", "irida.conf\n")]);
+    let conf = env.write(".config/h/h.conf", "include mine.conf\n");
+    apply_only(&env, &palette("ember"), "h").unwrap();
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "include mine.conf\ninclude irida.conf\n"
+    );
+    common::undo(&env);
+    assert_eq!(fs::read_to_string(&conf).unwrap(), "include mine.conf\n");
+}

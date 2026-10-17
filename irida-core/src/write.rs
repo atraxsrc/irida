@@ -314,7 +314,21 @@ fn locate(lines: &[&str], scope: &KeyScope) -> (std::ops::Range<usize>, Insert) 
     }
 }
 
-/// The line in `range` that `set_key` would replace, or that it wrote.
+/// The value of a key line: what follows the key and the separator, trimmed.
+fn key_value<'l>(line: &'l str, key: &str, separator: &str) -> Option<&'l str> {
+    if !is_key_line(line, key, separator) {
+        return None;
+    }
+    let rest = line.trim_start().strip_prefix(key)?.trim_start();
+    let rest = match separator.trim().chars().next() {
+        Some(c) => rest.strip_prefix(c)?,
+        None => rest,
+    };
+    Some(rest.trim())
+}
+
+/// The line in `range` that `set_key` would replace, or that it wrote: for a
+/// repeatable key only a line whose value equals `written`'s.
 fn find_line(
     lines: &[&str],
     range: std::ops::Range<usize>,
@@ -322,8 +336,9 @@ fn find_line(
     written: Option<&str>,
     opts: &KeyOpts,
 ) -> Option<usize> {
-    range.into_iter().find(|&i| match written {
-        Some(w) if opts.repeatable => lines[i].trim() == w.trim(),
+    let want = written.and_then(|w| key_value(w, key, &opts.separator));
+    range.into_iter().find(|&i| match want {
+        Some(v) if opts.repeatable => key_value(lines[i], key, &opts.separator) == Some(v),
         _ => is_key_line(lines[i], key, &opts.separator),
     })
 }

@@ -450,3 +450,56 @@ fn comments_only_and_empty_files() {
         ""
     );
 }
+
+fn rep() -> KeyOpts {
+    KeyOpts {
+        separator: " ".into(),
+        repeatable: true,
+        ..KeyOpts::default()
+    }
+}
+
+#[test]
+fn repeatable_keeps_other_values_and_adds_after_them() {
+    let text = "include current-theme.conf\nfont_size 12\n";
+    let e = set_key(Some(text), "include", "irida.conf", &rep());
+    assert_eq!(
+        e.contents,
+        "include current-theme.conf\nfont_size 12\ninclude irida.conf\n"
+    );
+    assert_eq!(e.before, None);
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "include",
+            "include irida.conf",
+            None,
+            false,
+            false,
+            &rep()
+        ),
+        text
+    );
+}
+
+#[test]
+fn repeatable_matches_its_own_value_only() {
+    let text = "include a.conf\ninclude  irida.conf\n";
+    let e = set_key(Some(text), "include", "irida.conf", &rep());
+    assert_eq!(e.contents, "include a.conf\ninclude irida.conf\n");
+    assert_eq!(e.before.as_deref(), Some("include  irida.conf"));
+}
+
+#[test]
+fn repeatable_restore_leaves_a_user_line_with_same_key() {
+    let out = restore_key(
+        "include a.conf\n",
+        "include",
+        "include irida.conf",
+        None,
+        false,
+        false,
+        &rep(),
+    );
+    assert_eq!(out, "include a.conf\n");
+}

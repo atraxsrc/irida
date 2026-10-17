@@ -274,6 +274,8 @@ struct PlannedWrite {
     path: PathBuf,
     contents: String,
     edit: Edit,
+    /// A warning for the result, such as "replaced your import line".
+    note: Option<String>,
 }
 
 impl PlannedWrite {
@@ -503,6 +505,7 @@ fn plan_file(
     f: &FileEntry,
     path: PathBuf,
     rendered: String,
+    prior_lines: &[&str],
 ) -> Result<Option<PlannedWrite>, String> {
     let skip = |why: &dyn fmt::Display| format!("{}: {why}; skipped", path.display());
     if f.write == WriteKind::File {
@@ -526,6 +529,7 @@ fn plan_file(
             path,
             contents: rendered,
             edit: Edit::File,
+            note: None,
         }));
     }
     let existing = read_existing(&path).map_err(|e| skip(&e))?;
@@ -545,6 +549,7 @@ fn plan_file(
                     before: edit.before,
                     appended_newline: edit.appended_newline,
                 },
+                note: None,
             }))
         }
         _ => {
@@ -558,14 +563,26 @@ fn plan_file(
             let opts = KeyOpts {
                 separator: f.separator.clone().unwrap_or_else(|| " = ".to_string()),
                 scope,
-                ..KeyOpts::default()
+                repeatable: f.repeatable,
             };
             let edit = set_key(existing.as_deref(), &key, value, &opts);
+            let written = format!("{key}{}{value}", opts.separator);
+            let is_irida = |old: &str| {
+                old.trim() == written.trim() || prior_lines.iter().any(|l| l.trim() == old.trim())
+            };
+            let note = match &edit.before {
+                Some(old) if f.note_replaced && !is_irida(old) => Some(format!(
+                    "{}: replaced your {key} line; irida undo restores it",
+                    path.display()
+                )),
+                _ => None,
+            };
             Ok(Some(PlannedWrite {
                 path,
                 contents: edit.contents,
+                note,
                 edit: Edit::Key {
-                    written: format!("{key}{}{value}", opts.separator),
+                    written,
                     key,
                     separator: opts.separator,
                     place: matches!(f.place, Some(Place::Top)).then(|| "top".to_string()),
@@ -582,6 +599,40 @@ fn plan_file(
 
 /// Whether a `file` write replaces an existing file with different bytes that
 /// the previous apply did not write.
+/// What the previous apply (and an open live session) wrote: every path, and
+/// every key line.
+struct Prior {
+    paths: Vec<PathBuf>,
+    key_lines: Vec<(PathBuf, String)>,
+}
+
+impl Prior {
+    fn from_entries<'e>(entries: impl Iterator<Item = &'e Entry>) -> Prior {
+        let mut prior = Prior {
+            paths: Vec::new(),
+            key_lines: Vec::new(),
+        };
+        for e in entries {
+            prior.paths.push(e.path().to_path_buf());
+            if let Entry::Key { path, written, .. } = e
+                && !written.is_empty()
+            {
+                prior.key_lines.push((path.clone(), written.clone()));
+            }
+        }
+        prior
+    }
+
+    /// The key lines Irida wrote to `path` last time.
+    fn lines_of(&self, path: &Path) -> Vec<&str> {
+        self.key_lines
+            .iter()
+            .filter(|(p, _)| p == path)
+            .map(|(_, l)| l.as_str())
+            .collect()
+    }
+}
+
 fn replaces_user_file(w: &PlannedWrite, recorded: &[PathBuf]) -> bool {
     if recorded.contains(&w.path) {
         return false;
@@ -599,7 +650,7 @@ fn plan_target<'t>(
     renderer: &Renderer,
     req: &ApplyRequest,
     dirs: &Dirs,
-    recorded: &[PathBuf],
+    prior: &Prior,
 ) -> Result<TargetPlan<'t>, ApplyError> {
     let name = &target.def.name;
     let mut writes = Vec::new();
@@ -616,11 +667,14 @@ fn plan_target<'t>(
         let rendered = renderer
             .render(&f.template, source)
             .map_err(|e| render_error(e.to_string()))?;
-        match plan_file(f, dirs.expand(&f.path), rendered) {
-            Ok(Some(w)) => {
-                if f.write == WriteKind::File && replaces_user_file(&w, recorded) {
+        let path = dirs.expand(&f.path);
+        let prior_lines = prior.lines_of(&path);
+        match plan_file(f, path, rendered, &prior_lines) {
+            Ok(Some(mut w)) => {
+                if f.write == WriteKind::File && replaces_user_file(&w, &prior.paths) {
                     warnings.push(replaced_note(&w.path));
                 }
+                warnings.extend(w.note.take());
                 writes.push(w);
             }
             Ok(None) => {}
@@ -634,6 +688,7 @@ fn plan_target<'t>(
                 writes.extend(plan.writes.into_iter().map(|w| PlannedWrite {
                     path: w.path,
                     contents: w.contents,
+                    note: None,
                     edit: if w.undo.is_empty() {
                         Edit::File
                     } else {
@@ -934,15 +989,12 @@ pub(crate) fn apply_into(
 
     let renderer = Renderer::new(req.palette);
     // Files Irida wrote last time: the newest record's, and an open session's.
-    let recorded: Vec<PathBuf> = record::latest(&ctx.dirs)
+    let latest = record::latest(&ctx.dirs)
         .ok()
         .flatten()
         .map(|r| r.entries)
-        .unwrap_or_default()
-        .iter()
-        .chain(&rec.record().entries)
-        .map(|e| e.path().to_path_buf())
-        .collect();
+        .unwrap_or_default();
+    let prior = Prior::from_entries(latest.iter().chain(&rec.record().entries));
     let mut seen = Vec::new();
     let mut plans = Vec::new();
     for lt in &loaded {
@@ -956,7 +1008,7 @@ pub(crate) fn apply_into(
         }
         plans.push(match select(lt, ctx, settings, named) {
             Ok(target) => {
-                plan_target(target, &renderer, req, &ctx.dirs, &recorded)?.guard_paths(&mut seen)
+                plan_target(target, &renderer, req, &ctx.dirs, &prior)?.guard_paths(&mut seen)
             }
             Err(reason) => {
                 let display = lt.result.as_ref().map_or(lt.name.as_str(), |t| t.display());

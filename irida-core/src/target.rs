@@ -50,6 +50,14 @@ pub struct FileEntry {
     /// For `key` writes: the `[section]` the line lives in.
     #[serde(default)]
     pub section: Option<String>,
+    /// For `key` writes: the key may appear more than once; only a line with
+    /// Irida's own value is replaced, any other is left alone.
+    #[serde(default)]
+    pub repeatable: bool,
+    /// For `key` writes: say "replaced your <key> line" when an existing line
+    /// with another value is replaced.
+    #[serde(default)]
+    pub note_replaced: bool,
 }
 
 /// Where a key line lives when it has no section.
@@ -208,9 +216,11 @@ fn build(
         if f.separator.as_deref() == Some("") {
             return invalid(format!("{}: separator must not be empty", f.path));
         }
-        if (f.place.is_some() || f.section.is_some()) && f.write != WriteKind::Key {
+        if (f.place.is_some() || f.section.is_some() || f.repeatable || f.note_replaced)
+            && f.write != WriteKind::Key
+        {
             return invalid(format!(
-                "{}: place and section need write = \"key\"",
+                "{}: place, section, repeatable and note_replaced need write = \"key\"",
                 f.path
             ));
         }
