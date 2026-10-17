@@ -144,7 +144,10 @@ fn user_palette_is_replaced_and_named() {
     let report = apply_with_binary(&env);
     let w = &report.get("starship").unwrap().warnings;
     assert!(
-        w.iter().any(|m| m.contains("replaced your palette line")),
+        w.iter().any(|m| m.ends_with(
+            "starship.toml: replaced your palette line; colour names from your own \
+             palette stop working; irida undo restores it"
+        )),
         "{w:?}"
     );
     let after = fs::read_to_string(&conf).unwrap();

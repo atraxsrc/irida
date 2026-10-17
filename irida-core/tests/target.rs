@@ -84,6 +84,11 @@ fn validation_errors() {
             true,
         ),
         ("folder", file("", "file").replace("NAME", "other"), true),
+        (
+            "hintonly",
+            file("key = \"k\"\nreplaced_hint = \"h\"", "key").replace("NAME", "hintonly"),
+            true,
+        ),
     ];
     for (folder, toml, with_tmpl) in &cases {
         put(

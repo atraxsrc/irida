@@ -58,6 +58,10 @@ pub struct FileEntry {
     /// with another value is replaced.
     #[serde(default)]
     pub note_replaced: bool,
+    /// For `key` writes with `note_replaced`: what replacing the line costs
+    /// the user, put into that note.
+    #[serde(default)]
+    pub replaced_hint: Option<String>,
     /// For `key` writes: keys, or `[table]` names (covering their subtables),
     /// that override the theme when the user's file sets them; every apply
     /// names the ones it finds.
@@ -236,6 +240,9 @@ fn build(
                  write = \"key\"",
                 f.path
             ));
+        }
+        if f.replaced_hint.is_some() && !f.note_replaced {
+            return invalid(format!("{}: replaced_hint needs note_replaced", f.path));
         }
         if f.place.is_some() && f.section.is_some() {
             return invalid(format!("{}: place and section cannot both be set", f.path));

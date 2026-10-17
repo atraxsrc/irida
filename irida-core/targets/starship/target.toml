@@ -15,6 +15,8 @@ write = "key"
 key = "palette"
 place = "top"
 note_replaced = true
+# The user's [palettes.<name>] stays, but nothing selects it.
+replaced_hint = "colour names from your own palette stop working"
 template = "palette.tmpl"
 
 [[file]]

@@ -603,8 +603,13 @@ fn plan_file(
                 && f.note_replaced
                 && !is_irida(old)
             {
+                let hint = f
+                    .replaced_hint
+                    .as_ref()
+                    .map(|h| format!("; {h}"))
+                    .unwrap_or_default();
                 notes.push(format!(
-                    "{}: replaced your {key} line; irida undo restores it",
+                    "{}: replaced your {key} line{hint}; irida undo restores it",
                     path.display()
                 ));
             }
