@@ -9,6 +9,18 @@
 # up config.toml to config.toml.bak when it changes. Safe to run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${XDG_CONFIG_HOME:-$HOME/.config}/helix"
 conf="$dest/config.toml"
@@ -36,9 +48,8 @@ if [ -f "$conf" ]; then
     if cmp -s "$tmp" "$conf"; then
         echo "  config.toml already up to date"
     else
-        cp "$conf" "$conf.bak"
-        echo "  backup: config.toml.bak"
-        /bin/cat "$tmp" > "$conf"
+        backup "$conf"
+        cat "$tmp" > "$conf"
         echo "  config.toml: $line"
     fi
 else

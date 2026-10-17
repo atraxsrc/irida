@@ -9,6 +9,18 @@
 # differing theme file to ember.conf.bak. Safe to run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
 conf="$dest/kitty.conf"
@@ -21,8 +33,7 @@ fi
 
 mkdir -p "$dest"
 if [ -f "$dest/ember.conf" ] && ! cmp -s "$dir/ember.conf" "$dest/ember.conf"; then
-    cp "$dest/ember.conf" "$dest/ember.conf.bak"
-    echo "  backup: ember.conf.bak"
+    backup "$dest/ember.conf"
 fi
 cp "$dir/ember.conf" "$dest/ember.conf"
 echo "  $dest/ember.conf"

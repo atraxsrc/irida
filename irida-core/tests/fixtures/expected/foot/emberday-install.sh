@@ -11,6 +11,18 @@
 # run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${XDG_CONFIG_HOME:-$HOME/.config}/foot"
 conf="$dest/foot.ini"
@@ -23,8 +35,7 @@ fi
 
 mkdir -p "$dest"
 if [ -f "$dest/emberday.ini" ] && ! cmp -s "$dir/emberday.ini" "$dest/emberday.ini"; then
-    cp "$dest/emberday.ini" "$dest/emberday.ini.bak"
-    echo "  backup: emberday.ini.bak"
+    backup "$dest/emberday.ini"
 fi
 cp "$dir/emberday.ini" "$dest/emberday.ini"
 echo "  $dest/emberday.ini"
@@ -36,11 +47,10 @@ else
     trap 'rm -f "$tmp"' EXIT
     echo "$line" > "$tmp"
     if [ -f "$conf" ]; then
-        /bin/cat "$conf" >> "$tmp"
-        cp "$conf" "$conf.bak"
-        echo "  backup: foot.ini.bak"
+        cat "$conf" >> "$tmp"
+        backup "$conf"
     fi
-    /bin/cat "$tmp" > "$conf"
+    cat "$tmp" > "$conf"
     echo "  foot.ini: $line"
 fi
 

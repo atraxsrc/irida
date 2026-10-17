@@ -9,6 +9,18 @@
 # differing theme file to {{ slug }}.conf.bak. Safe to run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${KITTY_CONFIG_DIRECTORY:-${XDG_CONFIG_HOME:-$HOME/.config}/kitty}"
 conf="$dest/kitty.conf"
@@ -21,8 +33,7 @@ fi
 
 mkdir -p "$dest"
 if [ -f "$dest/{{ slug }}.conf" ] && ! cmp -s "$dir/{{ slug }}.conf" "$dest/{{ slug }}.conf"; then
-    cp "$dest/{{ slug }}.conf" "$dest/{{ slug }}.conf.bak"
-    echo "  backup: {{ slug }}.conf.bak"
+    backup "$dest/{{ slug }}.conf"
 fi
 cp "$dir/{{ slug }}.conf" "$dest/{{ slug }}.conf"
 echo "  $dest/{{ slug }}.conf"

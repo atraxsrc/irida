@@ -7,6 +7,18 @@
 # LS_COLORS when that is set (zsh/install.sh sets it). Safe to run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${EZA_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/eza}"
 
@@ -17,8 +29,7 @@ fi
 
 mkdir -p "$dest"
 if [ -f "$dest/theme.yml" ] && ! cmp -s "$dir/theme.yml" "$dest/theme.yml"; then
-    cp "$dest/theme.yml" "$dest/theme.yml.bak"
-    echo "  backup: theme.yml.bak"
+    backup "$dest/theme.yml"
 fi
 cp "$dir/theme.yml" "$dest/theme.yml"
 echo "  $dest/theme.yml"

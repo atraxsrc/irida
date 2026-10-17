@@ -11,6 +11,18 @@
 # emberday.toml.bak. Safe to run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty"
 conf="$dest/alacritty.toml"
@@ -24,8 +36,7 @@ fi
 
 mkdir -p "$dest/themes"
 if [ -f "$theme" ] && ! cmp -s "$dir/emberday.toml" "$theme"; then
-    cp "$theme" "$theme.bak"
-    echo "  backup: themes/emberday.toml.bak"
+    backup "$theme"
 fi
 cp "$dir/emberday.toml" "$theme"
 echo "  $theme"

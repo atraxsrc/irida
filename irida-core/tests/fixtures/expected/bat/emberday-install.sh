@@ -10,6 +10,18 @@
 # over the config file. Safe to run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 bat="$(command -v bat || command -v batcat || true)"
 if [ -z "$bat" ]; then
@@ -32,7 +44,7 @@ if [ -f "$conf" ]; then
     if grep -qE '^[[:space:]]*--theme[[:space:]]*=' "$conf"; then
         sed -E "s/^[[:space:]]*--theme[[:space:]]*=.*$/$line/" "$conf" > "$tmp"
     else
-        /bin/cat "$conf" > "$tmp"
+        cat "$conf" > "$tmp"
         if [ -s "$conf" ] && [ -n "$(tail -c 1 "$conf")" ]; then
             echo >> "$tmp"
         fi
@@ -41,9 +53,8 @@ if [ -f "$conf" ]; then
     if cmp -s "$tmp" "$conf"; then
         echo "  config already up to date"
     else
-        cp "$conf" "$conf.bak"
-        echo "  backup: $(basename "$conf").bak"
-        /bin/cat "$tmp" > "$conf"
+        backup "$conf"
+        cat "$tmp" > "$conf"
         echo "  $conf: $line"
     fi
 else

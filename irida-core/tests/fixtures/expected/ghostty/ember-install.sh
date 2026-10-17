@@ -9,6 +9,18 @@
 # run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${XDG_CONFIG_HOME:-$HOME/.config}/ghostty"
 conf="$dest/config"
@@ -37,8 +49,7 @@ if [ -f "$conf" ]; then
     if cmp -s "$tmp" "$conf"; then
         echo "  config already up to date"
     else
-        cp "$conf" "$conf.bak"
-        echo "  backup: config.bak"
+        backup "$conf"
         cat "$tmp" > "$conf"
         echo "  config: theme = ember"
     fi

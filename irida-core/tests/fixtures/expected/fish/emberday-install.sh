@@ -6,6 +6,18 @@
 # Backs up a differing file to emberday.fish.bak. Safe to run again.
 set -euo pipefail
 
+# Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
+# taken, so an earlier backup is never replaced.
+backup() {
+    local bak="$1.bak" n=1
+    while [ -e "$bak" ]; do
+        bak="$1.bak-$n"
+        n=$((n + 1))
+    done
+    cp "$1" "$bak"
+    echo "  backup: ${bak##*/}"
+}
+
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 dest="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d"
 
@@ -16,8 +28,7 @@ fi
 
 mkdir -p "$dest"
 if [ -f "$dest/emberday.fish" ] && ! cmp -s "$dir/emberday.fish" "$dest/emberday.fish"; then
-    cp "$dest/emberday.fish" "$dest/emberday.fish.bak"
-    echo "  backup: emberday.fish.bak"
+    backup "$dest/emberday.fish"
 fi
 cp "$dir/emberday.fish" "$dest/emberday.fish"
 echo "  $dest/emberday.fish"
