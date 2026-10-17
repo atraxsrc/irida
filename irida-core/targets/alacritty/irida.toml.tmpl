@@ -1,0 +1,36 @@
+# {{ name }} ({{ mode }}) for Alacritty, written by Irida.
+{%- set bg = term.background or pane %}
+
+[colors.primary]
+foreground = "{{ term.foreground }}"
+background = "{{ bg }}"
+dim_foreground = "{{ term.dim_foreground }}"
+bright_foreground = "{{ term.bright_foreground }}"
+
+[colors.cursor]
+text = "{{ bg }}"
+cursor = "{{ term.cursor }}"
+
+[colors.selection]
+text = "{{ term.foreground }}"
+background = "{{ mix(bg, "accent", 0.35) }}"
+
+[colors.normal]
+black = "{{ term.normal.black }}"
+red = "{{ term.normal.red }}"
+green = "{{ term.normal.green }}"
+yellow = "{{ term.normal.yellow }}"
+blue = "{{ term.normal.blue }}"
+magenta = "{{ term.normal.magenta }}"
+cyan = "{{ term.normal.cyan }}"
+white = "{{ term.normal.white }}"
+
+[colors.bright]
+black = "{{ term.bright.black }}"
+red = "{{ term.bright.red }}"
+green = "{{ term.bright.green }}"
+yellow = "{{ term.bright.yellow }}"
+blue = "{{ term.bright.blue }}"
+magenta = "{{ term.bright.magenta }}"
+cyan = "{{ term.bright.cyan }}"
+white = "{{ term.bright.white }}"

@@ -1,0 +1,35 @@
+# Ember (dark) for Alacritty, written by Irida.
+
+[colors.primary]
+foreground = "#D6D9E0"
+background = "#1B1E24"
+dim_foreground = "#7C8290"
+bright_foreground = "#E2E4E9"
+
+[colors.cursor]
+text = "#1B1E24"
+cursor = "#E8713A"
+
+[colors.selection]
+text = "#D6D9E0"
+background = "#633B2C"
+
+[colors.normal]
+black = "#2A2F38"
+red = "#D85A5A"
+green = "#8FB58A"
+yellow = "#D9A441"
+blue = "#7FA3C7"
+magenta = "#B08BC4"
+cyan = "#7FB7B3"
+white = "#D6D9E0"
+
+[colors.bright]
+black = "#7C8290"
+red = "#DD6E6E"
+green = "#9CBE98"
+yellow = "#DEAF58"
+blue = "#8EAECE"
+magenta = "#B999CB"
+cyan = "#8EC0BC"
+white = "#E2E4E9"

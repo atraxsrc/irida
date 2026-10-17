@@ -1,0 +1,33 @@
+# Checked against alacritty.org/config-alacritty.html and the CHANGELOG on
+# 2026-10-17: `import` is an array under [general] since 0.14.0 (top level
+# before that, which this target does not write); `~/` paths are expanded;
+# colours are quoted "#RRGGBB" in [colors.*] tables; live_config_reload
+# defaults to true and covers imported files since 0.14.0, so there is no
+# reload step. Colour keys left in the main config override the theme.
+name = "alacritty"
+display = "Alacritty"
+detect = { binary = "alacritty", config = "~/.config/alacritty" }
+
+[[file]]
+path = "~/.config/alacritty/themes/irida.toml"
+write = "file"
+template = "irida.toml.tmpl"
+
+# TOML forbids a second `import` key, so the user's array is replaced; the
+# result says so and undo restores it.
+[[file]]
+path = "~/.config/alacritty/alacritty.toml"
+write = "key"
+key = "import"
+section = "general"
+note_replaced = true
+template = "import.tmpl"
+
+[[rice]]
+path = "alacritty/{{ slug }}.toml"
+template = "irida.toml.tmpl"
+
+[[rice]]
+path = "alacritty/install.sh"
+template = "install.sh.tmpl"
+executable = true

@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# Install the Ember Alacritty colours and import them from alacritty.toml.
+#
+#   ./alacritty/install.sh
+#
+# Copies ember.toml to ~/.config/alacritty/themes/ and, when
+# alacritty.toml has no import line naming it yet, appends a [general]
+# section with the import (Alacritty 0.14 or newer). An existing import
+# array is left for you to edit by hand, since TOML allows only one. Backs
+# up a differing theme file to ember.toml.bak. Safe to run again.
+set -euo pipefail
+
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dest="${XDG_CONFIG_HOME:-$HOME/.config}/alacritty"
+conf="$dest/alacritty.toml"
+theme="$dest/themes/ember.toml"
+import="~/.config/alacritty/themes/ember.toml"
+
+if ! command -v alacritty >/dev/null 2>&1 && [ ! -d "$dest" ]; then
+    echo "  alacritty not installed, skipped"
+    exit 0
+fi
+
+mkdir -p "$dest/themes"
+if [ -f "$theme" ] && ! cmp -s "$dir/ember.toml" "$theme"; then
+    cp "$theme" "$theme.bak"
+    echo "  backup: themes/ember.toml.bak"
+fi
+cp "$dir/ember.toml" "$theme"
+echo "  $theme"
+
+if [ -f "$conf" ] && grep -qF "$import" "$conf"; then
+    echo "  alacritty.toml already imports it"
+elif [ -f "$conf" ] && grep -qE '^[[:space:]]*import[[:space:]]*=' "$conf"; then
+    echo "  alacritty.toml has an import array; add \"$import\" to it by hand"
+else
+    if [ -s "$conf" ] && [ -n "$(tail -c 1 "$conf")" ]; then
+        echo >> "$conf"
+    fi
+    printf '\n[general]\nimport = ["%s"]\n' "$import" >> "$conf"
+    echo "  alacritty.toml: import = [\"$import\"]"
+fi
+
+echo "Done. Alacritty reloads its config on its own"

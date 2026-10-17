@@ -576,7 +576,11 @@ fn apply_all_then_undo() {
             "{target}: {out}"
         );
     }
-    assert!(out.contains("not installed: cava"), "{out}");
+    let not_installed = out
+        .lines()
+        .find(|l| l.starts_with("not installed: "))
+        .unwrap_or_else(|| panic!("{out}"));
+    assert!(not_installed.contains("cava"), "{not_installed}");
     assert_ne!(config_listing(&tmp), before);
     assert_ne!(fs::read_to_string(&zshrc).unwrap(), "export X=1\n");
 
@@ -648,6 +652,7 @@ fn only_help_names_every_builtin() {
         "fish",
         "eza",
         "kitty",
+        "alacritty",
     ] {
         assert!(help.contains(id), "{id} missing from --only help:\n{help}");
     }

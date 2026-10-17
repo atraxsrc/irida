@@ -452,9 +452,9 @@ fn nothing_to_apply_lists_every_target() {
         Err(ApplyError::NothingToApply(results)) => {
             let names: Vec<&str> = results.iter().map(|r| r.name.as_str()).collect();
             let loaded = load_targets(&env.dirs);
-            let mut expected = vec!["b"];
-            expected.extend(loaded.iter().map(|t| t.name.as_str()).filter(|n| *n != "b"));
-            expected[1..].sort();
+            let mut expected: Vec<&str> = loaded.iter().map(|t| t.name.as_str()).collect();
+            expected.sort();
+            assert!(expected.contains(&"b"));
             assert_eq!(names, expected);
         }
         other => panic!("expected NothingToApply, got {other:?}"),
@@ -973,7 +973,8 @@ fn listing(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     out
 }
 
-const BUILTINS: [&str; 13] = [
+const BUILTINS: [&str; 14] = [
+    "alacritty",
     "btop",
     "cava",
     "cosmic-desktop",
@@ -993,6 +994,7 @@ const LIVE: [&str; 3] = ["cava", "cosmic-desktop", "cosmic-term"];
 /// The display name each built-in target sets.
 fn builtin_display(name: &str) -> &'static str {
     match name {
+        "alacritty" => "Alacritty",
         "cosmic-desktop" => "COSMIC desktop",
         "cosmic-term" => "COSMIC Terminal",
         "delta" => "delta",

@@ -1,0 +1,35 @@
+# Ember Day (light) for Alacritty, written by Irida.
+
+[colors.primary]
+foreground = "#2B2E36"
+background = "#DDD9D1"
+dim_foreground = "#6B6F78"
+bright_foreground = "#25272E"
+
+[colors.cursor]
+text = "#DDD9D1"
+cursor = "#A4441A"
+
+[colors.selection]
+text = "#2B2E36"
+background = "#C9A591"
+
+[colors.normal]
+black = "#2B2E36"
+red = "#9E3A3A"
+green = "#4C6B45"
+yellow = "#8A5E12"
+blue = "#2F5C8A"
+magenta = "#6E4E8C"
+cyan = "#2E6E6A"
+white = "#6B6F78"
+
+[colors.bright]
+black = "#25272E"
+red = "#863131"
+green = "#415B3B"
+yellow = "#75500F"
+blue = "#284E75"
+magenta = "#5E4277"
+cyan = "#275E5A"
+white = "#5B5E66"

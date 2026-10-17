@@ -58,6 +58,7 @@ result to your desktop, terminal, editor and tools in one step.
 | fish | `conf.d/irida.fish` | |
 | eza | `theme.yml` | |
 | kitty | `irida.conf`, included from `kitty.conf` | |
+| Alacritty | `themes/irida.toml`, imported from `[general]` (0.14 or newer) | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in
