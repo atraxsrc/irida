@@ -10,6 +10,7 @@ if [ "$#" -ne 1 ] || [ ! -f "$1" ]; then
 fi
 deb=$1
 app_id=io.github.atraxsrc.Irida
+applet_id=io.github.atraxsrc.IridaApplet
 
 fail() {
     echo "check-deb: $*" >&2
@@ -26,6 +27,9 @@ echo "$contents"
 # Each installed file with the mode it must have.
 expected=(
     "-rwxr-xr-x ./usr/bin/irida"
+    "-rwxr-xr-x ./usr/bin/irida-applet"
+    "-rw-r--r-- ./usr/share/applications/$applet_id.desktop"
+    "-rw-r--r-- ./usr/share/icons/hicolor/scalable/apps/$applet_id-symbolic.svg"
     "-rw-r--r-- ./usr/share/applications/$app_id.desktop"
     "-rw-r--r-- ./usr/share/metainfo/$app_id.metainfo.xml"
     "-rw-r--r-- ./usr/share/icons/hicolor/scalable/apps/$app_id.svg"
@@ -47,7 +51,8 @@ dpkg-deb -x "$deb" "$tmp"
 
 echo "== desktop-file-validate"
 desktop-file-validate "$tmp/usr/share/applications/$app_id.desktop"
-echo "ok desktop entry"
+desktop-file-validate "$tmp/usr/share/applications/$applet_id.desktop"
+echo "ok desktop entries"
 
 echo "== appstreamcli validate"
 appstreamcli validate --no-net "$tmp/usr/share/metainfo/$app_id.metainfo.xml"

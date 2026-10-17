@@ -15,7 +15,8 @@
       Apply it to the COSMIC desktop, COSMIC Terminal, btop, Neovim, fastfetch,
       lsd, zsh and cava in one step, and undo it in one step. Link a dark and a
       light palette as a pair, compare with saved versions, and export a
-      complete rice repository.
+      complete rice repository. A panel applet applies any saved palette with
+      one click.
     </p>
   </description>
   <developer id="io.github.atraxsrc">

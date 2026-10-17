@@ -35,7 +35,10 @@ while IFS= read -r line || [ -n "$line" ]; do
     printf '%s\n' "$line" >>"$changelog"
 done <irida/res/debian/changelog.in
 
-out=$(cargo deb -p irida --locked --maintainer "$DEB_MAINTAINER")
+# The .deb ships two binaries from two packages, so the whole workspace is
+# built first and cargo deb only packages.
+cargo build --release --workspace --locked
+out=$(cargo deb -p irida --locked --no-build --maintainer "$DEB_MAINTAINER")
 deb=$(printf '%s\n' "$out" | grep '\.deb$' | tail -n 1)
 if [ -z "$deb" ]; then
     echo "deb.sh: cargo deb did not report a .deb" >&2

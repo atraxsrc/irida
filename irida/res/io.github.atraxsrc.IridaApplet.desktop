@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Irida
+Comment=Apply a saved palette from the panel
+Exec=irida-applet
+Icon=io.github.atraxsrc.IridaApplet-symbolic
+Terminal=false
+NoDisplay=true
+StartupNotify=true
+X-CosmicApplet=true

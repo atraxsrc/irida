@@ -38,9 +38,13 @@ from a wallpaper, or edit its thirteen roles while the preview and the
 contrast ratios follow every change. Apply it to the COSMIC desktop, COSMIC
 Terminal, btop, Neovim, fastfetch, lsd, zsh and cava, and undo it in one step.
 Link a dark and a light palette as a pair, compare with saved versions, and
-export a complete rice repository."""
+export a complete rice repository. A panel applet applies any saved palette
+with one click."""
 assets = [
     ["target/release/irida", "usr/bin/", "755"],
+    ["target/release/irida-applet", "usr/bin/", "755"],
+    ["res/io.github.atraxsrc.IridaApplet.desktop", "usr/share/applications/", "644"],
+    ["res/icons/hicolor/scalable/apps/io.github.atraxsrc.IridaApplet-symbolic.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
     ["res/io.github.atraxsrc.Irida.desktop", "usr/share/applications/", "644"],
     ["res/io.github.atraxsrc.Irida.metainfo.xml", "usr/share/metainfo/", "644"],
     ["res/icons/hicolor/scalable/apps/io.github.atraxsrc.Irida.svg", "usr/share/icons/hicolor/scalable/apps/", "644"],
