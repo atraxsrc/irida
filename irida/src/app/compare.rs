@@ -5,12 +5,15 @@ use cosmic::Element;
 use cosmic::iced::Length;
 use cosmic::widget::{self, button, text};
 
+use irida_core::apply::TargetInfo;
+
+use super::caption;
 use super::preview;
 use super::scene::scene;
 use super::state::{Msg, PairChoice, SplitColumn, SplitView, State, VersionChoice};
 
 /// Two previews side by side, each under its label.
-pub fn view(v: SplitView) -> Element<'static, Msg> {
+pub fn view(v: SplitView, targets: &[TargetInfo]) -> Element<'static, Msg> {
     let left_head = match v.versions {
         Some(choice) => versions(choice),
         None => text::heading(v.left.label.clone()).into(),
@@ -18,14 +21,22 @@ pub fn view(v: SplitView) -> Element<'static, Msg> {
     let right_head = text::heading(v.right.label.clone()).into();
     widget::Row::new()
         .spacing(16)
-        .push(column(left_head, v.left))
-        .push(column(right_head, v.right))
+        .push(column(left_head, v.left, targets))
+        .push(column(right_head, v.right, targets))
         .into()
 }
 
-fn column(head: Element<'static, Msg>, c: SplitColumn) -> Element<'static, Msg> {
+fn column(
+    head: Element<'static, Msg>,
+    c: SplitColumn,
+    targets: &[TargetInfo],
+) -> Element<'static, Msg> {
     let body: Element<'static, Msg> = match c.palette {
-        Some(p) => preview::view(scene(&p)),
+        Some(p) => widget::Column::new()
+            .spacing(8)
+            .push(preview::view(scene(&p)))
+            .push(caption::line(targets))
+            .into(),
         None => text::body(c.note.unwrap_or_default()).into(),
     };
     widget::Column::new()

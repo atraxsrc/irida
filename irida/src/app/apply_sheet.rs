@@ -5,7 +5,7 @@
 use cosmic::iced::Length;
 use cosmic::widget::{self, button, text};
 
-use super::state::{ApplySheet, Msg, State, sheet_groups};
+use super::state::{ApplySheet, Msg, SheetMode, State, sheet_groups};
 
 pub fn view<'a>(state: &'a State, sheet: &'a ApplySheet) -> widget::Dialog<'a, Msg> {
     let groups = sheet_groups(&sheet.targets, &state.settings);
@@ -38,10 +38,14 @@ pub fn view<'a>(state: &'a State, sheet: &'a ApplySheet) -> widget::Dialog<'a, M
     if let Some(line) = not_installed {
         list = list.push(text::caption(line));
     }
+    let primary = match sheet.mode {
+        SheetMode::Apply => button::suggested("Apply").on_press(Msg::ConfirmApply),
+        SheetMode::Change => button::suggested("Done").on_press(Msg::CloseDialog),
+    };
     widget::dialog()
         .title("Apply")
         .body(sheet.applies.as_str())
         .control(widget::scrollable(list).height(Length::Shrink))
-        .primary_action(button::suggested("Apply").on_press(Msg::ConfirmApply))
+        .primary_action(primary)
         .secondary_action(button::standard("Cancel").on_press(Msg::CloseDialog))
 }

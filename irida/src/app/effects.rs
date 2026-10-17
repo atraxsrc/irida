@@ -285,11 +285,17 @@ pub fn perform(effect: Effect, ctx: &Ctx) -> Vec<Msg> {
         Effect::SaveSettings(s) => {
             Msg::SettingsSaved(store.save_settings(&s).map_err(|e| e.to_string()))
         }
-        Effect::LoadApplySheet { palette, settings } => Msg::ApplySheetLoaded {
+        Effect::LoadApplySheet {
+            palette,
+            settings,
+            mode,
+        } => Msg::ApplySheetLoaded {
             targets: target_status(ctx, &settings),
             pair: Box::new(store.pair_of(&palette)),
             slug: palette.slug,
+            mode,
         },
+        Effect::RefreshTargets(settings) => Msg::Targets(target_status(ctx, &settings)),
         Effect::Apply {
             palette,
             pair,
@@ -469,6 +475,7 @@ pub(crate) fn panicked(effect: Effect, ctx: &Ctx, error: String) -> Msg {
         Effect::LoadStore
         | Effect::ListEntries
         | Effect::LoadApplySheet { .. }
+        | Effect::RefreshTargets(_)
         | Effect::FindWallpaper(_)
         | Effect::LoadPair(_)
         | Effect::FindPendingLive

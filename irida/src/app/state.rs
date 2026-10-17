@@ -332,10 +332,18 @@ impl FolderFor {
     }
 }
 
+/// Apply confirms a write. Change only edits which apps are on.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SheetMode {
+    Apply,
+    Change,
+}
+
 /// The Apply sheet: every target, and what is applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApplySheet {
     pub targets: Vec<TargetInfo>,
+    pub mode: SheetMode,
     /// The other half of a pair, applied with the palette.
     pub pair: Option<Palette>,
     /// What is applied, like "Applies Ember and Ember Day".
@@ -855,9 +863,14 @@ pub enum Msg {
         targets: Vec<TargetInfo>,
         /// Boxed: a found pair is a whole palette.
         pair: Box<PairLookup>,
+        mode: SheetMode,
     },
     /// Turn a target on or off in the sheet.
     SetTarget(String, bool),
+    /// The targets Apply would write, refreshed without opening the sheet.
+    Targets(Vec<TargetInfo>),
+    /// Open the Apply sheet to change which apps are on, without applying.
+    ShowChange,
     ConfirmApply,
     Applied(Result<ApplyReport, ApplyFailure>),
     /// The toast's Undo and the menu's Undo last apply.
@@ -997,7 +1010,10 @@ pub enum Effect {
     LoadApplySheet {
         palette: Palette,
         settings: Settings,
+        mode: SheetMode,
     },
+    /// Read `target_status` again for the caption.
+    RefreshTargets(Settings),
     Apply {
         palette: Palette,
         pair: Option<Palette>,
@@ -1095,6 +1111,8 @@ pub struct State {
     /// `settings.toml` could not be read: defaults are in use and the file
     /// is not written until the user changes a setting.
     pub settings_unreadable: bool,
+    /// Targets as of the last refresh, for the caption.
+    pub targets: Vec<TargetInfo>,
     pub entries: Vec<EntrySummary>,
     pub current: Option<Current>,
     pub dialog: Option<Dialog>,
@@ -1148,6 +1166,7 @@ impl State {
             wallpaper_system,
             settings: Settings::default(),
             settings_unreadable: false,
+            targets: Vec::new(),
             entries: Vec::new(),
             current: None,
             dialog: None,
@@ -1677,7 +1696,12 @@ impl State {
     }
 
     /// The Apply sheet for `working` with `targets` and its pair lookup.
-    fn apply_sheet(working: &Palette, targets: Vec<TargetInfo>, pair: PairLookup) -> ApplySheet {
+    fn apply_sheet(
+        working: &Palette,
+        targets: Vec<TargetInfo>,
+        pair: PairLookup,
+        mode: SheetMode,
+    ) -> ApplySheet {
         let name = &working.name;
         let alone = format!("Applies {name}");
         let (pair, applies, pair_note) = match pair {
@@ -1706,6 +1730,7 @@ impl State {
             pair,
             applies,
             pair_note,
+            mode,
         }
     }
 
@@ -1882,6 +1907,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 effects.push(Effect::FindPendingLive);
             }
             effects.push(Effect::LoadLiveTargets(state.settings.clone()));
+            effects.push(Effect::RefreshTargets(state.settings.clone()));
             if let Some(slug) = state.start_slug() {
                 effects.push(Effect::OpenPalette(slug));
             }
@@ -2304,9 +2330,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             if matches!(state.dialog, Some(Dialog::Unsaved(_))) {
                 state.after_save = None;
             }
+            let refresh = matches!(state.dialog, Some(Dialog::Apply(_)));
             state.dialog = None;
             state.menu_open = false;
-            Vec::new()
+            if refresh {
+                vec![Effect::RefreshTargets(state.settings.clone())]
+            } else {
+                Vec::new()
+            }
         }
         Msg::CloseRequested => state.leave(Leave::Exit),
         Msg::ShowApply => {
@@ -2321,6 +2352,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 Ok(palette) => effects.push(Effect::LoadApplySheet {
                     palette,
                     settings: state.settings.clone(),
+                    mode: SheetMode::Apply,
                 }),
                 Err(more) => effects.extend(more),
             }
@@ -2330,6 +2362,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             slug,
             targets,
             pair,
+            mode,
         } => {
             // The palette changed while the targets were read.
             let Some(Current::Editable { working, .. }) = &state.current else {
@@ -2339,9 +2372,25 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 return Vec::new();
             }
             state.live_targets = any_live_target(&targets);
-            state.dialog = Some(Dialog::Apply(State::apply_sheet(working, targets, *pair)));
+            state.targets = targets.clone();
+            state.dialog = Some(Dialog::Apply(State::apply_sheet(
+                working, targets, *pair, mode,
+            )));
             Vec::new()
         }
+        Msg::Targets(targets) => {
+            state.live_targets = any_live_target(&targets);
+            state.targets = targets;
+            Vec::new()
+        }
+        Msg::ShowChange => match state.checked_working("changed") {
+            Ok(palette) => vec![Effect::LoadApplySheet {
+                palette,
+                settings: state.settings.clone(),
+                mode: SheetMode::Change,
+            }],
+            Err(effects) => effects,
+        },
         Msg::SetTarget(name, on) => {
             let Some(Dialog::Apply(sheet)) = &state.dialog else {
                 return Vec::new();
@@ -2371,15 +2420,21 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 }
             };
             match state.checked_working("applied") {
-                Ok(palette) => vec![Effect::Apply {
-                    palette,
-                    pair: sheet.pair,
-                    settings: state.settings.clone(),
-                }],
+                Ok(palette) => vec![
+                    Effect::Apply {
+                        palette,
+                        pair: sheet.pair,
+                        settings: state.settings.clone(),
+                    },
+                    Effect::RefreshTargets(state.settings.clone()),
+                ],
                 Err(effects) => effects,
             }
         }
-        Msg::Applied(Ok(report)) => vec![state.toast_undo(applied_text(&report))],
+        Msg::Applied(Ok(report)) => vec![
+            state.toast_undo(applied_text(&report)),
+            Effect::RefreshTargets(state.settings.clone()),
+        ],
         Msg::Applied(Err(failure)) => {
             let text = failure.text();
             let mut effects = if failure.needs_undo() {
@@ -2389,6 +2444,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             };
             // It may have failed for the session of a window now gone.
             effects.extend(state.retry_lock());
+            effects.push(Effect::RefreshTargets(state.settings.clone()));
             effects
         }
         Msg::UndoLastApply => {
@@ -4106,6 +4162,96 @@ mod tests {
             vec![("bad".to_string(), "bad".to_string(), "broken".to_string())]
         );
         assert_eq!(g.not_installed, vec!["Neovim".to_string()]);
+    }
+
+    #[test]
+    fn targets_refresh_on_load() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let state = start(&tmp);
+        assert!(!state.targets.is_empty());
+        assert!(
+            crate::app::caption::caption(&state.targets)
+                .written
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn change_opens_sheet_without_applying() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let effects = update(&mut state, Msg::ShowChange);
+        assert!(
+            matches!(
+                effects.as_slice(),
+                [Effect::LoadApplySheet {
+                    mode: SheetMode::Change,
+                    ..
+                }]
+            ),
+            "{effects:?}"
+        );
+        let Effect::LoadApplySheet { palette, .. } = &effects[0] else {
+            panic!("{effects:?}");
+        };
+        drive(
+            &mut state,
+            Msg::ApplySheetLoaded {
+                slug: palette.slug.clone(),
+                targets: vec![info("cava", "cava", true, None)],
+                pair: Box::new(PairLookup::None),
+                mode: SheetMode::Change,
+            },
+        );
+        match &state.dialog {
+            Some(Dialog::Apply(sheet)) => assert_eq!(sheet.mode, SheetMode::Change),
+            other => panic!("{other:?}"),
+        }
+        assert!(
+            !effects.iter().any(|e| matches!(e, Effect::Apply { .. })),
+            "{effects:?}"
+        );
+    }
+
+    #[test]
+    fn sheet_close_refreshes_targets() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::ShowApply);
+        assert!(matches!(state.dialog, Some(Dialog::Apply(_))));
+        let effects = update(&mut state, Msg::CloseDialog);
+        assert!(
+            effects
+                .iter()
+                .any(|e| matches!(e, Effect::RefreshTargets(_))),
+            "{effects:?}"
+        );
+        drive(&mut state, Msg::Targets(vec![]));
+        assert!(state.targets.is_empty());
+    }
+
+    #[test]
+    fn applied_refreshes_targets() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let report = ApplyReport {
+            record_id: 1,
+            targets: vec![],
+        };
+        let ok = update(&mut state, Msg::Applied(Ok(report)));
+        assert!(
+            ok.iter().any(|e| matches!(e, Effect::RefreshTargets(_))),
+            "{ok:?}"
+        );
+        let err = update(&mut state, Msg::Applied(Err(ApplyFailure::NothingToApply)));
+        assert!(
+            err.iter().any(|e| matches!(e, Effect::RefreshTargets(_))),
+            "{err:?}"
+        );
     }
 
     #[test]

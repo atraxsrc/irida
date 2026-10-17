@@ -323,8 +323,12 @@ fn content(state: &State) -> Element<'_, Msg> {
                     .width(Length::FillPortion(3))
                     .push(
                         widget::scrollable(match state.split_view() {
-                            Some(split) => compare::view(split),
-                            None => preview::view(scene::scene(working)),
+                            Some(split) => compare::view(split, &state.targets),
+                            None => widget::Column::new()
+                                .spacing(12)
+                                .push(preview::view(scene::scene(working)))
+                                .push(caption::line(&state.targets))
+                                .into(),
                         })
                         .height(Length::Fill),
                     )

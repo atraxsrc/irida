@@ -1,8 +1,8 @@
-// The caption view in the next task is the caller. Until then the binary
-// does not name these.
-#![allow(dead_code)]
-
+use cosmic::Element;
+use cosmic::widget::{self, button, text};
 use irida_core::apply::TargetInfo;
+
+use super::state::Msg;
 
 pub struct Caption {
     /// Detected, enabled, not broken. Order is the input order.
@@ -33,6 +33,30 @@ pub fn off_phrase(names: &[&str]) -> String {
         [lead @ .., last] => format!("{} and {last}", lead.join(", ")),
     };
     format!("{body} off")
+}
+
+/// One wrapping line: what Apply will write, then Change.
+pub fn line(targets: &[TargetInfo]) -> Element<'static, Msg> {
+    let cap = caption(targets);
+    let mut children: Vec<Element<'static, Msg>> = Vec::new();
+    if cap.written.is_empty() && cap.off.is_empty() {
+        children.push(text::body("Nothing to colour").into());
+    } else if !cap.written.is_empty() {
+        children.push(text::caption("Colours").into());
+        children.push(text::body(cap.written.join(" · ")).into());
+    }
+    if !cap.off.is_empty() {
+        let names: Vec<&str> = cap.off.iter().map(String::as_str).collect();
+        let phrase = off_phrase(&names);
+        let phrase = if cap.written.is_empty() {
+            phrase
+        } else {
+            format!("· {phrase}")
+        };
+        children.push(text::caption(phrase).into());
+    }
+    children.push(button::link("Change…").on_press(Msg::ShowChange).into());
+    widget::flex_row(children).into()
 }
 
 #[cfg(test)]
