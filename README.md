@@ -72,9 +72,9 @@ result to your desktop, terminal, editor and tools in one step.
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in
 ones in [`irida-core/targets`](irida-core/targets) are the examples. A target
-writes whole files, a marked block, or one key line (flat, at the top of the
-file, or inside a section); an app that needs more than that needs an engine
-change, not a folder.
+writes whole files, a marked block, or key lines (flat, at the top of the
+file, or inside a section); several blocks and key lines may go into one
+file. An app that needs more than that needs an engine change, not a folder.
 
 ## Install
 
