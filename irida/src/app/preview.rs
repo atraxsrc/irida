@@ -309,7 +309,7 @@ pub fn view(s: Scene, image: Option<&ImageStatus>) -> Element<'static, Msg> {
         .push(desktop)
         .width(Length::Fill);
     let Some(ImageStatus::Ready { handle, .. }) = image else {
-        return column.into();
+        return monitor(column);
     };
     let photo = widget::image(handle.clone())
         .content_fit(ContentFit::Cover)
@@ -318,10 +318,38 @@ pub fn view(s: Scene, image: Option<&ImageStatus>) -> Element<'static, Msg> {
     // The column sets the size. The image sits under it and covers that area;
     // `clip` keeps the covered image from drawing past it, since the image
     // widget itself does not cut the overflow.
-    cosmic::iced::widget::stack([column.into()])
+    let screen = cosmic::iced::widget::stack([column.into()])
         .push_under(photo)
         .clip(true)
+        .width(Length::Fill);
+    monitor(screen)
+}
+
+/// The widest the monitor gets; it is centred when the column is wider.
+const MONITOR_MAX_WIDTH: f32 = 1280.;
+/// The bezel around the screen.
+const BEZEL: f32 = 8.;
+const BEZEL_COLOR: Color = Color::from_rgb(0.04, 0.04, 0.04);
+
+/// The preview as a monitor: the screen inside a thin dark bezel with
+/// rounded corners, centred and no wider than `MONITOR_MAX_WIDTH`. Its height
+/// follows the windows on the screen, so it is about 4:3 on a wide column and
+/// taller on a narrow one rather than clipping them.
+fn monitor<'a>(screen: impl Into<Element<'a, Msg>>) -> Element<'a, Msg> {
+    let framed = container(screen)
+        .padding(BEZEL)
+        .max_width(MONITOR_MAX_WIDTH)
+        .style(|_| container::Style {
+            background: Some(Background::Color(BEZEL_COLOR)),
+            border: Border {
+                radius: 14.0.into(),
+                ..Default::default()
+            },
+            ..Default::default()
+        });
+    container(framed)
         .width(Length::Fill)
+        .align_x(Alignment::Center)
         .into()
 }
 
