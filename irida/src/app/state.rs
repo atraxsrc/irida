@@ -4591,25 +4591,18 @@ mod tests {
     }
 
     /// The built-in targets' display names, in id order.
-    const BUILTIN_DISPLAYS: [&str; 17] = [
-        "Alacritty",
-        "bat",
-        "btop",
-        "cava",
-        "COSMIC desktop",
-        "COSMIC Terminal",
-        "delta",
-        "eza",
-        "fastfetch",
-        "fish",
-        "foot",
-        "Ghostty",
-        "Helix",
-        "kitty",
-        "lsd",
-        "Neovim",
-        "zsh",
-    ];
+    fn builtin_displays() -> Vec<String> {
+        let empty = TempDir::new().unwrap();
+        irida_core::target::load_targets(&Dirs::under(empty.path()))
+            .into_iter()
+            .map(|t| {
+                t.result
+                    .expect("built-in target loads")
+                    .display()
+                    .to_string()
+            })
+            .collect()
+    }
 
     fn info(name: &str, display: &str, detected: bool, broken: Option<String>) -> TargetInfo {
         TargetInfo {
@@ -4779,10 +4772,10 @@ mod tests {
         assert_eq!(groups.broken.len(), 1, "{:?}", groups.broken);
         assert_eq!(groups.broken[0].0, "bad");
         assert!(groups.broken[0].2.contains("bogus"), "{:?}", groups.broken);
-        assert_eq!(groups.not_installed, BUILTIN_DISPLAYS);
+        assert_eq!(groups.not_installed, builtin_displays());
         assert_eq!(
             groups.not_installed_line().as_deref(),
-            Some(format!("Not installed: {}", BUILTIN_DISPLAYS.join(", ")).as_str())
+            Some(format!("Not installed: {}", builtin_displays().join(", ")).as_str())
         );
 
         // A pair that is not in the store is left out, and the sheet says so.
@@ -4803,7 +4796,7 @@ mod tests {
         );
         let groups = sheet_groups(&alone.targets, &state.settings);
         assert!(groups.toggles.is_empty() && groups.broken.is_empty());
-        assert_eq!(groups.not_installed, BUILTIN_DISPLAYS);
+        assert_eq!(groups.not_installed, builtin_displays());
     }
 
     #[test]
