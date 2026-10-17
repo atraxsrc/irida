@@ -8,7 +8,7 @@ use common::{TestEnv, fixture_text, palette};
 use irida_core::export::{ExportReport, ExportRequest, ExportStatus, export};
 use irida_core::export_docs::{
     README_BEGIN, README_END, SHOWCASE_BEGIN, SHOWCASE_END, readme_block, readme_names,
-    showcase_block,
+    readme_skeleton, showcase_block,
 };
 use irida_core::palette::Palette;
 use irida_core::role::Role;
@@ -372,4 +372,25 @@ fn user_target_cannot_take_an_unmarked_readme() {
         st.contains(&&ExportStatus::Skipped("already written by irida".into())),
         "{st:?}"
     );
+}
+
+#[test]
+fn skeleton_lists_every_install_script() {
+    let text = readme_skeleton(&palette("ember"), "x");
+    for app in [
+        "nvim",
+        "fastfetch",
+        "lsd",
+        "zsh",
+        "cava",
+        "ghostty",
+        "delta",
+        "fish",
+        "eza",
+    ] {
+        assert!(
+            text.contains(&format!("`./{app}/install.sh`")),
+            "{app}: {text}"
+        );
+    }
 }
