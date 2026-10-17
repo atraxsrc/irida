@@ -900,9 +900,11 @@ fn current_bytes(path: &Path) -> io::Result<Option<Vec<u8>>> {
 }
 
 /// Add a live session apply's writes to its record. A path is captured only
-/// the first time the session writes it; after that only new COSMIC Terminal
-/// schemes and profile fields get entries, their `before` read from the
-/// session's captured copy, so undo goes back to before the session.
+/// the first time the session writes it; after that only new blocks, keys,
+/// COSMIC Terminal schemes and profile fields get entries. A new block or
+/// key keeps this apply's `before`, which the session had not touched; a
+/// scheme or field reads its `before` from the session's captured copy, so
+/// undo goes back to before the session.
 fn add_session_entries(rec: &mut RecordWriter, writes: &[&PlannedWrite]) -> io::Result<()> {
     for w in writes {
         if !rec.has(&w.path) {
@@ -913,19 +915,37 @@ fn add_session_entries(rec: &mut RecordWriter, writes: &[&PlannedWrite]) -> io::
             continue;
         }
         for edit in &w.edits {
-            if let Edit::Key { key, written, .. } = edit {
-                // Undo must recognise the line this apply wrote there.
-                for e in rec.entries_mut() {
-                    if let Entry::Key {
-                        path,
-                        key: k,
-                        written: wr,
-                        ..
-                    } = e
-                        && *path == w.path
-                        && k == key
-                    {
-                        wr.clone_from(written);
+            let known = match edit {
+                Edit::Key { key, written, .. } => {
+                    let mut known = false;
+                    // Undo must recognise the line this apply wrote there.
+                    for e in rec.entries_mut() {
+                        if let Entry::Key {
+                            path,
+                            key: k,
+                            written: wr,
+                            ..
+                        } = e
+                            && *path == w.path
+                            && k == key
+                        {
+                            wr.clone_from(written);
+                            known = true;
+                        }
+                    }
+                    Some(known)
+                }
+                Edit::Block { comment, .. } => Some(rec.record().entries.iter().any(|e| {
+                    matches!(e, Entry::Block { path, comment: c, .. }
+                        if *path == w.path && c == comment)
+                })),
+                _ => None,
+            };
+            if let Some(known) = known {
+                if !known {
+                    let blob = rec.captured(&w.path)?.map(|(name, _)| name);
+                    for e in edit_entries(&w.path, edit, blob) {
+                        rec.push(e);
                     }
                 }
                 continue;

@@ -623,3 +623,38 @@ fn keep_then_undo_with_two_keys_in_one_file() {
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(read(&conf), start);
 }
+
+/// A live target with a key and a block in one file, where the block first
+/// lands on the session's second apply (the first finds the markers broken).
+/// Kept, then undone, both come out.
+#[test]
+fn later_session_edit_to_a_held_file_is_undone() {
+    let env = TestEnv::new();
+    put_target(
+        &env,
+        "m",
+        "name = \"m\"\ndetect = {}\nlive = true\n\n\
+         [[file]]\npath = \"~/.config/m/m.conf\"\nwrite = \"key\"\nkey = \"k\"\ntemplate = \"k.tmpl\"\n\n\
+         [[file]]\npath = \"~/.config/m/m.conf\"\nwrite = \"block\"\ncomment = \"#\"\ntemplate = \"b.tmpl\"\n",
+        &[
+            ("k.tmpl", "{{ slug }}\n"),
+            ("b.tmpl", "accent {{ accent }}\n"),
+        ],
+    );
+    let conf = env.write(".config/m/m.conf", "a\n# >>> irida >>>\n");
+    let mut s = LiveSession::start(&ctx(&env), "ember").unwrap();
+    let report = session_apply(&mut s, &env, &palette("ember"));
+    let w = &report.get("m").unwrap().warnings;
+    assert!(w.iter().any(|m| m.contains("markers are broken")), "{w:?}");
+    assert!(!read(&conf).contains("accent"));
+
+    // The user mends the stray marker; the next apply adds the block.
+    fs::write(&conf, read(&conf).replace("# >>> irida >>>\n", "")).unwrap();
+    session_apply(&mut s, &env, &palette("noir"));
+    assert!(read(&conf).contains("accent"), "{}", read(&conf));
+    s.keep(&ctx(&env)).unwrap();
+
+    let report = apply::undo(&ctx(&env)).unwrap();
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    assert_eq!(read(&conf), "a\n");
+}
