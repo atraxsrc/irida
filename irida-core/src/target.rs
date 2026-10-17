@@ -58,6 +58,11 @@ pub struct FileEntry {
     /// with another value is replaced.
     #[serde(default)]
     pub note_replaced: bool,
+    /// For `key` writes: keys, or `[table]` names (covering their subtables),
+    /// that override the theme when the user's file sets them; every apply
+    /// names the ones it finds.
+    #[serde(default)]
+    pub note_overrides: Vec<String>,
 }
 
 /// Where a key line lives when it has no section.
@@ -219,11 +224,16 @@ fn build(
         if f.separator.as_deref() == Some("") {
             return invalid(format!("{}: separator must not be empty", f.path));
         }
-        if (f.place.is_some() || f.section.is_some() || f.repeatable || f.note_replaced)
+        if (f.place.is_some()
+            || f.section.is_some()
+            || f.repeatable
+            || f.note_replaced
+            || !f.note_overrides.is_empty())
             && f.write != WriteKind::Key
         {
             return invalid(format!(
-                "{}: place, section, repeatable and note_replaced need write = \"key\"",
+                "{}: place, section, repeatable, note_replaced and note_overrides need \
+                 write = \"key\"",
                 f.path
             ));
         }

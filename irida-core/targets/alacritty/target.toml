@@ -14,13 +14,15 @@ write = "file"
 template = "irida.toml.tmpl"
 
 # TOML forbids a second `import` key, so the user's array is replaced; the
-# result says so and undo restores it.
+# result says so and undo restores it. Colour tables left in the main config
+# override the theme, so every apply names them.
 [[file]]
 path = "~/.config/alacritty/alacritty.toml"
 write = "key"
 key = "import"
 section = "general"
 note_replaced = true
+note_overrides = ["[colors]"]
 template = "import.tmpl"
 
 [[rice]]

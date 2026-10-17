@@ -128,3 +128,45 @@ fn apply_writes_theme_and_selector() {
     );
     assert!(!theme.exists());
 }
+
+#[test]
+fn notes_colour_keys_that_override_the_theme() {
+    let env = TestEnv::new();
+    env.write(
+        ".config/ghostty/config",
+        "font-size = 13\nbackground = #000000\n# foreground = #ffffff\npalette = 0=#111111\n",
+    );
+    let report = apply_only(&env, &palette("ember"), "ghostty").unwrap();
+    let w = &report.get("ghostty").unwrap().warnings;
+    assert!(
+        w.iter().any(|w| w.ends_with(
+            "ghostty/config: your own background and palette settings override the Irida theme"
+        )),
+        "{w:?}"
+    );
+
+    let env = TestEnv::new();
+    env.write(".config/ghostty/config", "font-size = 13\n");
+    let report = apply_only(&env, &palette("ember"), "ghostty").unwrap();
+    let w = &report.get("ghostty").unwrap().warnings;
+    assert!(!w.iter().any(|w| w.contains("override")), "{w:?}");
+}
+
+#[test]
+fn override_keys_are_the_theme_keys() {
+    let env = TestEnv::new();
+    let all = irida_core::target::load_targets(&env.dirs);
+    let t = all.iter().find(|t| t.name == "ghostty").unwrap();
+    let t = t.result.as_ref().unwrap();
+    let selector = t.def.files.iter().find(|f| f.key.is_some()).unwrap();
+    let mut keys: Vec<String> = Vec::new();
+    for line in common::target_file("ghostty", "ghostty.theme.tmpl").lines() {
+        if let Some((k, _)) = line.split_once(" = ")
+            && !line.starts_with('#')
+            && !keys.iter().any(|x| x == k)
+        {
+            keys.push(k.to_string());
+        }
+    }
+    assert_eq!(selector.note_overrides, keys);
+}

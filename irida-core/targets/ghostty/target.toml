@@ -12,12 +12,22 @@ template = "ghostty.theme.tmpl"
 
 # One flat line. `config` is read by every version and loaded after
 # `config.ghostty` (1.2.3 and newer), so this line wins either way. Colour
-# keys the user sets in their own config still override the theme.
+# keys the user sets in their own config still override the theme, so the
+# ones the theme sets are named on every apply.
 [[file]]
 path = "~/.config/ghostty/config"
 write = "key"
 key = "theme"
 template = "theme.tmpl"
+note_overrides = [
+    "background",
+    "foreground",
+    "cursor-color",
+    "cursor-text",
+    "selection-background",
+    "selection-foreground",
+    "palette",
+]
 
 # SIGUSR2 reloads the config from 1.2.0 (release notes, GTK section); older
 # builds leave it unhandled and die, so the version gate is mandatory.

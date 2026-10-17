@@ -719,3 +719,17 @@ fn restore_key_without_written_line_matches_any_value() {
     );
     assert_eq!(out, "a = 1\ntheme = old\n");
 }
+
+#[test]
+fn overrides_finds_keys_and_tables() {
+    use irida_core::write::overrides;
+    let names: Vec<String> = ["background", "palette", "[colors]"]
+        .iter()
+        .map(|s| s.to_string())
+        .collect();
+    let text = "theme = irida\n# background = #000000\npalette=0=#111111\n  background = #222222\n";
+    assert_eq!(overrides(text, &names, " = "), ["background", "palette"]);
+    let text = "[general]\nimport = []\n[ colors.primary ]\nbackground = \"#000000\"\n";
+    assert_eq!(overrides(text, &names, " = "), ["background", "[colors]"]);
+    assert!(overrides("[colorscheme]\nbackgrounds = 1\n", &names, " = ").is_empty());
+}

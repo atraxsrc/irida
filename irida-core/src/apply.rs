@@ -19,7 +19,9 @@ use crate::target::{
     load_targets,
 };
 use crate::template::{Renderer, check_syntax};
-use crate::write::{KeyOpts, KeyScope, atomic_write, resolve_write_path, set_block, set_key};
+use crate::write::{
+    KeyOpts, KeyScope, atomic_write, overrides, resolve_write_path, set_block, set_key,
+};
 
 /// Apply records kept after an apply.
 pub(crate) const KEEP_RECORDS: usize = 10;
@@ -274,8 +276,8 @@ struct PlannedWrite {
     path: PathBuf,
     contents: String,
     edit: Edit,
-    /// A warning for the result, such as "replaced your import line".
-    note: Option<String>,
+    /// Warnings for the result, such as "replaced your import line".
+    notes: Vec<String>,
 }
 
 impl PlannedWrite {
@@ -529,7 +531,7 @@ fn plan_file(
             path,
             contents: rendered,
             edit: Edit::File,
-            note: None,
+            notes: Vec::new(),
         }));
     }
     let existing = read_existing(&path).map_err(|e| skip(&e))?;
@@ -549,7 +551,7 @@ fn plan_file(
                     before: edit.before,
                     appended_newline: edit.appended_newline,
                 },
-                note: None,
+                notes: Vec::new(),
             }))
         }
         _ => {
@@ -570,17 +572,28 @@ fn plan_file(
             let is_irida = |old: &str| {
                 old.trim() == written.trim() || prior_lines.iter().any(|l| l.trim() == old.trim())
             };
-            let note = match &edit.before {
-                Some(old) if f.note_replaced && !is_irida(old) => Some(format!(
+            let mut notes = Vec::new();
+            if let Some(old) = &edit.before
+                && f.note_replaced
+                && !is_irida(old)
+            {
+                notes.push(format!(
                     "{}: replaced your {key} line; irida undo restores it",
                     path.display()
-                )),
-                _ => None,
-            };
+                ));
+            }
+            let found = overrides(&edit.contents, &f.note_overrides, &opts.separator);
+            if !found.is_empty() {
+                notes.push(format!(
+                    "{}: your own {} settings override the Irida theme",
+                    path.display(),
+                    join_and(&found)
+                ));
+            }
             Ok(Some(PlannedWrite {
                 path,
                 contents: edit.contents,
-                note,
+                notes,
                 edit: Edit::Key {
                     written,
                     key,
@@ -594,6 +607,15 @@ fn plan_file(
                 },
             }))
         }
+    }
+}
+
+/// `a`, `a and b`, `a, b and c`.
+fn join_and(items: &[&str]) -> String {
+    match items {
+        [] => String::new(),
+        [one] => one.to_string(),
+        [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     }
 }
 
@@ -674,7 +696,7 @@ fn plan_target<'t>(
                 if f.write == WriteKind::File && replaces_user_file(&w, &prior.paths) {
                     warnings.push(replaced_note(&w.path));
                 }
-                warnings.extend(w.note.take());
+                warnings.append(&mut w.notes);
                 writes.push(w);
             }
             Ok(None) => {}
@@ -688,7 +710,7 @@ fn plan_target<'t>(
                 writes.extend(plan.writes.into_iter().map(|w| PlannedWrite {
                     path: w.path,
                     contents: w.contents,
-                    note: None,
+                    notes: Vec::new(),
                     edit: if w.undo.is_empty() {
                         Edit::File
                     } else {

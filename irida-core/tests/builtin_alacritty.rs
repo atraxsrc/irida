@@ -149,3 +149,35 @@ fn install_script_never_duplicates_general() {
     let script = render_export("ember", "alacritty", "install.sh.tmpl");
     assert!(script.contains("\\[general\\]"), "{script}");
 }
+
+#[test]
+fn notes_colour_tables_that_override_the_theme() {
+    let env = TestEnv::new();
+    env.write(
+        ".config/alacritty/alacritty.toml",
+        "[font]\nsize = 12\n\n[colors.primary]\nbackground = \"#000000\"\n",
+    );
+    let report = apply_only(&env, &palette("ember"), "alacritty").unwrap();
+    let w = &report.get("alacritty").unwrap().warnings;
+    assert!(
+        w.iter()
+            .any(|w| w
+                .ends_with("alacritty.toml: your own [colors] settings override the Irida theme")),
+        "{w:?}"
+    );
+
+    let env = TestEnv::new();
+    env.write(".config/alacritty/alacritty.toml", "[font]\nsize = 12\n");
+    let report = apply_only(&env, &palette("ember"), "alacritty").unwrap();
+    let w = &report.get("alacritty").unwrap().warnings;
+    assert!(!w.iter().any(|w| w.contains("override")), "{w:?}");
+}
+
+#[test]
+fn every_theme_table_is_under_colors() {
+    for line in common::target_file("alacritty", "irida.toml.tmpl").lines() {
+        if line.starts_with('[') {
+            assert!(line.starts_with("[colors."), "{line}");
+        }
+    }
+}

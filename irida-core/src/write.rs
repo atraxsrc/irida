@@ -340,6 +340,24 @@ fn bracket_depth(s: &str, mut depth: i32) -> i32 {
     depth
 }
 
+/// The entries of `names` that `text` sets: a key with a line of its own
+/// (matched as with `separator`), or for a `[table]` entry that table's header
+/// or a subtable's. In the order of `names`.
+pub fn overrides<'n>(text: &str, names: &'n [String], separator: &str) -> Vec<&'n str> {
+    names
+        .iter()
+        .map(String::as_str)
+        .filter(
+            |name| match name.strip_prefix('[').and_then(|n| n.strip_suffix(']')) {
+                Some(table) => text.lines().filter_map(header_name).any(|h| {
+                    h == table || h.strip_prefix(table).is_some_and(|r| r.starts_with('.'))
+                }),
+                None => text.lines().any(|l| is_key_line(l, name, separator)),
+            },
+        )
+        .collect()
+}
+
 /// Where a missing line goes.
 enum Insert {
     /// At the end of the file.

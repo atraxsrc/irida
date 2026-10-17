@@ -441,3 +441,27 @@ fn place_and_section_validation() {
     let f = &find(&all, "p").result.as_ref().unwrap().def.files[0];
     assert_eq!(f.section.as_deref(), Some("general"));
 }
+
+#[test]
+fn note_overrides_only_on_key_writes() {
+    let env = TestEnv::new();
+    put(
+        &env,
+        "f",
+        "name = \"f\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"file\"\ntemplate = \"a\"\nnote_overrides = [\"background\"]\n",
+        &["a"],
+    );
+    put(
+        &env,
+        "k",
+        "name = \"k\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"key\"\nkey = \"theme\"\ntemplate = \"a\"\nnote_overrides = [\"background\", \"[colors]\"]\n",
+        &["a"],
+    );
+    let all = load_targets(&env.dirs);
+    assert!(matches!(
+        find(&all, "f").result,
+        Err(TargetError::Invalid(_))
+    ));
+    let k = find(&all, "k").result.as_ref().unwrap();
+    assert_eq!(k.def.files[0].note_overrides, ["background", "[colors]"]);
+}
