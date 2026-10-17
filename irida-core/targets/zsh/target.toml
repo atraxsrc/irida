@@ -1,4 +1,5 @@
 name = "zsh"
+display = "zsh"
 detect = { config = "~/.zshrc" }
 
 [[file]]

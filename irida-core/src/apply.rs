@@ -83,6 +83,8 @@ pub struct ApplyRequest<'a> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct TargetInfo {
     pub name: String,
+    /// The name shown to the user; the id when the target sets none.
+    pub display: String,
     /// Built into Irida, not a user target folder.
     pub builtin: bool,
     /// Reloads live, so try it live applies it.
@@ -111,6 +113,8 @@ pub enum TargetStatus {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TargetResult {
     pub name: String,
+    /// The name shown to the user; the id when the target sets none.
+    pub display: String,
     pub status: TargetStatus,
     pub warnings: Vec<String>,
 }
@@ -336,15 +340,17 @@ impl PlannedWrite {
 /// One selected target: applied with its writes, or skipped with a reason.
 struct TargetPlan<'t> {
     name: String,
+    display: String,
     outcome: Result<&'t Target, SkipReason>,
     writes: Vec<PlannedWrite>,
     warnings: Vec<String>,
 }
 
 impl TargetPlan<'_> {
-    fn skipped(name: &str, reason: SkipReason, warnings: Vec<String>) -> Self {
+    fn skipped(name: &str, display: &str, reason: SkipReason, warnings: Vec<String>) -> Self {
         TargetPlan {
             name: name.to_string(),
+            display: display.to_string(),
             outcome: Err(reason),
             writes: Vec::new(),
             warnings,
@@ -354,6 +360,7 @@ impl TargetPlan<'_> {
     fn into_result(self, status: TargetStatus) -> TargetResult {
         TargetResult {
             name: self.name,
+            display: self.display,
             status,
             warnings: self.warnings,
         }
@@ -410,6 +417,7 @@ pub fn target_status(ctx: &Ctx, settings: &Settings) -> Vec<TargetInfo> {
                             .map(|e| e.to_string())
                     });
                     TargetInfo {
+                        display: target.display().to_string(),
                         builtin: target.source == Source::Builtin,
                         live: target.def.live,
                         detected: is_detected(&target.def, &ctx.dirs, &ctx.path),
@@ -421,6 +429,7 @@ pub fn target_status(ctx: &Ctx, settings: &Settings) -> Vec<TargetInfo> {
                 // A target that does not load has no detect rules; it is
                 // shown as detected so its error is seen, not folded away.
                 Err(e) => TargetInfo {
+                    display: lt.name.clone(),
                     builtin: !user_dir.join(&lt.name).exists(),
                     live: false,
                     detected: true,
@@ -600,6 +609,7 @@ fn plan_target<'t>(
             Err(e) => {
                 return Ok(TargetPlan::skipped(
                     name,
+                    target.display(),
                     SkipReason::Broken(e.to_string()),
                     warnings,
                 ));
@@ -608,6 +618,7 @@ fn plan_target<'t>(
     }
     Ok(TargetPlan {
         name: name.clone(),
+        display: target.display().to_string(),
         outcome: Ok(target),
         writes,
         warnings,
@@ -911,7 +922,10 @@ pub(crate) fn apply_into(
             Ok(target) => {
                 plan_target(target, &renderer, req, &ctx.dirs, &recorded)?.guard_paths(&mut seen)
             }
-            Err(reason) => TargetPlan::skipped(&lt.name, reason, Vec::new()),
+            Err(reason) => {
+                let display = lt.result.as_ref().map_or(lt.name.as_str(), |t| t.display());
+                TargetPlan::skipped(&lt.name, display, reason, Vec::new())
+            }
         });
     }
 

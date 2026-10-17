@@ -1,4 +1,5 @@
 name = "lsd"
+display = "lsd"
 detect = { binary = "lsd", config = "~/.config/lsd" }
 
 [[file]]

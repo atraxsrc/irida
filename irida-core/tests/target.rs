@@ -185,6 +185,7 @@ fn detection() {
 fn def() -> TargetDef {
     TargetDef {
         name: "t".into(),
+        display: None,
         detect: Detect::default(),
         native: None,
         files: vec![],
@@ -327,4 +328,48 @@ fn reload_typos_and_unknown_signals_are_rejected() {
         Err(TargetError::Invalid(_))
     ));
     assert!(find(&all, "fine").result.is_ok());
+}
+
+#[test]
+fn display_defaults_to_folder_name() {
+    let env = TestEnv::new();
+    put(&env, "mine", "name = \"mine\"\n", &[]);
+    let all = load_targets(&env.dirs);
+    let t = find(&all, "mine").result.as_ref().unwrap();
+    assert_eq!(t.def.display, None);
+    assert_eq!(t.display(), "mine");
+}
+
+#[test]
+fn display_is_read() {
+    let env = TestEnv::new();
+    put(&env, "mine", "name = \"mine\"\ndisplay = \"My App\"\n", &[]);
+    let all = load_targets(&env.dirs);
+    assert_eq!(
+        find(&all, "mine").result.as_ref().unwrap().display(),
+        "My App"
+    );
+}
+
+#[test]
+fn empty_display_rejected() {
+    let env = TestEnv::new();
+    put(&env, "mine", "name = \"mine\"\ndisplay = \" \"\n", &[]);
+    let all = load_targets(&env.dirs);
+    assert!(matches!(
+        find(&all, "mine").result,
+        Err(TargetError::Invalid(_))
+    ));
+}
+
+#[test]
+fn every_builtin_has_display() {
+    let env = TestEnv::new();
+    for t in load_targets(&env.dirs) {
+        let target = t
+            .result
+            .as_ref()
+            .unwrap_or_else(|e| panic!("{}: {e}", t.name));
+        assert!(target.def.display.is_some(), "{} lacks display", t.name);
+    }
 }

@@ -1,4 +1,5 @@
 name = "cava"
+display = "cava"
 detect = { binary = "cava", config = "~/.config/cava" }
 live = true
 

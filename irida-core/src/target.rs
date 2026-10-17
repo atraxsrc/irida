@@ -89,6 +89,9 @@ pub struct RiceEntry {
 #[serde(deny_unknown_fields)]
 pub struct TargetDef {
     pub name: String,
+    /// The name shown to the user; the folder name when absent.
+    #[serde(default)]
+    pub display: Option<String>,
     #[serde(default)]
     pub detect: Detect,
     #[serde(default)]
@@ -114,6 +117,13 @@ pub struct Target {
     pub def: TargetDef,
     pub templates: BTreeMap<String, String>,
     pub source: Source,
+}
+
+impl Target {
+    /// The name shown to the user: `display`, or the target's id.
+    pub fn display(&self) -> &str {
+        self.def.display.as_deref().unwrap_or(&self.def.name)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -158,6 +168,9 @@ fn build(
     }
     if def.native.is_some() && source != Source::Builtin {
         return invalid("native is only allowed in built-in targets".into());
+    }
+    if def.display.as_deref().is_some_and(|d| d.trim().is_empty()) {
+        return invalid("display must not be empty".into());
     }
     for f in &def.files {
         match f.write {
@@ -310,6 +323,7 @@ mod tests {
             result: Ok(Target {
                 def: TargetDef {
                     name: name.into(),
+                    display: None,
                     detect: Detect::default(),
                     native: None,
                     files: vec![],

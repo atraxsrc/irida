@@ -49,7 +49,7 @@ pub fn format_targets(targets: &[TargetResult]) -> String {
     let mut out = String::new();
     let mut not_installed = Vec::new();
     for t in targets {
-        let name = &t.name;
+        let name = &t.display;
         let line = match &t.status {
             TargetStatus::Applied(ReloadStatus::Reloaded | ReloadStatus::NotNeeded) => {
                 format!("{name}: applied")

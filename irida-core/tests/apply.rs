@@ -985,6 +985,21 @@ const BUILTINS: [&str; 8] = [
 ];
 const LIVE: [&str; 3] = ["cava", "cosmic-desktop", "cosmic-term"];
 
+/// The display name each built-in target sets.
+fn builtin_display(name: &str) -> &'static str {
+    match name {
+        "cosmic-desktop" => "COSMIC desktop",
+        "cosmic-term" => "COSMIC Terminal",
+        "nvim" => "Neovim",
+        "btop" => "btop",
+        "cava" => "cava",
+        "fastfetch" => "fastfetch",
+        "lsd" => "lsd",
+        "zsh" => "zsh",
+        other => panic!("no display for {other}"),
+    }
+}
+
 fn info<'a>(status: &'a [TargetInfo], name: &str) -> &'a TargetInfo {
     status
         .iter()
@@ -1015,6 +1030,7 @@ fn status_lists_without_writing() {
         info(&status, "a"),
         &TargetInfo {
             name: "a".into(),
+            display: "a".into(),
             builtin: false,
             live: false,
             detected: true,
@@ -1033,6 +1049,7 @@ fn status_lists_without_writing() {
             info(&status, name),
             &TargetInfo {
                 name: name.into(),
+                display: builtin_display(name).into(),
                 builtin: true,
                 live: LIVE.contains(&name),
                 detected: false,
@@ -1174,4 +1191,21 @@ fn live_only_selects_live_targets() {
 
     common::undo(&env);
     assert_eq!(read(&cava), "x\n");
+}
+
+#[test]
+fn status_and_report_carry_display() {
+    let env = TestEnv::new();
+    let ctx = Ctx {
+        dirs: env.dirs.clone(),
+        path: vec![],
+    };
+    let infos = target_status(&ctx, &Settings::default());
+    let btop = infos.iter().find(|t| t.name == "btop").unwrap();
+    assert_eq!(btop.display, "btop");
+    let term = infos.iter().find(|t| t.name == "cosmic-term").unwrap();
+    assert_eq!(term.display, "COSMIC Terminal");
+    env.write(".config/btop/btop.conf", "color_theme = \"Default\"\n");
+    let report = common::apply_only(&env, &palette("ember"), "btop").unwrap();
+    assert_eq!(report.get("btop").unwrap().display, "btop");
 }

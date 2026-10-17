@@ -306,7 +306,7 @@ fn apply_then_undo() {
         .stdout(predicate::str::contains(
             "btop: applied, restart btop to see it",
         ))
-        .stdout(predicate::str::contains("cosmic-term: applied"))
+        .stdout(predicate::str::contains("COSMIC Terminal: applied"))
         .stdout(predicate::str::contains("Undo with: irida undo"));
     let config = tmp.path().join("home/.config");
     assert!(config.join("btop/themes/irida.theme").is_file());
@@ -562,10 +562,10 @@ fn apply_all_then_undo() {
 
     let out = stdout_of(apply_env(&tmp).args(["apply", "ember"]));
     for target in [
-        "cosmic-desktop",
-        "cosmic-term",
+        "COSMIC desktop",
+        "COSMIC Terminal",
         "btop",
-        "nvim",
+        "Neovim",
         "fastfetch",
         "lsd",
         "zsh",
@@ -627,4 +627,34 @@ fn rice_notes_reach_stderr() {
         .arg(EMBER_RICE)
         .assert()
         .stderr(predicate::str::contains("note:").not());
+}
+
+#[test]
+fn only_help_names_every_builtin() {
+    let tmp = TempDir::new().unwrap();
+    let out = irida(&tmp).args(["apply", "--help"]).output().unwrap();
+    let help = String::from_utf8(out.stdout).unwrap();
+    for id in [
+        "cosmic-desktop",
+        "cosmic-term",
+        "cava",
+        "btop",
+        "nvim",
+        "fastfetch",
+        "lsd",
+        "zsh",
+    ] {
+        assert!(help.contains(id), "{id} missing from --only help:\n{help}");
+    }
+}
+
+#[test]
+fn apply_output_uses_display_names() {
+    let tmp = TempDir::new().unwrap();
+    apply_env(&tmp)
+        .args(["apply", "ember"])
+        .assert()
+        .code(0)
+        .stdout(predicate::str::contains("COSMIC Terminal: applied"))
+        .stdout(predicate::str::contains("cosmic-term").not());
 }
