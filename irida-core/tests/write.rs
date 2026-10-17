@@ -552,3 +552,96 @@ fn header_with_comment_or_inner_spaces_is_a_header() {
         "theme = \"irida\"\n[editor] # x\nline-number = \"relative\"\n"
     );
 }
+
+/// `restore_key` with the arguments a `set_key` edit gives it.
+fn undo_key(e: &irida_core::write::KeyEdit, key: &str, written: &str, opts: &KeyOpts) -> String {
+    restore_key(
+        &e.contents,
+        key,
+        written,
+        e.before.as_deref(),
+        e.appended_newline,
+        e.created_section,
+        opts,
+    )
+}
+
+#[test]
+fn crlf_key_replace_keeps_line_endings() {
+    let o = KeyOpts::default();
+    let src = "a = 1\r\ntheme = \"dark\"\r\nb = 2\r\n";
+    let e = set_key(Some(src), "theme", "\"irida\"", &o);
+    assert_eq!(e.contents, "a = 1\r\ntheme = \"irida\"\r\nb = 2\r\n");
+    assert_eq!(e.before.as_deref(), Some("theme = \"dark\""));
+    assert_eq!(undo_key(&e, "theme", "theme = \"irida\"", &o), src);
+}
+
+#[test]
+fn crlf_key_append_and_insert_use_crlf() {
+    let o = KeyOpts::default();
+    for src in ["a = 1\r\n", "a = 1\r\nb = 2"] {
+        let e = set_key(Some(src), "theme", "\"irida\"", &o);
+        assert!(
+            e.contents.ends_with("\r\ntheme = \"irida\"\r\n"),
+            "{:?}",
+            e.contents
+        );
+        assert!(
+            !e.contents.replace("\r\n", "").contains('\n'),
+            "{:?}",
+            e.contents
+        );
+        assert_eq!(undo_key(&e, "theme", "theme = \"irida\"", &o), src);
+    }
+
+    let src = "# helix\r\n[editor]\r\nline-number = \"relative\"\r\n";
+    let e = set_key(Some(src), "theme", "\"irida\"", &top());
+    assert_eq!(
+        e.contents,
+        "# helix\r\ntheme = \"irida\"\r\n[editor]\r\nline-number = \"relative\"\r\n"
+    );
+    assert_eq!(undo_key(&e, "theme", "theme = \"irida\"", &top()), src);
+
+    let src = "[window]\r\nopacity = 1";
+    let e = set_key(Some(src), "import", "[\"irida\"]", &section("general"));
+    assert_eq!(
+        e.contents,
+        "[window]\r\nopacity = 1\r\n[general]\r\nimport = [\"irida\"]\r\n"
+    );
+    assert_eq!(
+        undo_key(&e, "import", "import = [\"irida\"]", &section("general")),
+        src
+    );
+}
+
+#[test]
+fn crlf_block_uses_crlf_and_restores() {
+    let src = "a\r\nb";
+    let e = set_block(Some(src), "#", "x\ny\n").unwrap();
+    assert_eq!(
+        e.contents,
+        "a\r\nb\r\n# >>> irida >>>\r\nx\r\ny\r\n# <<< irida <<<\r\n"
+    );
+    assert_eq!(
+        restore_block(&e.contents, "#", None, e.appended_newline).unwrap(),
+        src
+    );
+
+    let again = set_block(Some(&e.contents), "#", "z\n").unwrap();
+    assert_eq!(
+        again.contents,
+        "a\r\nb\r\n# >>> irida >>>\r\nz\r\n# <<< irida <<<\r\n"
+    );
+    assert_eq!(
+        restore_block(&again.contents, "#", again.before.as_deref(), false).unwrap(),
+        e.contents
+    );
+}
+
+#[test]
+fn lf_files_stay_lf() {
+    let e = set_key(Some("a = 1\n"), "theme", "\"irida\"", &KeyOpts::default());
+    assert_eq!(e.contents, "a = 1\ntheme = \"irida\"\n");
+    let e = set_block(Some("a\n"), "#", "x\n").unwrap();
+    assert!(!e.contents.contains('\r'));
+}

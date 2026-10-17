@@ -128,23 +128,53 @@ fn with_newline(body: &str) -> String {
     }
 }
 
+/// The line ending of `text`'s first line: `"\r\n"` for a CRLF file, `"\n"`
+/// otherwise, also for a file with no line break yet.
+fn eol_of(text: &str) -> &'static str {
+    match text.find('\n') {
+        Some(i) if text[..i].ends_with('\r') => "\r\n",
+        _ => "\n",
+    }
+}
+
+/// `body` with every line ending in `eol`.
+fn with_eol(body: &str, eol: &str) -> String {
+    if eol == "\n" {
+        return body.to_string();
+    }
+    body.split_inclusive('\n')
+        .map(|l| match l.strip_suffix('\n') {
+            Some(l) => format!("{}{eol}", l.strip_suffix('\r').unwrap_or(l)),
+            None => l.to_string(),
+        })
+        .collect()
+}
+
+/// `text` without the one line ending at its end.
+fn pop_eol(text: &mut String) {
+    if text.pop() == Some('\n') && text.ends_with('\r') {
+        text.pop();
+    }
+}
+
 pub fn set_block(
     existing: Option<&str>,
     comment: &str,
     body: &str,
 ) -> Result<BlockEdit, BlockError> {
     let text = existing.unwrap_or("");
-    let body = with_newline(body);
+    let eol = eol_of(text);
+    let body = with_eol(&with_newline(body), eol);
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     match find_block(&lines, comment)? {
         None => {
             let mut contents = text.to_string();
             let appended_newline = !contents.is_empty() && !contents.ends_with('\n');
             if appended_newline {
-                contents.push('\n');
+                contents.push_str(eol);
             }
             contents.push_str(&format!(
-                "{}\n{body}{}\n",
+                "{}{eol}{body}{}{eol}",
                 begin_marker(comment),
                 end_marker(comment)
             ));
@@ -206,7 +236,7 @@ pub fn restore_block(
         None => {
             let mut head = lines[..b].concat();
             if appended_newline && after.is_empty() && head.ends_with('\n') {
-                head.pop();
+                pop_eol(&mut head);
             }
             Ok(head + &after)
         }
@@ -268,6 +298,9 @@ fn is_key_line(line: &str, key: &str, separator: &str) -> bool {
 }
 
 fn strip_eol(line: &str) -> (&str, &str) {
+    if let Some(l) = line.strip_suffix("\r\n") {
+        return (l, "\r\n");
+    }
     match line.strip_suffix('\n') {
         Some(l) => (l, "\n"),
         None => (line, ""),
@@ -374,6 +407,7 @@ fn find_line(
 
 pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -> KeyEdit {
     let text = existing.unwrap_or("");
+    let eol = eol_of(text);
     let new_line = format!("{key}{}{value}", opts.separator);
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let (range, insert) = locate(&lines, &opts.scope);
@@ -391,9 +425,9 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
             }
         }
         let span = lines[i..=j].concat();
-        let (old, eol) = strip_eol(&span);
+        let (old, line_eol) = strip_eol(&span);
         let contents = format!(
-            "{}{new_line}{eol}{}",
+            "{}{new_line}{line_eol}{}",
             lines[..i].concat(),
             lines[j + 1..].concat()
         );
@@ -407,7 +441,11 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
     if let Insert::Before(i) = insert
         && i < lines.len()
     {
-        let contents = format!("{}{new_line}\n{}", lines[..i].concat(), lines[i..].concat());
+        let contents = format!(
+            "{}{new_line}{eol}{}",
+            lines[..i].concat(),
+            lines[i..].concat()
+        );
         return KeyEdit {
             contents,
             before: None,
@@ -418,16 +456,16 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
     let mut contents = text.to_string();
     let appended_newline = !contents.is_empty() && !contents.ends_with('\n');
     if appended_newline {
-        contents.push('\n');
+        contents.push_str(eol);
     }
     let created_section = if let Insert::NewSection(name) = &insert {
-        contents.push_str(&format!("[{name}]\n"));
+        contents.push_str(&format!("[{name}]{eol}"));
         true
     } else {
         false
     };
     contents.push_str(&new_line);
-    contents.push('\n');
+    contents.push_str(eol);
     KeyEdit {
         contents,
         before: None,
@@ -478,7 +516,7 @@ pub fn restore_key(
     }
     let mut out = kept.concat();
     if appended_newline && out.ends_with('\n') && lines[i + 1..].concat().is_empty() {
-        out.pop();
+        pop_eol(&mut out);
     }
     out
 }
