@@ -61,7 +61,7 @@ pub fn view<'a>(state: &'a State, p: &'a Palette) -> Element<'a, Msg> {
             group = Some(g);
             col = col.push(widget::container(text::heading(group_label(g))).padding([12, 0, 4, 0]));
         }
-        let open = state.expanded == Some(row.role);
+        let open = state.selected == Some(row.role);
         col = col.push(row_header(&row, open));
         if open {
             col = col.push(details(state, p, &row));
@@ -82,7 +82,7 @@ fn row_header(row: &RoleRow, open: bool) -> Element<'static, Msg> {
     } else {
         line = line.push(widget::Space::new().width(Length::Fixed(64.)));
     }
-    let msg = Msg::Expand((!open).then_some(row.role));
+    let msg = Msg::Select(row.role);
     button::custom(line)
         .padding([6, 8])
         .width(Length::Fill)

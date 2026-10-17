@@ -267,6 +267,15 @@ pub enum Screen {
     Wallpaper(WallpaperDraft),
 }
 
+/// Which half of the editor shows: the role list beside the selected
+/// role's editor, or the preview.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Workspace {
+    Palette,
+    #[default]
+    Preview,
+}
+
 /// New from wallpaper: the image, the colours found in it, and the draft
 /// for the chosen mode. `cancel` is set when the palette menu opened it.
 #[derive(Debug, Clone, PartialEq)]
@@ -672,7 +681,7 @@ pub const HEX_ERROR: &str = "Use six hex digits, like #E8713A";
 /// it edits (while typing, or after invalid input).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Field {
-    /// The expanded role's hex field.
+    /// The selected role's hex field.
     Hex(Role),
     /// A pinned slot's hex field.
     PinHex(Slot),
@@ -837,9 +846,10 @@ pub enum Msg {
     // Editing.
     SetRole(Role, Rgb),
     SetMode(Mode),
-    /// Open one role's row in place, or close it.
-    Expand(Option<Role>),
-    /// The expanded row's colour picker.
+    /// Select a role and show it in the Palette workspace.
+    Select(Role),
+    Workspace(Workspace),
+    /// The selected role's colour picker.
     Picker(ColorPickerUpdate),
     HexInput(Role, String),
     SetName(Role, String),
@@ -1141,9 +1151,10 @@ pub struct State {
     /// Every toast shown, newest last.
     pub toasts: Vec<ToastItem>,
     pub menu_open: bool,
-    /// The role whose row is open in place.
-    pub expanded: Option<Role>,
-    /// The expanded row's colour picker, rebuilt on `Expand`.
+    pub workspace: Workspace,
+    /// The role in the editor panel; `None` only when nothing editable is open.
+    pub selected: Option<Role>,
+    /// The selected role's colour picker, rebuilt on `Select`.
     pub picker: ColorPickerModel,
     /// Hex fields whose text differs from their colour.
     pub fields: BTreeMap<Field, FieldEdit>,
@@ -1197,7 +1208,8 @@ impl State {
             first_run: false,
             toasts: Vec::new(),
             menu_open: false,
-            expanded: None,
+            workspace: Workspace::default(),
+            selected: None,
             picker: picker_for(Rgb { r: 0, g: 0, b: 0 }),
             fields: BTreeMap::new(),
             after_save: None,
@@ -1262,9 +1274,21 @@ impl State {
         self.fields.insert(field, FieldEdit { text, error });
     }
 
-    /// Close the role editor and any split, for a newly opened palette.
+    /// Select `role` of the editable palette, with the picker on its colour
+    /// and its hex edit dropped. False when nothing editable is open.
+    fn select(&mut self, role: Role) -> bool {
+        let Some(working) = self.current.as_ref().and_then(Current::working) else {
+            return false;
+        };
+        self.picker = picker_for(working.roles.get(role));
+        self.fields.remove(&Field::Hex(role));
+        self.selected = Some(role);
+        true
+    }
+
+    /// Clear the role editor and any split, for a newly opened palette.
     fn reset_editor(&mut self) {
-        self.expanded = None;
+        self.selected = None;
         self.fields.clear();
         self.split = Split::Off;
         self.versions.clear();
@@ -1608,6 +1632,7 @@ impl State {
             saved: Some(p.clone()),
             working: p,
         });
+        self.select(Role::ALL[0]);
         let mut effects = vec![Effect::LoadVersions(slug.clone())];
         if leaving_wallpaper {
             effects.extend(self.pass_first_run());
@@ -1731,6 +1756,8 @@ impl State {
                     saved: None,
                     working: p,
                 });
+                self.select(Role::ALL[0]);
+                self.workspace = Workspace::Palette;
                 self.retain_images();
                 self.pass_first_run()
             }
@@ -1744,8 +1771,8 @@ impl State {
                 }) = &mut self.current
                 {
                     *working = saved.clone();
-                    self.expanded = None;
                     self.fields.clear();
+                    self.select(Role::ALL[0]);
                 }
                 vec![Effect::SaveImport {
                     palette: *palette,
@@ -2120,6 +2147,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                             saved: Some(p.clone()),
                             working: p.clone(),
                         });
+                        state.select(Role::ALL[0]);
                         state.retain_images();
                         state.first_run = false;
                         effects.push(Effect::LoadApplySheet {
@@ -2200,19 +2228,18 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             }
             None => Vec::new(),
         },
-        Msg::Expand(role) => {
-            let Some(working) = state.current.as_ref().and_then(Current::working) else {
-                return Vec::new();
-            };
-            if let Some(r) = role {
-                state.picker = picker_for(working.roles.get(r));
-                state.fields.remove(&Field::Hex(r));
+        Msg::Select(role) => {
+            if state.select(role) {
+                state.workspace = Workspace::Palette;
             }
-            state.expanded = role;
+            Vec::new()
+        }
+        Msg::Workspace(w) => {
+            state.workspace = w;
             Vec::new()
         }
         Msg::Picker(u) => {
-            let Some(role) = state.expanded.filter(|_| state.editable()) else {
+            let Some(role) = state.selected.filter(|_| state.editable()) else {
                 return Vec::new();
             };
             // The model's own task only writes the clipboard on Copied,
@@ -2253,7 +2280,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     if let Some(working) = state.working_mut() {
                         working.roles.set(role, c);
                     }
-                    if state.expanded == Some(role) {
+                    if state.selected == Some(role) {
                         state.picker = picker_for(c);
                     }
                     state.set_field(Field::Hex(role), text, None);
@@ -2946,6 +2973,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 }
                 let effect = Effect::LoadPair(working.clone());
                 state.split = Split::Pair;
+                state.workspace = Workspace::Preview;
                 state.pair_palette = None;
                 return vec![effect];
             }
@@ -3083,6 +3111,7 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             } else {
                 state.split = Split::Saved(VersionRef::Latest);
                 state.pair_palette = None;
+                state.workspace = Workspace::Preview;
             }
             Vec::new()
         }
@@ -3860,7 +3889,7 @@ mod tests {
         assert!(state.dialog.is_none());
         let bright_red = Slot::Ansi(Tone::Bright, Ansi::Red);
         for msg in [
-            Msg::Expand(Some(Role::Accent)),
+            Msg::Select(Role::Accent),
             Msg::Picker(ColorPickerUpdate::ActionFinished),
             Msg::HexInput(Role::Accent, "#00FF00".to_string()),
             Msg::HexInput(Role::Accent, "nope".to_string()),
@@ -3873,7 +3902,7 @@ mod tests {
         ] {
             assert!(update(&mut state, msg.clone()).is_empty(), "{msg:?}");
         }
-        assert_eq!(state.expanded, None);
+        assert_eq!(state.selected, None);
         assert!(state.fields.is_empty());
         assert_eq!(snapshot(&tmp), before);
 
@@ -4310,8 +4339,8 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         store_with(&tmp, &["ember"]);
         let mut state = start(&tmp);
-        drive(&mut state, Msg::Expand(Some(Role::Accent)));
-        assert_eq!(state.expanded, Some(Role::Accent));
+        drive(&mut state, Msg::Select(Role::Accent));
+        assert_eq!(state.selected, Some(Role::Accent));
         let want = hex("#E8713A");
         for input in ["e8713a", "#E8713A", "E8713A", "#e8713A"] {
             drive(&mut state, Msg::SetRole(Role::Accent, red()));
@@ -4348,13 +4377,10 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         store_with(&tmp, &["ember"]);
         let mut state = start(&tmp);
-        // Nothing expanded: the picker changes nothing.
-        assert!(drive(&mut state, Msg::Picker(ColorPickerUpdate::ActionFinished)).is_empty());
-        assert!(!state.dirty());
 
-        drive(&mut state, Msg::Expand(Some(Role::Blue)));
+        drive(&mut state, Msg::Select(Role::Blue));
         let blue = working(&state).roles.get(Role::Blue);
-        assert_eq!(picker_rgb(&state), Some(blue), "rebuilt on Expand");
+        assert_eq!(picker_rgb(&state), Some(blue), "rebuilt on Select");
 
         // A drag shows at once; its end keeps it.
         let green = Hsv::from_color(Srgb::new(0.0_f32, 1.0, 0.0));
@@ -4388,30 +4414,157 @@ mod tests {
         );
         assert!(!Effect::Copy(String::new()).is_io());
 
-        // Expanding another row rebuilds the picker on its colour.
-        drive(&mut state, Msg::Expand(Some(Role::Cyan)));
+        // Selecting another role rebuilds the picker on its colour.
+        drive(&mut state, Msg::Select(Role::Cyan));
         let cyan = working(&state).roles.get(Role::Cyan);
         assert_eq!(picker_rgb(&state), Some(cyan));
-        drive(&mut state, Msg::Expand(None));
-        assert_eq!(state.expanded, None);
+    }
+
+    #[test]
+    fn opens_on_preview_with_the_first_role_selected() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let state = start(&tmp);
+        assert_eq!(state.workspace, Workspace::Preview);
+        assert_eq!(state.selected, Some(Role::Background));
+        assert_eq!(
+            picker_rgb(&state),
+            Some(working(&state).roles.get(Role::Background))
+        );
+    }
+
+    #[test]
+    fn selecting_a_role_opens_the_palette_workspace() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::Select(Role::Accent));
+        assert_eq!(state.workspace, Workspace::Palette);
+        assert_eq!(state.selected, Some(Role::Accent));
+        assert_eq!(
+            picker_rgb(&state),
+            Some(working(&state).roles.get(Role::Accent))
+        );
+    }
+
+    #[test]
+    fn picker_follows_selection_across_workspaces() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        let background = working(&state).roles.get(Role::Background);
+        drive(&mut state, Msg::Select(Role::Cyan));
+        drive(&mut state, Msg::Workspace(Workspace::Preview));
+        assert_eq!(state.workspace, Workspace::Preview);
+        drive(&mut state, Msg::Workspace(Workspace::Palette));
+        let green = Hsv::from_color(Srgb::new(0.0_f32, 1.0, 0.0));
         drive(
             &mut state,
             Msg::Picker(ColorPickerUpdate::ActiveColor(green)),
         );
-        assert_eq!(working(&state).roles.get(Role::Cyan), cyan);
+        assert_eq!(working(&state).roles.get(Role::Cyan), hex("#00FF00"));
+        assert_eq!(working(&state).roles.get(Role::Background), background);
     }
 
     #[test]
-    fn opening_another_palette_collapses() {
+    fn selecting_clears_that_roles_hex_edit() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::Select(Role::Accent));
+        drive(&mut state, Msg::HexInput(Role::Accent, "#12".to_string()));
+        drive(&mut state, Msg::Select(Role::Blue));
+        drive(&mut state, Msg::Select(Role::Accent));
+        assert!(state.field(Field::Hex(Role::Accent)).is_none());
+    }
+
+    #[test]
+    fn compare_switches_to_preview() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let mut state = start(&tmp);
+        new_named(&mut state, "Moss", Mode::Dark);
+        drive(&mut state, Msg::Save);
+        drive(&mut state, Msg::Select(Role::Accent));
+        drive(&mut state, Msg::Compare);
+        assert!(matches!(state.split, Split::Saved(_)));
+        assert_eq!(state.workspace, Workspace::Preview);
+        // Turning the split off leaves the workspace alone.
+        drive(&mut state, Msg::Workspace(Workspace::Palette));
+        drive(&mut state, Msg::Compare);
+        assert_eq!(state.split, Split::Off);
+        assert_eq!(state.workspace, Workspace::Palette);
+    }
+
+    #[test]
+    fn pair_switches_to_preview() {
+        let tmp = TempDir::new().unwrap();
+        let store = store_with(&tmp, &["ember", "emberday"]);
+        store
+            .save_settings(&Settings {
+                last_palette: Some("ember".to_string()),
+                ..Settings::default()
+            })
+            .unwrap();
+        let mut state = start(&tmp);
+        drive(&mut state, Msg::Select(Role::Accent));
+        drive(&mut state, Msg::PairChip);
+        assert_eq!(state.split, Split::Pair);
+        assert_eq!(state.workspace, Workspace::Preview);
+        drive(&mut state, Msg::Workspace(Workspace::Palette));
+        drive(&mut state, Msg::PairChip);
+        assert_eq!(state.split, Split::Off);
+        assert_eq!(state.workspace, Workspace::Palette);
+    }
+
+    #[test]
+    fn switch_hidden_off_editor() {
+        let tmp = TempDir::new().unwrap();
+        store_with(&tmp, &["ember"]);
+        let state = start(&tmp);
+        assert_eq!(crate::app::header::start(&state).len(), 2);
+
+        let tmp = TempDir::new().unwrap();
+        let (state, _) = two_tone_dialog(&tmp);
+        assert!(matches!(state.screen, Screen::Wallpaper(_)));
+        assert_eq!(crate::app::header::start(&state).len(), 1);
+
+        let tmp = TempDir::new().unwrap();
+        fs::create_dir_all(palettes_dir(&tmp).join("broken")).unwrap();
+        fs::write(
+            palettes_dir(&tmp).join("broken/palette.toml"),
+            "name = \"Broken\"\nslug = \"broken\"\nmode = \"dusk\"\n",
+        )
+        .unwrap();
+        let state = start(&tmp);
+        assert!(matches!(state.current, Some(Current::Unreadable { .. })));
+        assert_eq!(crate::app::header::start(&state).len(), 1);
+    }
+
+    #[test]
+    fn edit_roles_opens_on_palette() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        drive(&mut state, Msg::EditRoles);
+        assert_eq!(state.workspace, Workspace::Palette);
+        assert_eq!(state.selected, Some(Role::Background));
+        assert_eq!(
+            picker_rgb(&state),
+            Some(working(&state).roles.get(Role::Background))
+        );
+    }
+
+    #[test]
+    fn opening_another_palette_selects_its_first_role() {
         let tmp = TempDir::new().unwrap();
         store_with(&tmp, &["ember", "noir"]);
         let mut state = start(&tmp);
-        drive(&mut state, Msg::Expand(Some(Role::Accent)));
+        drive(&mut state, Msg::Select(Role::Accent));
         drive(&mut state, Msg::HexInput(Role::Accent, "#12".to_string()));
         drive(&mut state, Msg::ShowSwitch);
         drive(&mut state, Msg::Choose("noir".to_string()));
         assert_eq!(open_slug(&state), Some("noir"));
-        assert_eq!(state.expanded, None);
+        assert_eq!(state.selected, Some(Role::Background));
         assert!(state.fields.is_empty());
     }
 
@@ -6234,7 +6387,7 @@ mod tests {
     fn picker_release_applies_now() {
         let tmp = TempDir::new().unwrap();
         let (mut state, config) = live_on(&tmp);
-        drive(&mut state, Msg::Expand(Some(Role::Accent)));
+        drive(&mut state, Msg::Select(Role::Accent));
         let green = Hsv::from_color(Srgb::new(0.0_f32, 1.0, 0.0));
         let effects = update(
             &mut state,

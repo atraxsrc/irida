@@ -7,11 +7,13 @@ use cosmic::widget::{self, button, popover, text};
 use irida_core::palette::Mode;
 
 use super::state::{
-    Dialog, ExportSummary, HeaderItem, Leave, LiveThen, MenuItem, Msg, NameFor, Split, State,
+    Current, Dialog, ExportSummary, HeaderItem, Leave, LiveThen, MenuItem, Msg, NameFor, Screen,
+    Split, State, Workspace,
 };
 use super::{apply_sheet, compare};
 
-/// The palette name with its menu.
+/// The palette name with its menu, then the Palette | Preview switch while
+/// an editable palette is open in the editor.
 pub fn start(state: &State) -> Vec<Element<'_, Msg>> {
     let name = button::text(state.title())
         .trailing_icon(widget::icon::from_name("pan-down-symbolic"))
@@ -22,7 +24,28 @@ pub fn start(state: &State) -> Vec<Element<'_, Msg>> {
     if state.menu_open {
         menu = menu.popup(menu_items(state));
     }
-    vec![menu.into()]
+    let mut items = vec![menu.into()];
+    if state.screen == Screen::Editor && matches!(state.current, Some(Current::Editable { .. })) {
+        items.push(workspaces(state.workspace));
+    }
+    items
+}
+
+/// Two buttons, the active workspace's one suggested.
+fn workspaces(on: Workspace) -> Element<'static, Msg> {
+    let tab = |label: &'static str, w: Workspace| -> Element<'static, Msg> {
+        let b = if on == w {
+            button::suggested(label)
+        } else {
+            button::standard(label)
+        };
+        b.on_press(Msg::Workspace(w)).into()
+    };
+    widget::Row::new()
+        .spacing(4)
+        .push(tab("Palette", Workspace::Palette))
+        .push(tab("Preview", Workspace::Preview))
+        .into()
 }
 
 fn menu_items(state: &State) -> Element<'_, Msg> {
