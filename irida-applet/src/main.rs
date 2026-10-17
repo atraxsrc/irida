@@ -5,5 +5,7 @@
 mod copy;
 #[allow(dead_code)]
 mod menu;
+#[allow(dead_code)]
+mod panel;
 
 fn main() {}

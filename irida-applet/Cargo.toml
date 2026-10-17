@@ -11,6 +11,7 @@ repository = "https://github.com/atraxsrc/irida"
 [dependencies]
 irida-core = { path = "../irida-core" }
 cosmic-config.workspace = true
+serde.workspace = true
 libcosmic = { git = "https://github.com/pop-os/libcosmic", rev = "e1f2cd2e52226aa50d59bb2cd6d43ffe290106ed", default-features = false, features = ["applet-token", "tokio"] }
 tokio = { version = "1", features = ["rt"] }
 
