@@ -2,6 +2,7 @@
 //! `state::update`, and runs the effects it returns.
 
 mod apply_sheet;
+mod caption;
 mod compare;
 mod effects;
 mod header;
