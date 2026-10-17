@@ -56,10 +56,12 @@ ones in [`irida-core/targets`](irida-core/targets) are the examples.
 
 ## Install
 
-Build the .deb (see [Build](#build)) and install it:
+Download `irida_0.1.0-1_amd64.deb` from the
+[latest release](https://github.com/atraxsrc/irida/releases/latest) and install
+it:
 
 ```sh
-sudo apt install ./target/debian/irida_0.1.0-1_amd64.deb
+sudo apt install ./irida_0.1.0-1_amd64.deb
 ```
 
 Irida then shows in the launcher. The window needs a graphical session; the
