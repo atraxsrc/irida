@@ -185,7 +185,7 @@ pub enum LiveThen {
     /// Open the Apply sheet.
     Apply,
     /// Leave the open palette (open another, create, close).
-    Leave(Leave),
+    Leave(Box<Leave>),
 }
 
 /// How a live session ends.
@@ -1556,7 +1556,7 @@ impl State {
     /// unsaved changes, and Keep or Revert when Try it live is on.
     fn leave_now(&mut self, leave: Leave) -> Vec<Effect> {
         if self.live.is_some() {
-            return self.ask_live(LiveThen::Leave(leave));
+            return self.ask_live(LiveThen::Leave(Box::new(leave)));
         }
         if self.dirty() {
             self.dialog = Some(Dialog::Unsaved(leave));
@@ -1656,6 +1656,7 @@ impl State {
             mode,
             pair: None,
             notes: None,
+            image: None,
             roles,
             names: Default::default(),
             pins: Default::default(),
@@ -1828,7 +1829,7 @@ impl State {
             Some(LiveThen::Delete) => update(self, Msg::ShowDelete),
             Some(LiveThen::Apply) => update(self, Msg::ShowApply),
             // Asked before, so an answer waiting on a save still stands.
-            Some(LiveThen::Leave(leave)) => self.leave_now(leave),
+            Some(LiveThen::Leave(leave)) => self.leave_now(*leave),
         }
     }
 
@@ -5805,7 +5806,7 @@ mod tests {
         assert_eq!(
             state.dialog,
             Some(Dialog::KeepOrRevert {
-                then: Some(LiveThen::Leave(Leave::Exit)),
+                then: Some(LiveThen::Leave(Box::new(Leave::Exit))),
                 pending: true,
             })
         );
@@ -5852,7 +5853,7 @@ mod tests {
         assert_eq!(
             state.dialog,
             Some(Dialog::KeepOrRevert {
-                then: Some(LiveThen::Leave(Leave::Exit)),
+                then: Some(LiveThen::Leave(Box::new(Leave::Exit))),
                 pending: false,
             })
         );
@@ -5901,9 +5902,9 @@ mod tests {
         assert!(matches!(
             state.dialog,
             Some(Dialog::KeepOrRevert {
-                then: Some(LiveThen::Leave(Leave::Create(_))),
+                then: Some(LiveThen::Leave(ref leave)),
                 ..
-            })
+            }) if matches!(leave.as_ref(), Leave::Create(_))
         ));
         drive(&mut state, Msg::LiveRevert);
         assert!(matches!(
@@ -5937,7 +5938,7 @@ mod tests {
         assert_eq!(
             state.dialog,
             Some(Dialog::KeepOrRevert {
-                then: Some(LiveThen::Leave(Leave::Exit)),
+                then: Some(LiveThen::Leave(Box::new(Leave::Exit))),
                 pending: false,
             })
         );
@@ -5971,9 +5972,9 @@ mod tests {
                 matches!(
                     &create,
                     Some(Dialog::KeepOrRevert {
-                        then: Some(LiveThen::Leave(Leave::Create(p))),
+                        then: Some(LiveThen::Leave(leave)),
                         pending: false,
-                    }) if p.slug == "moss"
+                    }) if matches!(leave.as_ref(), Leave::Create(p) if p.slug == "moss")
                 ),
                 "{create:?}"
             );

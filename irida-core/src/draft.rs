@@ -361,6 +361,7 @@ pub fn draft_palette(clusters: &[Cluster], mode: Mode, name: &str) -> Palette {
         mode,
         pair: None,
         notes: None,
+        image: None,
         roles: draft(clusters, mode).roles,
         names: BTreeMap::new(),
         pins: Pins::default(),

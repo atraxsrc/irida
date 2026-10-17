@@ -97,6 +97,8 @@ pub struct Palette {
     pub mode: Mode,
     pub pair: Option<String>,
     pub notes: Option<String>,
+    /// Absolute path of the image this palette was drafted from.
+    pub image: Option<String>,
     pub roles: Roles,
     pub names: BTreeMap<Role, String>,
     pub pins: Pins,
@@ -112,6 +114,8 @@ struct Raw {
     pair: Option<String>,
     #[serde(default)]
     notes: Option<String>,
+    #[serde(default)]
+    image: Option<String>,
     roles: BTreeMap<String, String>,
     #[serde(default)]
     names: BTreeMap<String, String>,
@@ -192,6 +196,7 @@ impl Palette {
             mode: raw.mode,
             pair: raw.pair,
             notes: raw.notes,
+            image: raw.image,
             roles: Roles(arr),
             names,
             pins,
@@ -236,6 +241,9 @@ impl Palette {
         }
         if let Some(notes) = &self.notes {
             out.push_str(&format!("notes = {}\n", quote(notes)));
+        }
+        if let Some(image) = &self.image {
+            out.push_str(&format!("image = {}\n", quote(image)));
         }
         out.push_str("\n[roles]\n");
         for role in Role::ALL {

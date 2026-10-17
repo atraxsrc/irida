@@ -177,6 +177,17 @@ fn validate_rules() {
 }
 
 #[test]
+fn image_round_trips_and_old_files_load() {
+    let mut p = palette("ember");
+    assert_eq!(p.image, None);
+    assert_eq!(Palette::from_toml(&p.to_toml()).unwrap().image, None);
+    p.image = Some("/wallpapers/two-tone.png".to_string());
+    let back = Palette::from_toml(&p.to_toml()).unwrap();
+    assert_eq!(back, p);
+    assert!(!p.to_toml().contains("[roles]\nimage"));
+}
+
+#[test]
 fn slug_from_name_cases() {
     assert_eq!(slug_from_name("Ember Day"), "emberday");
     assert_eq!(slug_from_name("Neon 80s"), "neons");

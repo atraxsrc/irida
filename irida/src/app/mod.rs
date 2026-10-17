@@ -38,7 +38,7 @@ const COSMIC_SYSTEM: &str = "/usr/share/cosmic";
 
 #[derive(Debug, Clone)]
 pub enum Message {
-    Ui(Msg),
+    Ui(Box<Msg>),
     /// The Msgs a batch of IO effects gave, in order. Sent only when a
     /// batch finishes, since it starts the next one.
     Results(Vec<Msg>),
@@ -89,7 +89,7 @@ impl App {
                 Effect::StartTimer(delay, generation) => {
                     tasks.push(cosmic::task::future(async move {
                         tokio::time::sleep(delay).await;
-                        Message::Ui(Msg::LiveTick(generation))
+                        Message::Ui(Box::new(Msg::LiveTick(generation)))
                     }));
                 }
                 Effect::Exit => exit = true,
@@ -129,7 +129,7 @@ impl App {
     fn toast(&mut self, item: ToastItem) -> Task<Message> {
         let mut toast = widget::Toast::new(item.text);
         if let Some((label, msg)) = item.action {
-            toast = toast.action(label, move |_| Message::Ui(msg.clone()));
+            toast = toast.action(label, move |_| Message::Ui(Box::new(msg.clone())));
         }
         self.toasts.push(toast).map(cosmic::Action::App)
     }
@@ -150,7 +150,7 @@ fn choose_folder(purpose: FolderFor) -> Task<Message> {
             Err(file_chooser::Error::Cancelled) => return Message::Nothing,
             Err(e) => Err(e.to_string()),
         };
-        Message::Ui(Msg::Folder(purpose, result))
+        Message::Ui(Box::new(Msg::Folder(purpose, result)))
     })
 }
 
@@ -180,7 +180,7 @@ fn choose_image() -> Task<Message> {
             Err(file_chooser::Error::Cancelled) => return Message::Nothing,
             Err(e) => Err(e.to_string()),
         };
-        Message::Ui(Msg::Image(result))
+        Message::Ui(Box::new(Msg::Image(result)))
     })
 }
 
@@ -199,10 +199,12 @@ fn events(event: Event, _status: event::Status, _window: window::Id) -> Option<M
                 key: keyboard::Key::Character("s".into()),
             };
             save.matches(modifiers, &key, Some(&physical_key))
-                .then_some(Message::Ui(Msg::Save))
+                .then_some(Message::Ui(Box::new(Msg::Save)))
         }
-        Event::Window(window::Event::CloseRequested) => Some(Message::Ui(Msg::CloseRequested)),
-        Event::Window(window::Event::Focused) => Some(Message::Ui(Msg::Focused)),
+        Event::Window(window::Event::CloseRequested) => {
+            Some(Message::Ui(Box::new(Msg::CloseRequested)))
+        }
+        Event::Window(window::Event::Focused) => Some(Message::Ui(Box::new(Msg::Focused))),
         _ => None,
     }
 }
@@ -240,24 +242,24 @@ impl Application for App {
     fn header_start(&self) -> Vec<Element<'_, Message>> {
         header::start(&self.state)
             .into_iter()
-            .map(|e| e.map(Message::Ui))
+            .map(|e| e.map(|m| Message::Ui(Box::new(m))))
             .collect()
     }
 
     fn header_end(&self) -> Vec<Element<'_, Message>> {
         header::end(&self.state)
             .into_iter()
-            .map(|e| e.map(Message::Ui))
+            .map(|e| e.map(|m| Message::Ui(Box::new(m))))
             .collect()
     }
 
     fn dialog(&self) -> Option<Element<'_, Message>> {
-        header::dialog(&self.state).map(|e| e.map(Message::Ui))
+        header::dialog(&self.state).map(|e| e.map(|m| Message::Ui(Box::new(m))))
     }
 
     /// The header's close button asks first when there are unsaved changes.
     fn on_app_exit(&mut self) -> Option<Message> {
-        Some(Message::Ui(Msg::CloseRequested))
+        Some(Message::Ui(Box::new(Msg::CloseRequested)))
     }
 
     fn on_escape(&mut self) -> Task<Message> {
@@ -270,7 +272,7 @@ impl Application for App {
 
     fn update(&mut self, message: Message) -> Task<Message> {
         match message {
-            Message::Ui(msg) => self.handle(msg),
+            Message::Ui(msg) => self.handle(*msg),
             Message::Results(msgs) => {
                 // What was queued while this batch ran starts first; what
                 // these Msgs ask for queues behind it.
@@ -295,7 +297,7 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let content = widget::container(content(&self.state).map(Message::Ui))
+        let content = widget::container(content(&self.state).map(|m| Message::Ui(Box::new(m))))
             .padding(16)
             .width(Length::Fill)
             .height(Length::Fill);

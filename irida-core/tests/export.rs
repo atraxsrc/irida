@@ -112,6 +112,44 @@ fn rice_files(slug: &str, stem: &str, mode: &str) -> Vec<String> {
 }
 
 #[test]
+fn export_drops_image_path() {
+    let env = TestEnv::new();
+    let parent = env.tmp.path().join("out");
+    fs::create_dir_all(&parent).unwrap();
+    let mut p = palette("ember");
+    p.image = Some("/wallpapers/irida-local-only.png".to_string());
+    let report = run(&env, &p, &parent).unwrap();
+    let mut leaked = Vec::new();
+    for entry in walkdir_files(&report.repo) {
+        let text = fs::read(&entry).unwrap();
+        if text
+            .windows(b"irida-local-only.png".len())
+            .any(|w| w == b"irida-local-only.png")
+        {
+            leaked.push(entry);
+        }
+    }
+    assert!(leaked.is_empty(), "{leaked:?}");
+}
+
+fn walkdir_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for entry in fs::read_dir(&d).unwrap() {
+            let entry = entry.unwrap();
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+            } else {
+                out.push(path);
+            }
+        }
+    }
+    out
+}
+
+#[test]
 fn ember_repo_matches() {
     for (slug, stem, m) in [
         ("ember", "Ember", "dark"),

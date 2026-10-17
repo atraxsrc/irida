@@ -592,6 +592,7 @@ pub fn import_rice_with_notes(dir: &Path) -> Result<(Palette, Vec<String>), Impo
         mode,
         pair: None,
         notes: None,
+        image: None,
         roles,
         names,
         pins: Pins::default(),
