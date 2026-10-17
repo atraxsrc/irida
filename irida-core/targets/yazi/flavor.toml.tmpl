@@ -1,0 +1,93 @@
+# {{ name }} ({{ mode }}) for yazi, written by Irida.
+{%- set bg = term.background or pane %}
+
+[mgr]
+cwd = { fg = "{{ cyan }}" }
+find_keyword = { fg = "{{ warning }}", bold = true, italic = true, underline = true }
+find_position = { fg = "{{ magenta }}", bg = "reset", bold = true, italic = true }
+marker_copied = { fg = "{{ success }}", bg = "{{ success }}" }
+marker_cut = { fg = "{{ error }}", bg = "{{ error }}" }
+marker_marked = { fg = "{{ cyan }}", bg = "{{ cyan }}" }
+marker_selected = { fg = "{{ accent }}", bg = "{{ accent }}" }
+count_copied = { fg = "{{ bg }}", bg = "{{ success }}" }
+count_cut = { fg = "{{ bg }}", bg = "{{ error }}" }
+count_selected = { fg = "{{ bg }}", bg = "{{ accent }}" }
+border_symbol = "│"
+border_style = { fg = "{{ container }}" }
+
+[tabs]
+active = { fg = "{{ bg }}", bg = "{{ accent }}", bold = true }
+inactive = { fg = "{{ accent }}", bg = "{{ container }}" }
+
+[mode]
+normal_main = { fg = "{{ bg }}", bg = "{{ accent }}", bold = true }
+normal_alt = { fg = "{{ accent }}", bg = "{{ container }}" }
+select_main = { fg = "{{ bg }}", bg = "{{ cyan }}", bold = true }
+select_alt = { fg = "{{ cyan }}", bg = "{{ container }}" }
+unset_main = { fg = "{{ bg }}", bg = "{{ magenta }}", bold = true }
+unset_alt = { fg = "{{ magenta }}", bg = "{{ container }}" }
+
+[status]
+perm_sep = { fg = "{{ muted }}" }
+perm_type = { fg = "{{ blue }}" }
+perm_read = { fg = "{{ warning }}" }
+perm_write = { fg = "{{ error }}" }
+perm_exec = { fg = "{{ success }}" }
+progress_label = { fg = "{{ text }}", bold = true }
+progress_normal = { fg = "{{ accent }}", bg = "{{ container }}" }
+progress_error = { fg = "{{ error }}", bg = "{{ container }}" }
+
+[pick]
+border = { fg = "{{ accent }}" }
+active = { fg = "{{ magenta }}", bold = true }
+inactive = {}
+
+[input]
+border = { fg = "{{ accent }}" }
+title = {}
+value = {}
+selected = { reversed = true }
+
+[cmp]
+border = { fg = "{{ accent }}" }
+
+[tasks]
+border = { fg = "{{ accent }}" }
+title = {}
+hovered = { fg = "{{ magenta }}", bold = true }
+
+[which]
+border = { fg = "{{ accent }}" }
+cand = { fg = "{{ cyan }}" }
+rest = { fg = "{{ muted }}" }
+desc = { fg = "{{ magenta }}" }
+separator = "  "
+separator_style = { fg = "{{ container }}" }
+
+[help]
+on = { fg = "{{ cyan }}" }
+run = { fg = "{{ magenta }}" }
+hovered = { reversed = true, bold = true }
+footer = { fg = "{{ bg }}", bg = "{{ text }}" }
+
+[spot]
+border = { fg = "{{ accent }}" }
+title = { fg = "{{ accent }}" }
+tbl_col = { fg = "{{ cyan }}" }
+tbl_cell = { fg = "{{ magenta }}", bg = "{{ container }}" }
+
+[notify]
+title_info = { fg = "{{ success }}" }
+title_warn = { fg = "{{ warning }}" }
+title_error = { fg = "{{ error }}" }
+
+[filetype]
+rules = [
+    { mime = "**/image/*", fg = "{{ cyan }}" },
+    { mime = "**/{audio,video}/*", fg = "{{ warning }}" },
+    { mime = "**/application/{zip,rar,7z*,tar,gzip,xz,zstd,bzip*,lzma,compress,archive,cpio,arj,xar,ms-cab*}", fg = "{{ magenta }}" },
+    { mime = "**/application/{pdf,doc,rtf}", fg = "{{ success }}" },
+    { mime = "vfs/{absent,stale}", fg = "{{ muted }}" },
+    { url = "*", fg = "{{ text }}" },
+    { url = "*/", fg = "{{ blue }}" },
+]

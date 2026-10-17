@@ -1,0 +1,54 @@
+# Checked against yazi-rs.github.io/docs/flavors/overview, yazi's
+# yazi-config/src/theme/flavor.rs and CHANGELOG on 2026-10-18: a flavor is
+# ~/.config/yazi/flavors/<name>.yazi/; yazi reads its flavor.toml (merged
+# under the user's theme.toml) and tmtheme.xml (code preview highlighting);
+# the other files the docs list are for publishing. theme.toml picks a flavor
+# per terminal background with `dark` and `light` under [flavor], from 0.4.0,
+# which replaced the older `use` key (no longer read).
+name = "yazi"
+display = "yazi"
+detect = { binary = "yazi", config = "~/.config/yazi" }
+
+[[file]]
+path = "~/.config/yazi/flavors/irida.yazi/flavor.toml"
+write = "file"
+template = "flavor.toml.tmpl"
+
+[[file]]
+path = "~/.config/yazi/flavors/irida.yazi/tmtheme.xml"
+write = "file"
+template = "tmtheme.xml.tmpl"
+
+# One flavor for both: Irida sets the terminal background, which is what
+# yazi picks by.
+[[file]]
+path = "~/.config/yazi/theme.toml"
+write = "key"
+key = "dark"
+section = "flavor"
+note_replaced = true
+template = "selector.tmpl"
+
+[[file]]
+path = "~/.config/yazi/theme.toml"
+write = "key"
+key = "light"
+section = "flavor"
+note_replaced = true
+template = "selector.tmpl"
+
+[reload]
+hint = "restart yazi"
+
+[[rice]]
+path = "yazi/{{ slug }}.yazi/flavor.toml"
+template = "flavor.toml.tmpl"
+
+[[rice]]
+path = "yazi/{{ slug }}.yazi/tmtheme.xml"
+template = "tmtheme.xml.tmpl"
+
+[[rice]]
+path = "yazi/install.sh"
+template = "install.sh.tmpl"
+executable = true

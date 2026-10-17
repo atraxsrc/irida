@@ -1,0 +1,72 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!-- {{ name }} ({{ mode }}) for yazi, written by Irida. -->
+{%- set bg = term.background or pane %}
+{%- set scopes = [
+  ["Comment", "comment", comment, "italic"],
+  ["String", "string", warning, ""],
+  ["Number", "constant.numeric", cyan, ""],
+  ["Language constant", "constant.language", cyan, ""],
+  ["Escape", "constant.character.escape", accent, ""],
+  ["Keyword", "keyword", magenta, ""],
+  ["Storage", "storage", magenta, ""],
+  ["Storage type", "storage.type", cyan, ""],
+  ["Function name", "entity.name.function", blue, ""],
+  ["Type name", "entity.name.type", cyan, ""],
+  ["Tag", "entity.name.tag", blue, ""],
+  ["Attribute", "entity.other.attribute-name", success, ""],
+  ["Variable", "variable", text, ""],
+  ["Parameter", "variable.parameter", text, ""],
+  ["Support function", "support.function", blue, ""],
+  ["Support type", "support.type", cyan, ""],
+  ["Invalid", "invalid", error, "bold"],
+  ["Heading", "markup.heading", accent, "bold"],
+  ["Inserted", "markup.inserted", success, ""],
+  ["Deleted", "markup.deleted", error, ""],
+  ["Changed", "markup.changed", warning, ""],
+  ["Bold", "markup.bold", text, "bold"],
+  ["Italic", "markup.italic", text, "italic"],
+  ["Raw", "markup.raw", muted, ""],
+  ["Diff header", "meta.diff.header", blue, "bold"],
+] %}
+<plist version="1.0">
+<dict>
+	<key>name</key>
+	<string>{{ name }}</string>
+	<key>settings</key>
+	<array>
+		<dict>
+			<key>settings</key>
+			<dict>
+				<key>background</key>
+				<string>{{ bg }}</string>
+				<key>foreground</key>
+				<string>{{ text }}</string>
+				<key>caret</key>
+				<string>{{ term.cursor }}</string>
+				<key>lineHighlight</key>
+				<string>{{ container }}</string>
+				<key>selection</key>
+				<string>{{ mix(bg, "accent", 0.35) }}</string>
+			</dict>
+		</dict>
+{%- for s in scopes %}
+		<dict>
+			<key>name</key>
+			<string>{{ s[0] }}</string>
+			<key>scope</key>
+			<string>{{ s[1] }}</string>
+			<key>settings</key>
+			<dict>
+				<key>foreground</key>
+				<string>{{ s[2] }}</string>
+{%- if s[3] %}
+				<key>fontStyle</key>
+				<string>{{ s[3] }}</string>
+{%- endif %}
+			</dict>
+		</dict>
+{%- endfor %}
+	</array>
+</dict>
+</plist>
