@@ -1,0 +1,38 @@
+# Checked against sw.kovidgoyal.net/kitty/conf/ and the kitty changelog on
+# 2026-10-17: `include other.conf` is a bare relative path resolved against
+# the config folder and may repeat; colours are bare `#RRGGBB`; later lines
+# win, so a user override goes after the include; ctrl+shift+f5 reloads the
+# config since 0.21.0 and SIGUSR1 is documented on the conf page (present by
+# 0.24.0, the earliest changelog evidence).
+name = "kitty"
+display = "kitty"
+detect = { binary = "kitty", config = "~/.config/kitty" }
+
+[[file]]
+path = "~/.config/kitty/irida.conf"
+write = "file"
+template = "irida.conf.tmpl"
+
+# `include` may repeat: a user who ran `kitten themes` keeps their
+# `include current-theme.conf`, and Irida's line is added after it, so it wins.
+[[file]]
+path = "~/.config/kitty/kitty.conf"
+write = "key"
+key = "include"
+separator = " "
+repeatable = true
+template = "include.tmpl"
+
+[reload]
+signal = { process = "kitty", signal = "USR1" }
+min_version = { command = "kitty --version", version = "0.24.0" }
+hint = "press ctrl+shift+f5 in kitty to reload its config"
+
+[[rice]]
+path = "kitty/{{ slug }}.conf"
+template = "irida.conf.tmpl"
+
+[[rice]]
+path = "kitty/install.sh"
+template = "install.sh.tmpl"
+executable = true

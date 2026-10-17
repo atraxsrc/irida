@@ -1,0 +1,35 @@
+# {{ name }} ({{ mode }}) for kitty, written by Irida. Lines after the include
+# in kitty.conf override these.
+{%- set bg = term.background or pane %}
+{%- set select = mix(bg, "accent", 0.35) %}
+foreground {{ term.foreground }}
+background {{ bg }}
+cursor {{ term.cursor }}
+cursor_text_color {{ bg }}
+selection_foreground {{ term.foreground }}
+selection_background {{ select }}
+url_color {{ blue }}
+active_border_color {{ accent }}
+inactive_border_color {{ container }}
+bell_border_color {{ warning }}
+active_tab_foreground {{ bg }}
+active_tab_background {{ accent }}
+inactive_tab_foreground {{ muted }}
+inactive_tab_background {{ container }}
+tab_bar_background {{ background }}
+color0 {{ term.normal.black }}
+color1 {{ term.normal.red }}
+color2 {{ term.normal.green }}
+color3 {{ term.normal.yellow }}
+color4 {{ term.normal.blue }}
+color5 {{ term.normal.magenta }}
+color6 {{ term.normal.cyan }}
+color7 {{ term.normal.white }}
+color8 {{ term.bright.black }}
+color9 {{ term.bright.red }}
+color10 {{ term.bright.green }}
+color11 {{ term.bright.yellow }}
+color12 {{ term.bright.blue }}
+color13 {{ term.bright.magenta }}
+color14 {{ term.bright.cyan }}
+color15 {{ term.bright.white }}

@@ -57,6 +57,7 @@ result to your desktop, terminal, editor and tools in one step.
 | delta | `~/.config/delta/irida.gitconfig`, included from `~/.gitconfig` (created if your git config lives only under `~/.config/git`) | |
 | fish | `conf.d/irida.fish` | |
 | eza | `theme.yml` | |
+| kitty | `irida.conf`, included from `kitty.conf` | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in
