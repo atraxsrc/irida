@@ -9,7 +9,7 @@ use irida_core::palette::Mode;
 use super::state::{
     Dialog, ExportSummary, HeaderItem, Leave, LiveThen, MenuItem, Msg, NameFor, Split, State,
 };
-use super::{apply_sheet, compare, wallpaper};
+use super::{apply_sheet, compare};
 
 /// The palette name with its menu.
 pub fn start(state: &State) -> Vec<Element<'_, Msg>> {
@@ -184,7 +184,6 @@ pub fn dialog(state: &State) -> Option<Element<'_, Msg>> {
                 .tertiary_action(button::standard("Keep both").on_press(Msg::ImportKeepBoth))
         }
         Dialog::Exported(summary) => exported(summary),
-        Dialog::Wallpaper(d) => wallpaper::view(state, d),
         Dialog::PairWith { choices, confirm } => {
             compare::pair_dialog(state, choices, confirm.as_deref())
         }

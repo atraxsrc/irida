@@ -6,11 +6,14 @@ use cosmic::Element;
 use cosmic::iced::{Background, Border, Color, ContentFit, Length};
 use cosmic::widget::{self, button, text};
 use irida_core::color::Rgb;
-use irida_core::palette::Mode;
+use irida_core::palette::{Mode, Palette};
 use irida_core::role::Role;
 
+use super::caption;
+use super::preview;
 use super::roles::swatch;
-use super::state::{Msg, NO_WALLPAPER, State, WallpaperDialog};
+use super::scene;
+use super::state::{Msg, NO_WALLPAPER, State, WallpaperDraft};
 
 /// A cluster's colour, outlined in the theme's accent when the palette's
 /// accent came from it.
@@ -40,7 +43,7 @@ fn file_name(path: &std::path::Path) -> String {
 
 /// What the dialog says about the image: being found, being read, or
 /// missing.
-fn status(d: &WallpaperDialog) -> Option<String> {
+fn status(d: &WallpaperDraft) -> Option<String> {
     if let Some(path) = &d.reading {
         Some(format!("Reading {}", file_name(path)))
     } else if d.finding {
@@ -52,19 +55,19 @@ fn status(d: &WallpaperDialog) -> Option<String> {
     }
 }
 
-pub fn view<'a>(state: &'a State, d: &'a WallpaperDialog) -> widget::Dialog<'a, Msg> {
+pub fn view<'a>(state: &'a State, d: &'a WallpaperDraft) -> Element<'a, Msg> {
     let mut control = widget::Column::new().spacing(12);
 
     if let Some(path) = &d.image {
-        control = control.push(
-            widget::container(
-                widget::image(widget::image::Handle::from_path(path))
-                    .content_fit(ContentFit::Contain)
-                    .width(Length::Fill)
-                    .height(Length::Fixed(160.)),
-            )
-            .center_x(Length::Fill),
-        );
+        let photo = widget::image(widget::image::Handle::from_path(path))
+            .content_fit(ContentFit::Contain)
+            .width(Length::Fill)
+            .height(Length::Fixed(160.));
+        let name = text::caption(file_name(path));
+        control = control.push(cosmic::iced::widget::stack([
+            photo.into(),
+            widget::container(name).padding([8, 8]).into(),
+        ]));
     }
     if let Some(s) = status(d) {
         control = control.push(text::body(s));
@@ -75,7 +78,7 @@ pub fn view<'a>(state: &'a State, d: &'a WallpaperDialog) -> widget::Dialog<'a, 
     }
 
     let choose_label = if d.image.is_some() {
-        "Choose another image"
+        "Choose another…"
     } else {
         "Choose an image"
     };
@@ -94,11 +97,7 @@ pub fn view<'a>(state: &'a State, d: &'a WallpaperDialog) -> widget::Dialog<'a, 
             .fold(widget::Row::new().spacing(8), |row, (i, c)| {
                 row.push(cluster_swatch(c.rgb, d.accent_from == Some(i)))
             });
-        let caption = if d.accent_from.is_some() {
-            "Colours found. The outlined one gave the accent."
-        } else {
-            "Colours found. None is vivid, so the accent is Irida's own."
-        };
+        let caption = "Every role passes its contrast minimum.";
         let drafted = Role::ALL
             .into_iter()
             .fold(widget::Row::new().spacing(4), |row, role| {
@@ -127,7 +126,7 @@ pub fn view<'a>(state: &'a State, d: &'a WallpaperDialog) -> widget::Dialog<'a, 
 
         let mut input = widget::text_input("Name", d.name.as_str())
             .on_input(Msg::WallpaperName)
-            .on_submit(|_| Msg::WallpaperCreate);
+            .on_submit(|_| Msg::EditRoles);
         input = match state.name_check(&d.name) {
             Ok(slug) => input.helper_text(format!("Saved as {slug}")),
             Err(e) if !e.is_empty() => input.error(e),
@@ -136,12 +135,61 @@ pub fn view<'a>(state: &'a State, d: &'a WallpaperDialog) -> widget::Dialog<'a, 
         control = control.push(input);
     }
 
-    widget::dialog()
-        .title("New from wallpaper")
-        .control(control)
-        .primary_action(
-            button::suggested("Create")
-                .on_press_maybe(state.wallpaper_ready().then_some(Msg::WallpaperCreate)),
-        )
-        .secondary_action(button::standard("Cancel").on_press(Msg::CloseDialog))
+    let apply = button::suggested("Apply")
+        .on_press_maybe(state.wallpaper_ready().then_some(Msg::WallpaperApply));
+    let edit = button::standard("Edit roles")
+        .on_press_maybe(state.wallpaper_ready().then_some(Msg::EditRoles));
+    let mut buttons = widget::Row::new().spacing(8).push(apply).push(edit);
+    if d.cancel {
+        buttons = buttons.push(button::standard("Cancel").on_press(Msg::CloseWallpaper));
+    }
+    buttons = buttons.push(widget::Space::new().width(Length::Fill));
+    buttons = buttons.push(text::caption("Undo puts every file back."));
+    control = control.push(buttons);
+
+    let left = widget::Column::new()
+        .spacing(12)
+        .push(text::heading("Your wallpaper, your palette."))
+        .push(text::body(
+            "Irida reads your wallpaper and builds a palette. Apply writes it into the apps on the right.",
+        ))
+        .push(control);
+
+    let right: Element<'a, Msg> = match &d.roles {
+        Some(roles) => {
+            let mut preview_palette = Palette {
+                name: "Wallpaper".to_string(),
+                slug: "wallpaper".to_string(),
+                mode: d.mode,
+                pair: None,
+                notes: None,
+                image: d
+                    .image
+                    .as_ref()
+                    .and_then(|p| p.to_str().map(str::to_string)),
+                roles: roles.clone(),
+                names: Default::default(),
+                pins: Default::default(),
+            };
+            if state.name_check(&d.name).is_ok() {
+                preview_palette.name = d.name.clone();
+                preview_palette.slug = irida_core::palette::slug_from_name(&d.name);
+            }
+            widget::Column::new()
+                .spacing(12)
+                .push(preview::view(
+                    scene::scene(&preview_palette),
+                    state.image_status(&preview_palette.image),
+                ))
+                .push(caption::line(&state.targets))
+                .into()
+        }
+        None => text::body("").into(),
+    };
+
+    widget::Row::new()
+        .spacing(24)
+        .push(left.width(Length::FillPortion(2)))
+        .push(widget::scrollable(right).width(Length::FillPortion(3)))
+        .into()
 }

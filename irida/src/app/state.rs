@@ -121,6 +121,8 @@ pub enum Leave {
     },
     /// Open a wallpaper draft, unsaved.
     Draft(Palette),
+    /// Save a wallpaper draft as version 1, then open the Apply sheet.
+    ApplyDraft(Palette),
     /// Replace the open palette with an import, then open it.
     Import {
         palette: Box<Palette>,
@@ -157,8 +159,6 @@ pub enum Dialog {
     },
     /// What an export wrote.
     Exported(ExportSummary),
-    /// New from wallpaper.
-    Wallpaper(WallpaperDialog),
     /// Pair with...: the palettes of the other mode. `confirm` is a chosen
     /// palette that is paired already, waiting for a yes.
     PairWith {
@@ -260,10 +260,17 @@ pub const NOT_IMAGE: &str = "This file could not be read as an image. Try a JPEG
 pub const NO_WALLPAPER: &str =
     "Your wallpaper is not an image file Irida can find. Choose an image to draft from.";
 
-/// New from wallpaper: the image, the colours found in it, and the draft
-/// for the chosen mode.
+/// The main area. Wallpaper replaces the editor until it is left.
 #[derive(Debug, Clone, PartialEq)]
-pub struct WallpaperDialog {
+pub enum Screen {
+    Editor,
+    Wallpaper(WallpaperDraft),
+}
+
+/// New from wallpaper: the image, the colours found in it, and the draft
+/// for the chosen mode. `cancel` is set when the palette menu opened it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct WallpaperDraft {
     /// Looking up COSMIC's current wallpaper.
     pub finding: bool,
     /// The image being read; a result for any other path is stale.
@@ -282,11 +289,13 @@ pub struct WallpaperDialog {
     pub name_edited: bool,
     /// Why the last image could not be used.
     pub error: Option<String>,
+    /// The palette menu can return to the editor. First run cannot.
+    pub cancel: bool,
 }
 
-impl WallpaperDialog {
-    fn new() -> WallpaperDialog {
-        WallpaperDialog {
+impl WallpaperDraft {
+    fn new(cancel: bool) -> WallpaperDraft {
+        WallpaperDraft {
             finding: true,
             reading: None,
             image: None,
@@ -297,6 +306,7 @@ impl WallpaperDialog {
             name: String::new(),
             name_edited: false,
             error: None,
+            cancel,
         }
     }
 
@@ -908,7 +918,12 @@ pub enum Msg {
     },
     WallpaperMode(Mode),
     WallpaperName(String),
-    WallpaperCreate,
+    /// Edit roles: open the draft unsaved, as Create did.
+    EditRoles,
+    /// Save the draft as version 1 and open the Apply sheet.
+    WallpaperApply,
+    /// Leave the wallpaper screen without saving it.
+    CloseWallpaper,
     // Compare, pairs and snapshots.
     /// The open palette's saved versions, newest first.
     Versions {
@@ -1118,6 +1133,7 @@ pub struct State {
     pub entries: Vec<EntrySummary>,
     pub current: Option<Current>,
     pub dialog: Option<Dialog>,
+    pub screen: Screen,
     /// Every toast shown, newest last.
     pub toasts: Vec<ToastItem>,
     pub menu_open: bool,
@@ -1173,6 +1189,7 @@ impl State {
             entries: Vec::new(),
             current: None,
             dialog: None,
+            screen: Screen::Editor,
             toasts: Vec::new(),
             menu_open: false,
             expanded: None,
@@ -1462,19 +1479,28 @@ impl State {
     /// The New from wallpaper dialog can create: an image was drafted, no
     /// other is being read, and the name can be used for a new palette.
     pub fn wallpaper_ready(&self) -> bool {
-        match &self.dialog {
-            Some(Dialog::Wallpaper(d)) => {
+        match &self.screen {
+            Screen::Wallpaper(d) => {
                 d.roles.is_some() && d.reading.is_none() && self.name_check(&d.name).is_ok()
             }
-            _ => false,
+            Screen::Editor => false,
         }
     }
 
-    fn wallpaper_dialog(&mut self) -> Option<&mut WallpaperDialog> {
-        match &mut self.dialog {
-            Some(Dialog::Wallpaper(d)) => Some(d),
-            _ => None,
+    fn wallpaper_draft(&mut self) -> Option<&mut WallpaperDraft> {
+        match &mut self.screen {
+            Screen::Wallpaper(d) => Some(d),
+            Screen::Editor => None,
         }
+    }
+
+    fn draft_from(d: &WallpaperDraft) -> Palette {
+        let mut p = draft_palette(&d.clusters, d.mode, &d.name);
+        p.image = d
+            .image
+            .as_ref()
+            .and_then(|path| path.to_str().map(str::to_string));
+        p
     }
 
     pub fn header_enabled(&self, item: HeaderItem) -> bool {
@@ -1646,9 +1672,14 @@ impl State {
             Leave::Open(slug) => vec![Effect::OpenPalette(slug)],
             Leave::Create(p) => vec![Effect::Create(p)],
             Leave::Duplicate { from, name } => vec![Effect::Duplicate { from, name }],
+            Leave::ApplyDraft(p) => vec![Effect::SaveVersion {
+                palette: p,
+                fresh: true,
+            }],
             // Not remembered as the last palette until it is saved.
             Leave::Draft(p) => {
                 self.reset_editor();
+                self.screen = Screen::Editor;
                 self.current = Some(Current::Editable {
                     slug: p.slug.clone(),
                     saved: None,
@@ -2019,6 +2050,20 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                             e.pair = p.pair.clone();
                         }
                         None => effects.push(Effect::ListEntries),
+                    }
+                    if matches!(state.screen, Screen::Wallpaper(_)) {
+                        state.reset_editor();
+                        state.current = Some(Current::Editable {
+                            slug: p.slug.clone(),
+                            saved: Some(p.clone()),
+                            working: p.clone(),
+                        });
+                        state.retain_images();
+                        effects.push(Effect::LoadApplySheet {
+                            palette: p.clone(),
+                            settings: state.settings.clone(),
+                            mode: SheetMode::Apply,
+                        });
                     }
                     // A draft's first save makes it the last palette.
                     effects.extend(state.remember(p.slug.clone()));
@@ -2487,10 +2532,15 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                 Err(effects) => effects,
             }
         }
-        Msg::Applied(Ok(report)) => vec![
-            state.toast_undo(applied_text(&report)),
-            Effect::RefreshTargets(state.settings.clone()),
-        ],
+        Msg::Applied(Ok(report)) => {
+            if matches!(state.screen, Screen::Wallpaper(_)) {
+                state.screen = Screen::Editor;
+            }
+            vec![
+                state.toast_undo(applied_text(&report)),
+                Effect::RefreshTargets(state.settings.clone()),
+            ]
+        }
         Msg::Applied(Err(failure)) => {
             let text = failure.text();
             let mut effects = if failure.needs_undo() {
@@ -2644,11 +2694,20 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
         Msg::Exported(Err(e)) => vec![state.toast(format!("Not exported: {e}"))],
         Msg::ShowWallpaper => {
             state.menu_open = false;
-            state.dialog = Some(Dialog::Wallpaper(WallpaperDialog::new()));
+            state.screen = Screen::Wallpaper(WallpaperDraft::new(true));
             vec![Effect::FindWallpaper(state.wallpaper_system.clone())]
         }
+        Msg::CloseWallpaper => {
+            if matches!(
+                state.screen,
+                Screen::Wallpaper(WallpaperDraft { cancel: true, .. })
+            ) {
+                state.screen = Screen::Editor;
+            }
+            Vec::new()
+        }
         Msg::WallpaperFound(found) => {
-            let Some(d) = state.wallpaper_dialog().filter(|d| d.finding) else {
+            let Some(d) = state.wallpaper_draft().filter(|d| d.finding) else {
                 return Vec::new();
             };
             d.finding = false;
@@ -2659,14 +2718,14 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             }
         }
         Msg::ChooseImage => {
-            if state.wallpaper_dialog().is_some() {
+            if state.wallpaper_draft().is_some() {
                 vec![Effect::ChooseImage]
             } else {
                 Vec::new()
             }
         }
         Msg::Image(result) => {
-            let Some(d) = state.wallpaper_dialog() else {
+            let Some(d) = state.wallpaper_draft() else {
                 return Vec::new();
             };
             match result {
@@ -2685,26 +2744,29 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             clusters,
             mode,
         } => {
-            let Some(d) = state
-                .wallpaper_dialog()
-                .filter(|d| d.reading.as_ref() == Some(&path))
-            else {
-                return Vec::new();
-            };
-            d.reading = None;
-            d.error = None;
-            if !d.name_edited {
-                d.name = name_from_file(&path);
+            {
+                let Some(d) = state
+                    .wallpaper_draft()
+                    .filter(|d| d.reading.as_ref() == Some(&path))
+                else {
+                    return Vec::new();
+                };
+                d.reading = None;
+                d.error = None;
+                if !d.name_edited {
+                    d.name = name_from_file(&path);
+                }
+                d.image = Some(path.clone());
+                d.clusters = clusters;
+                d.redraft(mode);
             }
-            d.image = Some(path);
-            d.clusters = clusters;
-            d.redraft(mode);
+            state.remember_image(&path);
             Vec::new()
         }
         Msg::DraftFailed { path, error } => {
             // The last good draft, if any, stays.
             if let Some(d) = state
-                .wallpaper_dialog()
+                .wallpaper_draft()
                 .filter(|d| d.reading.as_ref() == Some(&path))
             {
                 d.reading = None;
@@ -2713,27 +2775,37 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::WallpaperMode(mode) => {
-            if let Some(d) = state.wallpaper_dialog().filter(|d| d.roles.is_some()) {
+            if let Some(d) = state.wallpaper_draft().filter(|d| d.roles.is_some()) {
                 d.redraft(mode);
             }
             Vec::new()
         }
         Msg::WallpaperName(name) => {
-            if let Some(d) = state.wallpaper_dialog() {
+            if let Some(d) = state.wallpaper_draft() {
                 d.name = name;
                 d.name_edited = true;
             }
             Vec::new()
         }
-        Msg::WallpaperCreate => {
+        Msg::EditRoles => {
             if !state.wallpaper_ready() {
                 return Vec::new();
             }
-            let Some(Dialog::Wallpaper(d)) = &state.dialog else {
+            let Some(d) = state.wallpaper_draft() else {
                 return Vec::new();
             };
-            let p = draft_palette(&d.clusters, d.mode, &d.name);
+            let p = State::draft_from(d);
             state.leave(Leave::Draft(p))
+        }
+        Msg::WallpaperApply => {
+            if !state.wallpaper_ready() {
+                return Vec::new();
+            }
+            let Some(d) = state.wallpaper_draft() else {
+                return Vec::new();
+            };
+            let p = State::draft_from(d);
+            state.leave(Leave::ApplyDraft(p))
         }
         Msg::Versions { slug, result } => {
             if !state.open_is(&slug) {
@@ -4957,10 +5029,10 @@ mod tests {
         fs::write(dir.join("all"), entry).unwrap();
     }
 
-    fn wallpaper_dialog(state: &State) -> &WallpaperDialog {
-        match &state.dialog {
-            Some(Dialog::Wallpaper(d)) => d,
-            other => panic!("no wallpaper dialog: {other:?}"),
+    fn wallpaper_draft(state: &State) -> &WallpaperDraft {
+        match &state.screen {
+            Screen::Wallpaper(d) => d,
+            other => panic!("no wallpaper screen: {other:?}"),
         }
     }
 
@@ -4983,7 +5055,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (state, image) = two_tone_dialog(&tmp);
         assert!(!state.menu_open);
-        let d = wallpaper_dialog(&state);
+        let d = wallpaper_draft(&state);
         assert_eq!(d.image.as_deref(), Some(image.as_path()));
         assert_eq!(d.clusters.len(), 8);
         assert_eq!(d.mode, Mode::Dark);
@@ -5002,7 +5074,7 @@ mod tests {
         let mut state = start(&tmp);
         let ui = drive(&mut state, Msg::ShowWallpaper);
         assert!(ui.is_empty(), "{ui:?}");
-        let d = wallpaper_dialog(&state);
+        let d = wallpaper_draft(&state);
         assert_eq!(d.image, None);
         assert!(d.clusters.is_empty());
         assert_eq!(d.roles, None);
@@ -5017,9 +5089,9 @@ mod tests {
     fn switch_mode_redrafts() {
         let tmp = TempDir::new().unwrap();
         let (mut state, _) = two_tone_dialog(&tmp);
-        let clusters = wallpaper_dialog(&state).clusters.clone();
+        let clusters = wallpaper_draft(&state).clusters.clone();
         drive(&mut state, Msg::WallpaperMode(Mode::Light));
-        let d = wallpaper_dialog(&state);
+        let d = wallpaper_draft(&state);
         assert_eq!(d.mode, Mode::Light);
         let light = irida_core::draft::draft(&clusters, Mode::Light);
         assert_eq!(d.roles, Some(light.roles.clone()));
@@ -5030,7 +5102,7 @@ mod tests {
         );
 
         // Created in light mode, the draft keeps those roles.
-        drive(&mut state, Msg::WallpaperCreate);
+        drive(&mut state, Msg::EditRoles);
         assert!(state.dialog.is_none());
         let w = working(&state);
         assert_eq!(w.mode, Mode::Light);
@@ -5048,15 +5120,15 @@ mod tests {
         // A taken name cannot be created.
         drive(&mut state, Msg::WallpaperName("Ember".to_string()));
         assert!(!state.wallpaper_ready());
-        drive(&mut state, Msg::WallpaperCreate);
-        assert!(matches!(state.dialog, Some(Dialog::Wallpaper(_))));
+        drive(&mut state, Msg::EditRoles);
+        assert!(matches!(state.screen, Screen::Wallpaper(_)));
         drive(&mut state, Msg::WallpaperName("Bad-Name".to_string()));
         assert!(!state.wallpaper_ready());
 
         drive(&mut state, Msg::WallpaperName("Two Tone".to_string()));
         assert!(state.wallpaper_ready());
-        let clusters = wallpaper_dialog(&state).clusters.clone();
-        let ui = drive(&mut state, Msg::WallpaperCreate);
+        let clusters = wallpaper_draft(&state).clusters.clone();
+        let ui = drive(&mut state, Msg::EditRoles);
         assert!(ui.is_empty(), "{ui:?}");
         assert!(state.dialog.is_none());
         let Some(Current::Editable {
@@ -5069,10 +5141,10 @@ mod tests {
         };
         assert_eq!(slug, "twotone");
         assert_eq!(saved, &None);
-        assert_eq!(
-            working,
-            &irida_core::draft::draft_palette(&clusters, Mode::Dark, "Two Tone")
-        );
+        let mut expected = irida_core::draft::draft_palette(&clusters, Mode::Dark, "Two Tone");
+        expected.image = working.image.clone();
+        assert_eq!(working, &expected);
+        assert!(working.image.is_some());
         assert!(state.dirty());
         assert_eq!(state.title(), "Two Tone \u{2022}");
         assert_eq!(snapshot(&tmp), before, "nothing written to the store");
@@ -5099,14 +5171,57 @@ mod tests {
     }
 
     #[test]
+    fn apply_saves_version_1_and_opens_the_sheet() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        let effects = update(&mut state, Msg::WallpaperApply);
+        let Effect::SaveVersion { palette, fresh } = &effects[0] else {
+            panic!("{effects:?}");
+        };
+        assert!(fresh);
+        assert!(palette.image.is_some());
+        drive(&mut state, Msg::Saved(Ok((1, palette.clone()))));
+        let store = Store::new(Dirs::under(tmp.path()));
+        assert_eq!(
+            store.settings().unwrap().last_palette.as_deref(),
+            Some(palette.slug.as_str())
+        );
+        match &state.dialog {
+            Some(Dialog::Apply(sheet)) => assert_eq!(sheet.mode, SheetMode::Apply),
+            other => panic!("{other:?}"),
+        }
+        assert!(matches!(state.screen, Screen::Wallpaper(_)));
+        drive(
+            &mut state,
+            Msg::Applied(Ok(ApplyReport {
+                record_id: 1,
+                targets: vec![],
+            })),
+        );
+        assert!(matches!(state.screen, Screen::Editor));
+    }
+
+    #[test]
+    fn cancel_returns_unchanged() {
+        let tmp = TempDir::new().unwrap();
+        let (mut state, _) = two_tone_dialog(&tmp);
+        let before = snapshot(&tmp);
+        let slug = open_slug(&state).map(str::to_string);
+        drive(&mut state, Msg::CloseWallpaper);
+        assert!(matches!(state.screen, Screen::Editor));
+        assert_eq!(open_slug(&state).map(str::to_string), slug);
+        assert_eq!(snapshot(&tmp), before);
+    }
+
+    #[test]
     fn create_while_dirty_asks() {
         let tmp = TempDir::new().unwrap();
         let (mut state, _) = two_tone_dialog(&tmp);
         drive(&mut state, Msg::CloseDialog);
         drive(&mut state, Msg::SetRole(Role::Accent, red()));
         drive(&mut state, Msg::ShowWallpaper);
-        assert!(wallpaper_dialog(&state).roles.is_some());
-        drive(&mut state, Msg::WallpaperCreate);
+        assert!(wallpaper_draft(&state).roles.is_some());
+        drive(&mut state, Msg::EditRoles);
         assert!(matches!(
             state.dialog,
             Some(Dialog::Unsaved(Leave::Draft(_)))
@@ -5124,7 +5239,7 @@ mod tests {
         drive(&mut state, Msg::CloseDialog);
         drive(&mut state, Msg::SetRole(Role::Accent, red()));
         drive(&mut state, Msg::ShowWallpaper);
-        drive(&mut state, Msg::WallpaperCreate);
+        drive(&mut state, Msg::EditRoles);
         let asked = state.dialog.clone();
         assert!(matches!(asked, Some(Dialog::Unsaved(Leave::Draft(_)))));
 
@@ -5153,19 +5268,19 @@ mod tests {
     fn open_draft_name_is_taken() {
         let tmp = TempDir::new().unwrap();
         let (mut state, _) = two_tone_dialog(&tmp);
-        drive(&mut state, Msg::WallpaperCreate);
+        drive(&mut state, Msg::EditRoles);
         assert_eq!(open_slug(&state), Some("twotone"));
         let first = working(&state).clone();
 
         // The same image again: its name is held by the open draft.
         drive(&mut state, Msg::ShowWallpaper);
         drive(&mut state, Msg::WallpaperMode(Mode::Light));
-        assert_eq!(wallpaper_dialog(&state).name, "Two Tone");
+        assert_eq!(wallpaper_draft(&state).name, "Two Tone");
         let taken = Err("A palette called twotone is open and not saved yet".to_string());
         assert_eq!(state.name_check("Two Tone"), taken);
         assert!(!state.wallpaper_ready());
-        drive(&mut state, Msg::WallpaperCreate);
-        assert!(matches!(state.dialog, Some(Dialog::Wallpaper(_))));
+        drive(&mut state, Msg::EditRoles);
+        assert!(matches!(state.screen, Screen::Wallpaper(_)));
         assert_eq!(working(&state), &first);
         // New is refused the same way.
         drive(&mut state, Msg::ShowNew);
@@ -5178,7 +5293,7 @@ mod tests {
         // Another name goes through Save, and both drafts save version 1.
         drive(&mut state, Msg::WallpaperName("Two Tone Light".to_string()));
         assert!(state.wallpaper_ready());
-        drive(&mut state, Msg::WallpaperCreate);
+        drive(&mut state, Msg::EditRoles);
         assert!(matches!(
             state.dialog,
             Some(Dialog::Unsaved(Leave::Draft(_)))
@@ -5209,7 +5324,7 @@ mod tests {
         let text = tmp.path().join("notes.txt");
         fs::write(&text, "not an image").unwrap();
         drive(&mut state, Msg::Image(Ok(text)));
-        let d = wallpaper_dialog(&state);
+        let d = wallpaper_draft(&state);
         assert_eq!(
             d.error.as_deref(),
             Some("This file could not be read as an image. Try a JPEG, PNG or WebP.")
@@ -5223,7 +5338,7 @@ mod tests {
         // A missing file says so, and the chooser's own error is shown.
         let gone = tmp.path().join("gone.png");
         drive(&mut state, Msg::Image(Ok(gone)));
-        let d = wallpaper_dialog(&state);
+        let d = wallpaper_draft(&state);
         assert!(
             d.error
                 .as_deref()
@@ -5234,7 +5349,7 @@ mod tests {
         );
         drive(&mut state, Msg::Image(Err("portal gone".to_string())));
         assert_eq!(
-            wallpaper_dialog(&state).error.as_deref(),
+            wallpaper_draft(&state).error.as_deref(),
             Some("Could not choose an image: portal gone")
         );
 
@@ -5242,7 +5357,7 @@ mod tests {
         let other = tmp.path().join("aurora-forest.png");
         vector_png("pastel", &other);
         drive(&mut state, Msg::Image(Ok(other.clone())));
-        let d = wallpaper_dialog(&state);
+        let d = wallpaper_draft(&state);
         assert_eq!(d.error, None);
         assert_eq!(d.image.as_deref(), Some(other.as_path()));
         assert_eq!(d.name, "Aurora Forest");
@@ -5258,14 +5373,14 @@ mod tests {
         let effects = update(&mut state, Msg::Image(Ok(other.clone())));
         assert!(matches!(effects.as_slice(), [Effect::DraftImage(p)] if *p == other));
         let late = perform(Effect::DraftImage(image.clone()), &state.ctx);
-        let before = wallpaper_dialog(&state).clone();
+        let before = wallpaper_draft(&state).clone();
         for msg in late {
             drive(&mut state, msg);
         }
-        assert_eq!(wallpaper_dialog(&state), &before);
+        assert_eq!(wallpaper_draft(&state), &before);
         drive_effects(&mut state, effects);
         assert_eq!(
-            wallpaper_dialog(&state).image.as_deref(),
+            wallpaper_draft(&state).image.as_deref(),
             Some(other.as_path())
         );
         // A result after the dialog closed changes nothing.
@@ -5630,7 +5745,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let (mut state, _) = two_tone_dialog(&tmp);
         drive(&mut state, Msg::WallpaperName("Two Tone".to_string()));
-        drive(&mut state, Msg::WallpaperCreate);
+        drive(&mut state, Msg::EditRoles);
         assert!(matches!(
             state.current,
             Some(Current::Editable { saved: None, .. })

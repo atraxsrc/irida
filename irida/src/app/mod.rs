@@ -30,7 +30,7 @@ use irida_core::apply::Ctx;
 
 use effects::perform_caught;
 use io_queue::IoQueue;
-use state::{Current, Effect, FolderFor, Msg, State, ToastItem, update};
+use state::{Current, Effect, FolderFor, Msg, Screen, State, ToastItem, update};
 
 pub const APP_ID: &str = "io.github.atraxsrc.Irida";
 
@@ -309,6 +309,9 @@ impl Application for App {
 /// Everything below the header: the role list and the preview, or why
 /// there is nothing to edit.
 fn content(state: &State) -> Element<'_, Msg> {
+    if let Screen::Wallpaper(draft) = &state.screen {
+        return wallpaper::view(state, draft);
+    }
     match &state.current {
         Some(Current::Editable { working, .. }) => widget::Row::new()
             .spacing(24)
