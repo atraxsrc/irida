@@ -16,7 +16,7 @@ Design a colour palette and apply it to COSMIC and the apps around it.
 
 ---
 
-![Irida editing Ember, a dark palette: the role list with contrast ratios beside a preview of the panel, terminal, btop and Neovim](assets/screenshots/editor-dark.png)
+![Irida previewing Ember, a dark palette: the panel, terminal, btop and Neovim in its colours, with a strip of its 13 role swatches underneath](assets/screenshots/editor-dark.png)
 
 Irida is a palette designer for the COSMIC desktop, named after Iris, the Greek
 goddess of the rainbow. A palette is 13 roles (background, text, accent, the
@@ -25,9 +25,9 @@ result to your desktop, terminal, editor and tools in one step.
 
 ## Features
 
-- **Edit with live feedback.** Change any role by hand; the preview of the
-  desktop, terminal, Neovim, btop and cava and every contrast ratio follow at
-  once.
+- **Edit with live feedback.** Pick a role in the Palette workspace and change
+  it by hand; flip to Preview to see the desktop, terminal, Neovim, btop and
+  cava in the new colours. Every contrast ratio follows at once.
 - **Draft from a wallpaper.** Pick an image and get a dark or light palette
   whose roles already pass their contrast minimums.
 - **Apply and undo.** One step writes every installed app; one step puts back
@@ -38,6 +38,8 @@ result to your desktop, terminal, editor and tools in one step.
   with any saved version, and pin the ones worth keeping.
 - **Import and export rices.** Open an existing `cosmic-*-theme` repository, or
   export a palette as a complete one.
+
+![The Palette workspace: Ember's role list beside the editor for Amber, its picker, hex, contrast ratios and terminal colours](assets/screenshots/editor-palette.png)
 
 ![Ember Day, the light half of the Ember pair, in the same editor](assets/screenshots/editor-light.png)
 

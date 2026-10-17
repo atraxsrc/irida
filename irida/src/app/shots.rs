@@ -15,7 +15,9 @@ use irida_core::store::{Settings, Store, starters};
 use tempfile::TempDir;
 
 use super::effects::{drive, drive_effects};
-use super::state::{Msg, State};
+use irida_core::role::Role;
+
+use super::state::{Msg, State, Workspace};
 use super::{content, header};
 
 /// A started app on the starter palettes, opened on `slug`. Targets are
@@ -130,6 +132,9 @@ fn shots() {
     let tmp = TempDir::new().unwrap();
     let mut state = start(&tmp, "ember");
     shoot(&state, &folder, "editor-dark");
+    drive(&mut state, Msg::Select(Role::Warning));
+    shoot(&state, &folder, "editor-palette");
+    drive(&mut state, Msg::Workspace(Workspace::Preview));
     drive(&mut state, Msg::ShowApply);
     shoot(&state, &folder, "apply");
 
