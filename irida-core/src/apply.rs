@@ -20,7 +20,7 @@ use crate::target::{
 };
 use crate::template::{Renderer, check_syntax};
 use crate::write::{
-    KeyOpts, KeyScope, atomic_write, overrides, resolve_write_path, set_block, set_key,
+    KeyOpts, KeyScope, atomic_write, overrides, resolve_write_path, set_block, set_key, sets_inline,
 };
 
 /// Apply records kept after an apply.
@@ -574,6 +574,14 @@ fn plan_file(
         }
         _ => {
             let key = f.key.clone().ok_or_else(|| skip(&"key needs key"))?;
+            if let (Some(s), Some(text)) = (&f.section, &existing)
+                && sets_inline(text, s)
+            {
+                return Err(format!(
+                    "{}: sets {s} inline, so Irida left it alone; move it under [{s}]",
+                    path.display()
+                ));
+            }
             let value = rendered.trim_end_matches(['\n', '\r']);
             let scope = match (&f.place, &f.section) {
                 (_, Some(s)) => KeyScope::Section(s.clone()),

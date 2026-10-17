@@ -156,3 +156,67 @@ fn unreadable_theme_toml_warns_once() {
         .collect();
     assert_eq!(about.len(), 1, "{:?}", t.warnings);
 }
+
+/// An inline `flavor = {...}` is left alone: a `[flavor]` section after it
+/// would be a TOML error.
+#[test]
+fn inline_flavor_table_is_left_alone() {
+    let env = TestEnv::new();
+    let text = "flavor = { dark = \"catppuccin\" }\n";
+    let conf = env.write(".config/yazi/theme.toml", text);
+    let report = apply_only(&env, &palette("ember"), "yazi").unwrap();
+    let t = report.get("yazi").unwrap();
+    assert!(matches!(t.status, TargetStatus::Applied(_)), "{t:?}");
+    assert_eq!(fs::read_to_string(&conf).unwrap(), text);
+    let about: Vec<&String> = t
+        .warnings
+        .iter()
+        .filter(|w| w.contains("theme.toml"))
+        .collect();
+    assert_eq!(about.len(), 1, "{:?}", t.warnings);
+    assert!(
+        about[0].ends_with(
+            "theme.toml: sets flavor inline, so Irida left it alone; move it under [flavor]"
+        ),
+        "{about:?}"
+    );
+    let flavor = env.dirs.home.join(".config/yazi/flavors/irida.yazi");
+    assert!(flavor.join("flavor.toml").is_file());
+    undo(&env);
+    assert_eq!(fs::read_to_string(&conf).unwrap(), text);
+    assert!(!flavor.join("flavor.toml").exists());
+}
+
+/// Runs the Ember yazi install script with a home of its own; returns stdout.
+fn run_install(env: &TestEnv) -> String {
+    let rice = env.tmp.path().join("rice/yazi");
+    fs::create_dir_all(rice.join("ember.yazi")).unwrap();
+    fs::write(
+        rice.join("install.sh"),
+        render_export("ember", "yazi", "install.sh.tmpl"),
+    )
+    .unwrap();
+    for f in ["flavor.toml", "tmtheme.xml"] {
+        fs::write(rice.join("ember.yazi").join(f), "x\n").unwrap();
+    }
+    let out = Command::new("/bin/bash")
+        .arg(rice.join("install.sh"))
+        .env_clear()
+        .env("HOME", &env.dirs.home)
+        .env("PATH", "/usr/bin:/bin")
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    String::from_utf8(out.stdout).unwrap()
+}
+
+#[test]
+fn install_script_leaves_an_inline_flavor_alone() {
+    for text in ["flavor = { dark = \"x\" }\n", "flavor.dark = \"x\"\n"] {
+        let env = TestEnv::new();
+        let conf = env.write(".config/yazi/theme.toml", text);
+        let stdout = run_install(&env);
+        assert_eq!(fs::read_to_string(&conf).unwrap(), text);
+        assert!(stdout.contains("by hand"), "{stdout}");
+    }
+}

@@ -324,6 +324,18 @@ fn is_header(line: &str) -> bool {
     header_name(line).is_some()
 }
 
+/// Whether `text` sets `section` before its first header, as an inline
+/// table (`section = {...}`) or a dotted key (`section.key = ...`), so a
+/// `[section]` header would define it twice.
+pub fn sets_inline(text: &str, section: &str) -> bool {
+    text.lines()
+        .take_while(|l| !is_header(l))
+        .any(|l| match l.trim_start().strip_prefix(section) {
+            Some(rest) => rest.trim_start().starts_with(['=', '.']),
+            None => false,
+        })
+}
+
 /// `depth` after the brackets of `s` outside double quotes and before a
 /// `#` comment: `[` and `{` open, `]` and `}` close.
 fn bracket_depth(s: &str, mut depth: i32) -> i32 {

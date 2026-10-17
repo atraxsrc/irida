@@ -4,11 +4,11 @@
 #   ./yazi/install.sh
 #
 # Copies {{ slug }}.yazi/ to ~/.config/yazi/flavors/ (or under
-# $XDG_CONFIG_HOME) and, when theme.toml has no [flavor] section yet, adds
-# one with dark and light both set to {{ slug }} (yazi 25.12.29 or newer). An
-# existing [flavor] section is left for you to edit by hand. Backs up
-# differing flavor files to <file>.bak. Restart yazi to see it. Safe to run
-# again.
+# $XDG_CONFIG_HOME) and, when theme.toml does not set flavor yet, adds a
+# [flavor] section with dark and light both set to {{ slug }} (yazi 25.12.29
+# or newer). An existing flavor setting is left for you to edit by hand.
+# Backs up differing flavor files to <file>.bak. Restart yazi to see it.
+# Safe to run again.
 set -euo pipefail
 
 # Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
@@ -46,8 +46,8 @@ echo "  $flavor"
 
 if [ -f "$conf" ] && grep -qxF 'dark = "{{ slug }}"' "$conf" && grep -qxF 'light = "{{ slug }}"' "$conf"; then
     echo "  theme.toml already selects it"
-elif [ -f "$conf" ] && grep -qE '^[[:space:]]*\[flavor\]' "$conf"; then
-    echo "  theme.toml has a [flavor] section; set dark and light to \"{{ slug }}\" by hand"
+elif [ -f "$conf" ] && grep -qE '^[[:space:]]*(\[flavor\]|flavor[[:space:]]*[=.])' "$conf"; then
+    echo "  theme.toml already sets flavor; set dark and light to \"{{ slug }}\" by hand"
 else
     if [ -s "$conf" ] && [ -n "$(tail -c 1 "$conf")" ]; then
         echo >> "$conf"

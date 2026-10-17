@@ -5,7 +5,7 @@ use std::os::unix::fs::{PermissionsExt, symlink};
 
 use irida_core::write::{
     BlockError, KeyOpts, KeyScope, atomic_write, resolve_write_path, restore_block, restore_key,
-    set_block, set_key,
+    set_block, set_key, sets_inline,
 };
 
 #[test]
@@ -732,4 +732,15 @@ fn overrides_finds_keys_and_tables() {
     let text = "[general]\nimport = []\n[ colors.primary ]\nbackground = \"#000000\"\n";
     assert_eq!(overrides(text, &names, " = "), ["background", "[colors]"]);
     assert!(overrides("[colorscheme]\nbackgrounds = 1\n", &names, " = ").is_empty());
+}
+
+#[test]
+fn sets_inline_finds_a_table_set_before_any_header() {
+    assert!(sets_inline("flavor = { dark = \"x\" }\n", "flavor"));
+    assert!(sets_inline("# mine\nflavor.dark = \"x\"\n", "flavor"));
+    assert!(sets_inline("  flavor={}\r\n[mgr]\n", "flavor"));
+    assert!(!sets_inline("[flavor]\ndark = \"x\"\n", "flavor"));
+    assert!(!sets_inline("flavors = 1\n", "flavor"));
+    assert!(!sets_inline("[mgr]\nflavor = {}\n", "flavor"));
+    assert!(!sets_inline("", "flavor"));
 }
