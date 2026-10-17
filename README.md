@@ -53,6 +53,7 @@ result to your desktop, terminal, editor and tools in one step.
 | fastfetch | `config.jsonc` and its logo | |
 | lsd | `colors.yaml` and `config.yaml` | |
 | zsh | A marked block in `~/.zshrc` | |
+| Ghostty | `themes/irida`, selected in `config` | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in

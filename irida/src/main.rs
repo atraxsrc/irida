@@ -52,7 +52,7 @@ enum Command {
         palette: String,
         /// Apply only these targets by id (comma separated), even when turned
         /// off: cosmic-desktop, cosmic-term, cava, btop, nvim, fastfetch, lsd,
-        /// zsh, or a folder of your own under ~/.config/irida/targets/
+        /// zsh, ghostty, or a folder of your own under ~/.config/irida/targets/
         #[arg(long, value_delimiter = ',')]
         only: Option<Vec<String>>,
     },

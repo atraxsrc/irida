@@ -643,6 +643,7 @@ fn only_help_names_every_builtin() {
         "fastfetch",
         "lsd",
         "zsh",
+        "ghostty",
     ] {
         assert!(help.contains(id), "{id} missing from --only help:\n{help}");
     }

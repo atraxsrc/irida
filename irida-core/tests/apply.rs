@@ -973,12 +973,13 @@ fn listing(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     out
 }
 
-const BUILTINS: [&str; 8] = [
+const BUILTINS: [&str; 9] = [
     "btop",
     "cava",
     "cosmic-desktop",
     "cosmic-term",
     "fastfetch",
+    "ghostty",
     "lsd",
     "nvim",
     "zsh",
@@ -994,6 +995,7 @@ fn builtin_display(name: &str) -> &'static str {
         "btop" => "btop",
         "cava" => "cava",
         "fastfetch" => "fastfetch",
+        "ghostty" => "Ghostty",
         "lsd" => "lsd",
         "zsh" => "zsh",
         other => panic!("no display for {other}"),

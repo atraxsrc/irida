@@ -284,3 +284,9 @@ fn background_child_is_not_given_a_pipe() {
     }
     assert_eq!(fs::read_to_string(&seen).unwrap(), "file\n");
 }
+
+#[test]
+fn ghostty_version_line() {
+    assert_eq!(parse_version("Ghostty 1.2.0\n"), Some((1, 2, 0)));
+    assert_eq!(parse_version("Ghostty 1.3.0-dev+abc"), None);
+}
