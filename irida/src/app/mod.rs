@@ -9,6 +9,8 @@ mod io_queue;
 mod preview;
 mod roles;
 mod scene;
+#[cfg(test)]
+mod shots;
 mod state;
 mod wallpaper;
 
@@ -293,37 +295,40 @@ impl Application for App {
     }
 
     fn view(&self) -> Element<'_, Message> {
-        let content: Element<'_, Msg> = match &self.state.current {
-            Some(Current::Editable { working, .. }) => widget::Row::new()
-                .spacing(24)
-                .push(
-                    widget::container(roles::view(&self.state, working))
-                        .width(Length::FillPortion(2))
-                        .max_width(480.),
-                )
-                .push(
-                    widget::Column::new()
-                        .spacing(12)
-                        .width(Length::FillPortion(3))
-                        .push(
-                            widget::scrollable(match self.state.split_view() {
-                                Some(split) => compare::view(split),
-                                None => preview::view(scene::scene(working)),
-                            })
-                            .height(Length::Fill),
-                        )
-                        .push(roles::notes(working)),
-                )
-                .into(),
-            Some(Current::Unreadable { slug, error, text }) => {
-                header::unreadable(slug, error, text)
-            }
-            None => text::body(self.state.empty_text()).into(),
-        };
-        let content = widget::container(content.map(Message::Ui))
+        let content = widget::container(content(&self.state).map(Message::Ui))
             .padding(16)
             .width(Length::Fill)
             .height(Length::Fill);
         widget::toaster(&self.toasts, content)
+    }
+}
+
+/// Everything below the header: the role list and the preview, or why
+/// there is nothing to edit.
+fn content(state: &State) -> Element<'_, Msg> {
+    match &state.current {
+        Some(Current::Editable { working, .. }) => widget::Row::new()
+            .spacing(24)
+            .push(
+                widget::container(roles::view(state, working))
+                    .width(Length::FillPortion(2))
+                    .max_width(480.),
+            )
+            .push(
+                widget::Column::new()
+                    .spacing(12)
+                    .width(Length::FillPortion(3))
+                    .push(
+                        widget::scrollable(match state.split_view() {
+                            Some(split) => compare::view(split),
+                            None => preview::view(scene::scene(working)),
+                        })
+                        .height(Length::Fill),
+                    )
+                    .push(roles::notes(working)),
+            )
+            .into(),
+        Some(Current::Unreadable { slug, error, text }) => header::unreadable(slug, error, text),
+        None => text::body(state.empty_text()).into(),
     }
 }
