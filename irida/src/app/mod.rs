@@ -31,7 +31,9 @@ use irida_core::apply::Ctx;
 
 use effects::perform_caught;
 use io_queue::IoQueue;
-use state::{Current, Effect, FolderFor, Msg, Screen, State, ToastItem, update};
+use irida_core::palette::Palette;
+use irida_core::role::Role;
+use state::{Current, Effect, FolderFor, Msg, Screen, State, ToastItem, Workspace, update};
 
 pub const APP_ID: &str = "io.github.atraxsrc.Irida";
 
@@ -339,46 +341,59 @@ impl Application for App {
     }
 }
 
-/// Everything below the header: the role list and the preview, or why
+/// Everything below the header: one workspace of the open palette, or why
 /// there is nothing to edit.
 fn content(state: &State) -> Element<'_, Msg> {
     if let Screen::Wallpaper(draft) = &state.screen {
         return wallpaper::view(state, draft);
     }
     match &state.current {
-        Some(Current::Editable { working, .. }) => widget::Row::new()
-            .spacing(24)
-            .push(
-                widget::container(roles::view(state, working))
-                    .width(Length::FillPortion(2))
-                    .max_width(480.),
-            )
-            .push({
-                let split = state.split_view();
-                let mut column = widget::Column::new()
-                    .spacing(12)
-                    .width(Length::FillPortion(3))
-                    .push(
-                        widget::scrollable(match split {
-                            Some(split) => compare::view(split, &state.targets, &state.images),
-                            None => preview::view(
-                                scene::scene(working),
-                                state.image_status(&working.image),
-                            ),
-                        })
-                        .height(Length::Fill),
-                    );
-                // Under the preview, outside its scroll, so it stays on screen.
-                // Compare keeps one caption under each column, inside the scroll.
-                if state.split == state::Split::Off {
-                    column = column.push(caption::line(&state.targets));
-                }
-                column.push(roles::notes(working))
-            })
-            .into(),
+        Some(Current::Editable { working, .. }) => match state.workspace {
+            Workspace::Palette => palette_workspace(state, working),
+            Workspace::Preview => preview_workspace(state, working),
+        },
         Some(Current::Unreadable { slug, error, text }) => header::unreadable(slug, error, text),
         None => text::body(state.empty_text()).into(),
     }
+}
+
+/// The role list beside the selected role's editor, at a fixed width and
+/// centred, so a wide window does not stretch them.
+fn palette_workspace<'a>(state: &'a State, working: &'a Palette) -> Element<'a, Msg> {
+    let role = state.selected.unwrap_or(Role::ALL[0]);
+    let row = widget::Row::new()
+        .spacing(16)
+        .push(widget::container(roles::view(state, working)).width(Length::Fixed(280.)))
+        .push(
+            widget::container(roles::editor(state, working, role))
+                .width(Length::Fill)
+                .max_width(560.),
+        )
+        .height(Length::Fill);
+    widget::container(widget::container(row).max_width(856.))
+        .center_x(Length::Fill)
+        .height(Length::Fill)
+        .into()
+}
+
+/// The preview (or the split), its caption, the role strip and the notes.
+fn preview_workspace<'a>(state: &'a State, working: &'a Palette) -> Element<'a, Msg> {
+    let mut column = widget::Column::new().spacing(12).push(
+        widget::scrollable(match state.split_view() {
+            Some(split) => compare::view(split, &state.targets, &state.images),
+            None => preview::view(scene::scene(working), state.image_status(&working.image)),
+        })
+        .height(Length::Fill),
+    );
+    // Under the preview, outside its scroll, so it stays on screen.
+    // Compare keeps one caption under each column, inside the scroll.
+    if state.split == state::Split::Off {
+        column = column.push(caption::line(&state.targets));
+    }
+    column
+        .push(roles::strip(working))
+        .push(roles::notes(working))
+        .into()
 }
 
 #[cfg(test)]
