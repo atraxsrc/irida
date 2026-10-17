@@ -1,0 +1,26 @@
+# Checked against fishshell.com/docs/current (language.html "Configuration
+# files", interactive.html "Syntax highlighting variables" and "Pager color
+# variables", cmds/set_color.html) on 2026-10-17: every *.fish in
+# ~/.config/fish/conf.d/ runs at start, before config.fish; colours are bare
+# 6-digit hex; a global variable shadows a universal one of the same name,
+# so `set -g` here wins over what `fish_config theme` saved.
+name = "fish"
+display = "fish"
+detect = { binary = "fish", config = "~/.config/fish" }
+
+[[file]]
+path = "~/.config/fish/conf.d/irida.fish"
+write = "file"
+template = "irida.fish.tmpl"
+
+[reload]
+hint = "open a new fish shell"
+
+[[rice]]
+path = "fish/{{ slug }}.fish"
+template = "irida.fish.tmpl"
+
+[[rice]]
+path = "fish/install.sh"
+template = "install.sh.tmpl"
+executable = true

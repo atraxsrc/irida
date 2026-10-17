@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# Install the {{ name }} fish colours as ~/.config/fish/conf.d/{{ slug }}.fish.
+#
+#   ./fish/install.sh
+#
+# Backs up a differing file to {{ slug }}.fish.bak. Safe to run again.
+set -euo pipefail
+
+dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+dest="${XDG_CONFIG_HOME:-$HOME/.config}/fish/conf.d"
+
+if ! command -v fish >/dev/null 2>&1 && [ ! -d "${XDG_CONFIG_HOME:-$HOME/.config}/fish" ]; then
+    echo "  fish not installed, skipped"
+    exit 0
+fi
+
+mkdir -p "$dest"
+if [ -f "$dest/{{ slug }}.fish" ] && ! cmp -s "$dir/{{ slug }}.fish" "$dest/{{ slug }}.fish"; then
+    cp "$dest/{{ slug }}.fish" "$dest/{{ slug }}.fish.bak"
+    echo "  backup: {{ slug }}.fish.bak"
+fi
+cp "$dir/{{ slug }}.fish" "$dest/{{ slug }}.fish"
+echo "  $dest/{{ slug }}.fish"
+
+echo "Done. Open a new fish shell"

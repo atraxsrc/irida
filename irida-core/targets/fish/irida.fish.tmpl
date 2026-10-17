@@ -1,0 +1,29 @@
+# {{ name }} ({{ mode }}) for fish, written by Irida. Global variables shadow
+# the universal ones a theme saved, so this file wins without touching them.
+{%- set bg = term.background or pane %}
+{%- set select = mix(bg, "accent", 0.35) | strip %}
+set -g fish_color_normal {{ text | strip }}
+set -g fish_color_command {{ blue | strip }}
+set -g fish_color_keyword {{ magenta | strip }}
+set -g fish_color_quote {{ warning | strip }}
+set -g fish_color_redirection {{ cyan | strip }}
+set -g fish_color_end {{ accent | strip }}
+set -g fish_color_error {{ error | strip }}
+set -g fish_color_param {{ text | strip }}
+set -g fish_color_valid_path {{ text | strip }} --underline
+set -g fish_color_option {{ cyan | strip }}
+set -g fish_color_comment {{ comment | strip }}
+set -g fish_color_operator {{ accent | strip }}
+set -g fish_color_escape {{ cyan | strip }}
+set -g fish_color_autosuggestion {{ muted | strip }}
+set -g fish_color_cwd {{ success | strip }}
+set -g fish_color_user {{ accent | strip }}
+set -g fish_color_host {{ text | strip }}
+set -g fish_color_cancel {{ error | strip }}
+set -g fish_color_search_match --background {{ select }}
+set -g fish_color_selection {{ text | strip }} --background {{ select }}
+set -g fish_pager_color_prefix {{ accent | strip }} --bold
+set -g fish_pager_color_completion {{ text | strip }}
+set -g fish_pager_color_description {{ muted | strip }}
+set -g fish_pager_color_progress {{ bg | strip }} --background {{ accent | strip }}
+set -g fish_pager_color_selected_background --background {{ select }}
