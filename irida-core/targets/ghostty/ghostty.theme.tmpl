@@ -1,0 +1,23 @@
+# {{ name }} ({{ mode }}), written by Irida
+background = {{ term.background or pane }}
+foreground = {{ term.foreground }}
+cursor-color = {{ term.cursor }}
+cursor-text = {{ term.background or pane }}
+selection-background = {{ mix(term.background or pane, "accent", 0.35) }}
+selection-foreground = {{ term.foreground }}
+palette = 0={{ term.normal.black }}
+palette = 1={{ term.normal.red }}
+palette = 2={{ term.normal.green }}
+palette = 3={{ term.normal.yellow }}
+palette = 4={{ term.normal.blue }}
+palette = 5={{ term.normal.magenta }}
+palette = 6={{ term.normal.cyan }}
+palette = 7={{ term.normal.white }}
+palette = 8={{ term.bright.black }}
+palette = 9={{ term.bright.red }}
+palette = 10={{ term.bright.green }}
+palette = 11={{ term.bright.yellow }}
+palette = 12={{ term.bright.blue }}
+palette = 13={{ term.bright.magenta }}
+palette = 14={{ term.bright.cyan }}
+palette = 15={{ term.bright.white }}

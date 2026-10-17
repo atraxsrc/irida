@@ -1,0 +1,23 @@
+# Ember Day (light), written by Irida
+background = #DDD9D1
+foreground = #2B2E36
+cursor-color = #A4441A
+cursor-text = #DDD9D1
+selection-background = #C9A591
+selection-foreground = #2B2E36
+palette = 0=#2B2E36
+palette = 1=#9E3A3A
+palette = 2=#4C6B45
+palette = 3=#8A5E12
+palette = 4=#2F5C8A
+palette = 5=#6E4E8C
+palette = 6=#2E6E6A
+palette = 7=#6B6F78
+palette = 8=#25272E
+palette = 9=#863131
+palette = 10=#415B3B
+palette = 11=#75500F
+palette = 12=#284E75
+palette = 13=#5E4277
+palette = 14=#275E5A
+palette = 15=#5B5E66

@@ -1,0 +1,23 @@
+# Ember (dark), written by Irida
+background = #1B1E24
+foreground = #D6D9E0
+cursor-color = #E8713A
+cursor-text = #1B1E24
+selection-background = #633B2C
+selection-foreground = #D6D9E0
+palette = 0=#2A2F38
+palette = 1=#D85A5A
+palette = 2=#8FB58A
+palette = 3=#D9A441
+palette = 4=#7FA3C7
+palette = 5=#B08BC4
+palette = 6=#7FB7B3
+palette = 7=#D6D9E0
+palette = 8=#7C8290
+palette = 9=#DD6E6E
+palette = 10=#9CBE98
+palette = 11=#DEAF58
+palette = 12=#8EAECE
+palette = 13=#B999CB
+palette = 14=#8EC0BC
+palette = 15=#E2E4E9

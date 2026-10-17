@@ -1,0 +1,38 @@
+# Checked against ghostty.org/docs/config, docs/features/theme and the 1.2.0
+# release notes on 2026-10-17.
+name = "ghostty"
+display = "Ghostty"
+detect = { binary = "ghostty", config = "~/.config/ghostty" }
+
+# A theme is an ordinary config file looked up by name in ~/.config/ghostty/themes/.
+[[file]]
+path = "~/.config/ghostty/themes/irida"
+write = "file"
+template = "ghostty.theme.tmpl"
+
+# One flat line. `config` is read by every version and loaded after
+# `config.ghostty` (1.2.3 and newer), so this line wins either way. Colour
+# keys the user sets in their own config still override the theme.
+[[file]]
+path = "~/.config/ghostty/config"
+write = "key"
+key = "theme"
+template = "theme.tmpl"
+
+# SIGUSR2 reloads the config from 1.2.0 (release notes, GTK section); older
+# builds leave it unhandled and die, so the version gate is mandatory.
+# `ghostty +version` prints "Ghostty 1.2.0" first; a dev build fails to
+# parse and falls back to "restart".
+[reload]
+signal = { process = "ghostty", signal = "USR2" }
+min_version = { command = "ghostty +version", version = "1.2.0" }
+hint = "press ctrl+shift+, in Ghostty to reload its config"
+
+[[rice]]
+path = "ghostty/themes/{{ slug }}"
+template = "ghostty.theme.tmpl"
+
+[[rice]]
+path = "ghostty/install.sh"
+template = "install.sh.tmpl"
+executable = true
