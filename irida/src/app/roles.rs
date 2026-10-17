@@ -1,6 +1,5 @@
-//! The Palette workspace: the role list, grouped as in the palette model,
-//! beside the selected role's editor; and the swatch strip under the
-//! preview. Views only read `State` and emit `Msg`.
+//! The role tiles, grouped as in the palette model, and the editor column
+//! for the open role. Views only read `State` and emit `Msg`.
 
 use cosmic::Element;
 use cosmic::iced::{Alignment, Background, Border, Color, Length};
@@ -12,9 +11,7 @@ use irida_core::palette::Palette;
 use irida_core::role::{Role, RoleGroup};
 use irida_core::slot::{PinValue, Slot};
 
-use super::state::{
-    Field, Msg, RoleRow, State, capitalised, display_name, ratio_text, role_rows, role_slots,
-};
+use super::state::{Field, Msg, RoleRow, State, capitalised, ratio_text, role_rows, role_slots};
 
 fn group_label(g: RoleGroup) -> &'static str {
     match g {
@@ -54,87 +51,99 @@ fn verdict<'a>(label: String, failing: bool) -> widget::Text<'a, cosmic::Theme> 
     }
 }
 
-/// The role list for `p`, the open palette's working copy.
+/// Role tiles for `p`, three across under each group label.
 pub fn view<'a>(state: &'a State, p: &'a Palette) -> Element<'a, Msg> {
-    let mut col = widget::Column::new().spacing(2).padding([0, 12, 0, 0]);
-    let mut group = None;
-    for row in role_rows(p) {
-        let g = row.role.group();
-        if group != Some(g) {
-            group = Some(g);
-            col = col.push(widget::container(text::heading(group_label(g))).padding([12, 0, 4, 0]));
+    let mut col = widget::Column::new().spacing(6).padding([0, 12, 0, 0]);
+    let rows = role_rows(p);
+    for group in rows.chunk_by(|a, b| a.role.group() == b.role.group()) {
+        let g = group[0].role.group();
+        col = col.push(widget::container(text::heading(group_label(g))).padding([10, 0, 2, 0]));
+        for three in group.chunks(3) {
+            let mut line = widget::Row::new().spacing(6);
+            for row in three {
+                line = line.push(tile(row, state.selected == Some(row.role)));
+            }
+            for _ in three.len()..3 {
+                line = line.push(widget::Space::new().width(Length::FillPortion(1)));
+            }
+            col = col.push(line);
         }
-        col = col.push(row_header(&row, state.selected == Some(row.role)));
     }
     widget::scrollable(col).height(Length::Fill).into()
 }
 
-/// Swatch, name and hex; the ratio only when the role fails it.
-fn row_header(row: &RoleRow, selected: bool) -> Element<'static, Msg> {
-    let mut line = widget::Row::new()
-        .spacing(10)
-        .align_y(Alignment::Center)
-        .push(swatch(Some(row.color), 20.))
-        .push(text::body(row.name.clone()).width(Length::Fill))
-        .push(text::monotext(row.color.to_hex()));
-    if row.fails()
-        && let Some(label) = row.ratio_label()
-    {
-        line = line.push(verdict(label, true));
-    }
-    button::custom(line)
-        .padding([4, 8])
+/// A chip of the role's colour over its name; a failing role carries its
+/// ratio on the chip, and the open role an accent outline.
+fn tile(row: &RoleRow, selected: bool) -> Element<'static, Msg> {
+    let c = row.color;
+    let outline = selected.then(|| Color::from(cosmic::theme::active().cosmic().accent_color()));
+    let badge: Element<'static, Msg> = match row.ratio_label().filter(|_| row.fails()) {
+        Some(label) => widget::container(verdict(label.trim_end_matches(":1").to_string(), true))
+            .padding([0, 4])
+            .style(|_| widget::container::Style {
+                background: Some(Background::Color(Color::from_rgba8(0, 0, 0, 0.6))),
+                border: Border {
+                    radius: 3.0.into(),
+                    ..Default::default()
+                },
+                ..Default::default()
+            })
+            .into(),
+        None => widget::Space::new().into(),
+    };
+    let chip = widget::container(badge)
         .width(Length::Fill)
-        .class(if selected {
-            cosmic::theme::Button::Standard
-        } else {
-            cosmic::theme::Button::MenuItem
-        })
+        .height(Length::Fixed(34.))
+        .padding(3)
+        .align_x(Alignment::End)
+        .align_y(Alignment::End)
+        .style(move |_| widget::container::Style {
+            background: Some(Background::Color(Color::from_rgb8(c.r, c.g, c.b))),
+            border: Border {
+                radius: 4.0.into(),
+                width: if outline.is_some() { 2.0 } else { 1.0 },
+                color: outline.unwrap_or(Color::from_rgba8(128, 128, 128, 0.5)),
+            },
+            ..Default::default()
+        });
+    let body = widget::Column::new()
+        .spacing(3)
+        .push(chip)
+        .push(text::caption(row.name.clone()));
+    button::custom(body)
+        .padding(4)
+        .width(Length::FillPortion(1))
+        .class(cosmic::theme::Button::MenuItem)
         .on_press(Msg::Select(row.role))
         .into()
 }
 
-/// The editor panel for `role`: its swatch and name, then its details.
+/// The editor column for `role`: its swatch, name and a close button, then
+/// its details.
 pub fn editor<'a>(state: &'a State, p: &'a Palette, role: Role) -> Element<'a, Msg> {
     let Some(row) = role_rows(p).into_iter().find(|r| r.role == role) else {
         return widget::Space::new().into();
     };
     let title = widget::Row::new()
-        .spacing(12)
+        .spacing(8)
         .align_y(Alignment::Center)
-        .push(swatch(Some(row.color), 24.))
-        .push(text::title4(row.name.clone()));
+        .push(swatch(Some(row.color), 20.))
+        .push(text::heading(row.name.clone()).width(Length::Fill))
+        .push(
+            button::icon(widget::icon::from_name("window-close-symbolic"))
+                .on_press(Msg::CloseEditor),
+        );
     let body = widget::Column::new()
-        .spacing(16)
+        .spacing(12)
         .push(title)
         .push(details(state, p, &row));
     widget::container(widget::scrollable(
         widget::container(body).padding([0, 12, 0, 0]),
     ))
     .padding(16)
-    .width(Length::Fill)
     .height(Length::Fill)
     .class(cosmic::theme::Container::Card)
     .into()
-}
-
-/// One swatch per role, in role order; a click opens it in the Palette
-/// workspace.
-pub fn strip(p: &Palette) -> Element<'_, Msg> {
-    Role::ALL
-        .iter()
-        .fold(widget::Row::new().spacing(6), |row, &role| {
-            let b = button::custom(swatch(Some(p.roles.get(role)), 22.))
-                .padding(0)
-                .class(cosmic::theme::Button::Icon)
-                .on_press(Msg::Select(role));
-            row.push(widget::tooltip(
-                b,
-                text::body(display_name(p, role)),
-                widget::tooltip::Position::Top,
-            ))
-        })
-        .into()
 }
 
 /// Both ratios with the minimum, each in red when under it.

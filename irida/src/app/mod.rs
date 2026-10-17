@@ -32,8 +32,7 @@ use irida_core::apply::Ctx;
 use effects::perform_caught;
 use io_queue::IoQueue;
 use irida_core::palette::Palette;
-use irida_core::role::Role;
-use state::{Current, Effect, FolderFor, Msg, Screen, State, ToastItem, Workspace, update};
+use state::{Current, Effect, FolderFor, Msg, Screen, State, ToastItem, update};
 
 pub const APP_ID: &str = "io.github.atraxsrc.Irida";
 
@@ -348,37 +347,16 @@ fn content(state: &State) -> Element<'_, Msg> {
         return wallpaper::view(state, draft);
     }
     match &state.current {
-        Some(Current::Editable { working, .. }) => match state.workspace {
-            Workspace::Palette => palette_workspace(state, working),
-            Workspace::Preview => preview_workspace(state, working),
-        },
+        Some(Current::Editable { working, .. }) => editor_view(state, working),
         Some(Current::Unreadable { slug, error, text }) => header::unreadable(slug, error, text),
         None => text::body(state.empty_text()).into(),
     }
 }
 
-/// The role list beside the selected role's editor, at a fixed width and
-/// centred, so a wide window does not stretch them.
-fn palette_workspace<'a>(state: &'a State, working: &'a Palette) -> Element<'a, Msg> {
-    let role = state.selected.unwrap_or(Role::ALL[0]);
-    let row = widget::Row::new()
-        .spacing(16)
-        .push(widget::container(roles::view(state, working)).width(Length::Fixed(280.)))
-        .push(
-            widget::container(roles::editor(state, working, role))
-                .width(Length::Fill)
-                .max_width(560.),
-        )
-        .height(Length::Fill);
-    widget::container(widget::container(row).max_width(856.))
-        .center_x(Length::Fill)
-        .height(Length::Fill)
-        .into()
-}
-
-/// The preview (or the split), its caption, the role strip and the notes.
-fn preview_workspace<'a>(state: &'a State, working: &'a Palette) -> Element<'a, Msg> {
-    let mut column = widget::Column::new().spacing(12).push(
+/// The role tiles, the preview between them and the editor column, which
+/// shows while a role is open and narrows the preview instead of covering it.
+fn editor_view<'a>(state: &'a State, working: &'a Palette) -> Element<'a, Msg> {
+    let mut column = widget::Column::new().spacing(12).width(Length::Fill).push(
         widget::scrollable(match state.split_view() {
             Some(split) => compare::view(split, &state.targets, &state.images),
             None => preview::view(scene::scene(working), state.image_status(&working.image)),
@@ -390,10 +368,16 @@ fn preview_workspace<'a>(state: &'a State, working: &'a Palette) -> Element<'a, 
     if state.split == state::Split::Off {
         column = column.push(caption::line(&state.targets));
     }
-    column
-        .push(roles::strip(working))
-        .push(roles::notes(working))
-        .into()
+    let mut row = widget::Row::new()
+        .spacing(16)
+        .push(widget::container(roles::view(state, working)).width(Length::Fixed(280.)))
+        .push(column.push(roles::notes(working)));
+    if let Some(role) = state.selected {
+        row = row.push(
+            widget::container(roles::editor(state, working, role)).width(Length::Fixed(332.)),
+        );
+    }
+    row.into()
 }
 
 #[cfg(test)]
