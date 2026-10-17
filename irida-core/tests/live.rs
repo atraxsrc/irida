@@ -600,3 +600,26 @@ fn keep_then_undo_restores_a_key_line_rewritten_in_the_session() {
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(read(&c_conf), "a = 1\ntheme = old\n");
 }
+
+#[test]
+fn keep_then_undo_with_two_keys_in_one_file() {
+    let env = TestEnv::new();
+    put_cava(&env);
+    put_target(
+        &env,
+        "y",
+        "name = \"y\"\ndetect = {}\nlive = true\n\n[[file]]\npath = \"~/.config/y/theme.toml\"\nwrite = \"key\"\nkey = \"dark\"\nsection = \"flavor\"\ntemplate = \"t.tmpl\"\n\n[[file]]\npath = \"~/.config/y/theme.toml\"\nwrite = \"key\"\nkey = \"light\"\nsection = \"flavor\"\ntemplate = \"t.tmpl\"\n",
+        &[("t.tmpl", "{{ slug }}\n")],
+    );
+    let start = "[flavor]\ndark = old\n";
+    let conf = env.write(".config/y/theme.toml", start);
+    let mut s = LiveSession::start(&ctx(&env), "ember").unwrap();
+    session_apply(&mut s, &env, &palette("ember"));
+    session_apply(&mut s, &env, &palette("noir"));
+    assert_eq!(read(&conf), "[flavor]\ndark = noir\nlight = noir\n");
+    s.keep(&ctx(&env)).unwrap();
+
+    let report = apply::undo(&ctx(&env)).unwrap();
+    assert!(report.failures.is_empty(), "{:?}", report.failures);
+    assert_eq!(read(&conf), start);
+}

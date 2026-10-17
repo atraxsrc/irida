@@ -751,7 +751,7 @@ fn same_path_skip_gives_its_reason() {
 }
 
 #[test]
-fn same_path_twice_in_one_target_keeps_note() {
+fn same_path_twice_in_one_target_as_file_is_broken() {
     let env = TestEnv::new();
     let ember = palette("ember");
     let twice = format!(
@@ -761,14 +761,13 @@ fn same_path_twice_in_one_target_keeps_note() {
     put_target(&env, "d", &twice, &[("t.tmpl", "from d\n")]);
     let conf = env.write(".config/x/f.conf", "mine\n");
 
-    let report = run(&env, &ember).unwrap();
-    applied(&report, "d");
-    let notes = warnings(&report, "d")
-        .iter()
-        .filter(|w| w.contains("replaced your file"))
-        .count();
-    assert_eq!(notes, 1, "{:?}", warnings(&report, "d"));
-    assert_eq!(read(&conf), "from d\n");
+    let Err(ApplyError::NothingToApply(results)) = run(&env, &ember) else {
+        panic!("d alone cannot apply");
+    };
+    let d = results.iter().find(|t| t.name == "d").unwrap();
+    let msg = broken(&d.status);
+    assert!(msg.contains("several writes to one file"), "{msg}");
+    assert_eq!(read(&conf), "mine\n");
 }
 
 fn block_target(name: &str, comment: &str) -> String {
@@ -825,10 +824,13 @@ template = "b.tmpl"
 
     let report = run(&env, &ember).unwrap();
     applied(&report, "x");
-    assert_eq!(read(&home(&env, ".config/x/app.conf")), "theme = irida\n");
-    let w = warnings(&report, "x");
-    assert_eq!(w.len(), 1, "{w:?}");
-    assert!(w[0].contains("already written by x"), "{}", w[0]);
+    assert_eq!(
+        read(&home(&env, ".config/x/app.conf")),
+        "theme = irida\n# >>> irida >>>\ncolour = 1\n# <<< irida <<<\n"
+    );
+    assert!(warnings(&report, "x").is_empty(), "{report:?}");
+    undo(&ctx(&env)).unwrap();
+    assert!(!home(&env, ".config/x/app.conf").exists());
 }
 
 const CO_TOML: &str = r#"name = "co"
@@ -1373,4 +1375,173 @@ fn undo_leaves_a_key_line_the_user_changed() {
     let report = undo(&ctx(&env)).unwrap();
     assert!(report.failures.is_empty(), "{:?}", report.failures);
     assert_eq!(read(&c_conf), "a = 1\ntheme = mine\n");
+}
+
+/// Target `y`: `dark` and `light` under `[flavor]` of one file.
+const Y_TOML: &str = r#"name = "y"
+detect = {}
+
+[[file]]
+path = "~/.config/y/theme.toml"
+write = "key"
+key = "dark"
+section = "flavor"
+template = "v.tmpl"
+
+[[file]]
+path = "~/.config/y/theme.toml"
+write = "key"
+key = "light"
+section = "flavor"
+template = "v.tmpl"
+"#;
+
+fn put_y(env: &TestEnv) {
+    put_target(env, "y", Y_TOML, &[("v.tmpl", "\"irida\"\n")]);
+}
+
+fn key_entries(env: &TestEnv, path: &Path) -> usize {
+    let rec = irida_core::record::latest(&env.dirs).unwrap().unwrap();
+    rec.entries
+        .iter()
+        .filter(|e| matches!(e, irida_core::record::Entry::Key { path: p, .. } if p == path))
+        .count()
+}
+
+#[test]
+fn two_keys_in_one_file_apply_and_undo() {
+    let env = TestEnv::new();
+    put_y(&env);
+    let start = "[mgr]\nshow_hidden = true\n";
+    let conf = env.write(".config/y/theme.toml", start);
+    let report = apply_only(&env, &palette("ember"), "y").unwrap();
+    assert!(
+        matches!(report.get("y").unwrap().status, TargetStatus::Applied(_)),
+        "{:?}",
+        report.get("y")
+    );
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "[mgr]\nshow_hidden = true\n[flavor]\ndark = \"irida\"\nlight = \"irida\"\n"
+    );
+    assert_eq!(key_entries(&env, &conf), 2);
+    undo(&ctx(&env)).unwrap();
+    assert_eq!(fs::read_to_string(&conf).unwrap(), start);
+}
+
+#[test]
+fn key_and_block_in_one_file() {
+    let env = TestEnv::new();
+    put_target(
+        &env,
+        "s",
+        "name = \"s\"\ndetect = {}\n\n[[file]]\npath = \"~/.config/s.toml\"\nwrite = \"key\"\nkey = \"palette\"\nplace = \"top\"\ntemplate = \"p.tmpl\"\n\n[[file]]\npath = \"~/.config/s.toml\"\nwrite = \"block\"\ncomment = \"#\"\ntemplate = \"b.tmpl\"\n",
+        &[
+            ("p.tmpl", "\"irida\"\n"),
+            ("b.tmpl", "[palettes.irida]\nred = \"#ff0000\"\n"),
+        ],
+    );
+    let start = "add_newline = false\n[character]\nsymbol = \">\"\n";
+    let conf = env.write(".config/s.toml", start);
+    apply_only(&env, &palette("ember"), "s").unwrap();
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "add_newline = false\npalette = \"irida\"\n[character]\nsymbol = \">\"\n\
+         # >>> irida >>>\n[palettes.irida]\nred = \"#ff0000\"\n# <<< irida <<<\n"
+    );
+    undo(&ctx(&env)).unwrap();
+    assert_eq!(fs::read_to_string(&conf).unwrap(), start);
+}
+
+#[test]
+fn two_edits_keep_crlf() {
+    for (start, after) in [
+        (
+            "[mgr]\r\nshow_hidden = true\r\n",
+            "[mgr]\r\nshow_hidden = true\r\n[flavor]\r\ndark = \"irida\"\r\nlight = \"irida\"\r\n",
+        ),
+        (
+            "[mgr]\nshow_hidden = true",
+            "[mgr]\nshow_hidden = true\n[flavor]\ndark = \"irida\"\nlight = \"irida\"\n",
+        ),
+    ] {
+        let env = TestEnv::new();
+        put_y(&env);
+        let conf = env.write(".config/y/theme.toml", start);
+        apply_only(&env, &palette("ember"), "y").unwrap();
+        assert_eq!(fs::read_to_string(&conf).unwrap(), after);
+        undo(&ctx(&env)).unwrap();
+        assert_eq!(fs::read_to_string(&conf).unwrap(), start);
+    }
+}
+
+#[test]
+fn two_edits_reapply_then_undo_twice() {
+    let env = TestEnv::new();
+    put_y(&env);
+    let start = "[flavor]\ndark = \"old\"\n";
+    let conf = env.write(".config/y/theme.toml", start);
+    apply_only(&env, &palette("ember"), "y").unwrap();
+    let first = fs::read_to_string(&conf).unwrap();
+    assert_eq!(first, "[flavor]\ndark = \"irida\"\nlight = \"irida\"\n");
+    apply_only(&env, &palette("ember"), "y").unwrap();
+    assert_eq!(fs::read_to_string(&conf).unwrap(), first);
+    undo(&ctx(&env)).unwrap();
+    assert_eq!(fs::read_to_string(&conf).unwrap(), first);
+    undo(&ctx(&env)).unwrap();
+    assert_eq!(fs::read_to_string(&conf).unwrap(), start);
+}
+
+#[test]
+fn first_edit_skipped_second_applies() {
+    let env = TestEnv::new();
+    put_target(
+        &env,
+        "m",
+        "name = \"m\"\ndetect = {}\n\n[[file]]\npath = \"~/.config/m.conf\"\nwrite = \"block\"\ncomment = \"#\"\ntemplate = \"b.tmpl\"\n\n[[file]]\npath = \"~/.config/m.conf\"\nwrite = \"key\"\nkey = \"theme\"\ntemplate = \"k.tmpl\"\n",
+        &[("b.tmpl", "x = 1\n"), ("k.tmpl", "irida\n")],
+    );
+    let start = "a = 1\n# >>> irida >>>\nb = 2\n";
+    let conf = env.write(".config/m.conf", start);
+    let report = apply_only(&env, &palette("ember"), "m").unwrap();
+    assert!(
+        warnings(&report, "m")
+            .iter()
+            .any(|w| w.contains("markers are broken")),
+        "{:?}",
+        warnings(&report, "m")
+    );
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "a = 1\n# >>> irida >>>\nb = 2\ntheme = irida\n"
+    );
+    undo(&ctx(&env)).unwrap();
+    assert_eq!(fs::read_to_string(&conf).unwrap(), start);
+}
+
+#[test]
+fn two_targets_one_path_still_guarded() {
+    let env = TestEnv::new();
+    put_y(&env);
+    put_target(
+        &env,
+        "z",
+        "name = \"z\"\ndetect = {}\n\n[[file]]\npath = \"~/.config/y/theme.toml\"\nwrite = \"key\"\nkey = \"other\"\ntemplate = \"v.tmpl\"\n",
+        &[("v.tmpl", "1\n")],
+    );
+    env.write(".config/y/theme.toml", "");
+    let report = apply(
+        &ctx(&env),
+        &Settings::default(),
+        &ApplyRequest {
+            palette: &palette("ember"),
+            pair: None,
+            only: Some(vec!["y".into(), "z".into()]),
+            live_only: false,
+        },
+    )
+    .unwrap();
+    let msg = broken(&report.get("z").unwrap().status);
+    assert!(msg.contains("already written by y"), "{msg}");
+    assert!(warnings(&report, "y").is_empty(), "{report:?}");
 }

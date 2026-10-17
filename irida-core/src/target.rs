@@ -249,6 +249,18 @@ fn build(
             return invalid(format!("{}: missing template {}", f.path, f.template));
         }
     }
+    // Several edits to one file are chained; a whole-file write cannot be.
+    for (i, f) in def.files.iter().enumerate() {
+        let shared = def.files[i + 1..].iter().find(|g| g.path == f.path);
+        if let Some(g) = shared
+            && (f.write == WriteKind::File || g.write == WriteKind::File)
+        {
+            return invalid(format!(
+                "{}: several writes to one file must all be key or block",
+                f.path
+            ));
+        }
+    }
     if let Some(sig) = def.reload.as_ref().and_then(|r| r.signal.as_ref())
         && !crate::reload::SIGNAL_NAMES.contains(&sig.signal.as_str())
     {

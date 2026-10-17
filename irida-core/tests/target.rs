@@ -478,3 +478,36 @@ fn builtin_names_are_the_target_folders() {
     folders.sort();
     assert_eq!(irida_core::target::builtin_names(), folders);
 }
+
+#[test]
+fn file_write_sharing_a_path_is_rejected() {
+    let env = TestEnv::new();
+    put(
+        &env,
+        "f",
+        "name = \"f\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"file\"\ntemplate = \"a\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"key\"\nkey = \"theme\"\ntemplate = \"a\"\n",
+        &["a"],
+    );
+    let all = load_targets(&env.dirs);
+    match &find(&all, "f").result {
+        Err(TargetError::Invalid(msg)) => {
+            assert!(msg.contains("several writes to"), "{msg}");
+            assert!(msg.contains("~/.x"), "{msg}");
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+#[test]
+fn two_key_writes_to_one_path_load() {
+    let env = TestEnv::new();
+    put(
+        &env,
+        "k",
+        "name = \"k\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"key\"\nkey = \"dark\"\ntemplate = \"a\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"key\"\nkey = \"light\"\ntemplate = \"a\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"block\"\ncomment = \"#\"\ntemplate = \"a\"\n",
+        &["a"],
+    );
+    let all = load_targets(&env.dirs);
+    let k = find(&all, "k").result.as_ref().unwrap();
+    assert_eq!(k.def.files.len(), 3);
+}

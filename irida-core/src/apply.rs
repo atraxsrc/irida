@@ -275,7 +275,9 @@ enum Edit {
 struct PlannedWrite {
     path: PathBuf,
     contents: String,
-    edit: Edit,
+    /// One edit, or several `key` / `block` edits of one target to the same
+    /// file, in the order they were planned.
+    edits: Vec<Edit>,
     /// Warnings for the result, such as "replaced your import line".
     notes: Vec<String>,
 }
@@ -283,81 +285,92 @@ struct PlannedWrite {
 impl PlannedWrite {
     /// The record entries for this write, all sharing the one captured `blob`.
     fn entries(&self, blob: Option<String>) -> Vec<Entry> {
-        let path = self.path.clone();
-        match &self.edit {
-            Edit::File => vec![Entry::File { path, blob }],
-            Edit::Block {
-                comment,
-                before,
-                appended_newline,
-            } => vec![Entry::Block {
-                path,
-                blob,
-                comment: comment.clone(),
-                before: before.clone(),
-                appended_newline: *appended_newline,
-            }],
-            Edit::Key {
-                key,
-                separator,
-                written,
-                place,
-                section,
-                repeatable,
-                before,
-                appended_newline,
-                created_section,
-            } => vec![Entry::Key {
-                path,
-                blob,
-                key: key.clone(),
-                separator: separator.clone(),
-                written: written.clone(),
-                place: place.clone(),
-                section: section.clone(),
-                repeatable: *repeatable,
-                before: before.clone(),
-                appended_newline: *appended_newline,
-                created_section: *created_section,
-            }],
-            Edit::Native(undo) => undo
-                .iter()
-                .map(|u| match u {
-                    NativeUndo::TermScheme {
-                        mode,
-                        id,
-                        name,
-                        before,
-                    } => Entry::TermScheme {
-                        path: path.clone(),
-                        blob: blob.clone(),
-                        mode: *mode,
-                        id: *id,
-                        name: name.clone(),
-                        before: before.clone(),
-                    },
-                    NativeUndo::TermProfileTheme {
-                        profile,
-                        field,
-                        before,
-                    } => Entry::TermProfileTheme {
-                        path: path.clone(),
-                        blob: blob.clone(),
-                        profile: *profile,
-                        field: field.clone(),
-                        before: before.clone(),
-                    },
-                })
-                .collect(),
-        }
+        self.edits
+            .iter()
+            .flat_map(|e| edit_entries(&self.path, e, blob.clone()))
+            .collect()
     }
 
     /// How many record entries `entries` makes.
     fn entry_count(&self) -> usize {
-        match &self.edit {
-            Edit::Native(undo) => undo.len(),
-            _ => 1,
-        }
+        self.edits
+            .iter()
+            .map(|e| match e {
+                Edit::Native(undo) => undo.len(),
+                _ => 1,
+            })
+            .sum()
+    }
+}
+
+/// The record entries for one edit of the file at `path`.
+fn edit_entries(path: &Path, edit: &Edit, blob: Option<String>) -> Vec<Entry> {
+    let path = path.to_path_buf();
+    match edit {
+        Edit::File => vec![Entry::File { path, blob }],
+        Edit::Block {
+            comment,
+            before,
+            appended_newline,
+        } => vec![Entry::Block {
+            path,
+            blob,
+            comment: comment.clone(),
+            before: before.clone(),
+            appended_newline: *appended_newline,
+        }],
+        Edit::Key {
+            key,
+            separator,
+            written,
+            place,
+            section,
+            repeatable,
+            before,
+            appended_newline,
+            created_section,
+        } => vec![Entry::Key {
+            path,
+            blob,
+            key: key.clone(),
+            separator: separator.clone(),
+            written: written.clone(),
+            place: place.clone(),
+            section: section.clone(),
+            repeatable: *repeatable,
+            before: before.clone(),
+            appended_newline: *appended_newline,
+            created_section: *created_section,
+        }],
+        Edit::Native(undo) => undo
+            .iter()
+            .map(|u| match u {
+                NativeUndo::TermScheme {
+                    mode,
+                    id,
+                    name,
+                    before,
+                } => Entry::TermScheme {
+                    path: path.clone(),
+                    blob: blob.clone(),
+                    mode: *mode,
+                    id: *id,
+                    name: name.clone(),
+                    before: before.clone(),
+                },
+                NativeUndo::TermProfileTheme {
+                    profile,
+                    field,
+                    before,
+                } => Entry::TermProfileTheme {
+                    path: path.clone(),
+                    blob: blob.clone(),
+                    profile: *profile,
+                    field: field.clone(),
+                    before: before.clone(),
+                },
+            })
+            .collect(),
     }
 }
 
@@ -502,12 +515,14 @@ fn missing_line<'r>(rendered: &'r str, existing: &str) -> Option<(&'r str, Optio
 }
 
 /// Plan one `[[file]]`. `Err` is a warning: the file is left alone. `Ok(None)`
-/// drops the write with nothing to report.
+/// drops the write with nothing to report. `start` is the text an earlier edit
+/// of the same file planned, used in place of the file on disk.
 fn plan_file(
     f: &FileEntry,
     path: PathBuf,
     rendered: String,
     prior_lines: &[&str],
+    start: Option<&str>,
 ) -> Result<Option<PlannedWrite>, String> {
     let skip = |why: &dyn fmt::Display| format!("{}: {why}; skipped", path.display());
     if f.write == WriteKind::File {
@@ -530,11 +545,14 @@ fn plan_file(
         return Ok(Some(PlannedWrite {
             path,
             contents: rendered,
-            edit: Edit::File,
+            edits: vec![Edit::File],
             notes: Vec::new(),
         }));
     }
-    let existing = read_existing(&path).map_err(|e| skip(&e))?;
+    let existing = match start {
+        Some(text) => Some(text.to_string()),
+        None => read_existing(&path).map_err(|e| skip(&e))?,
+    };
     match f.write {
         WriteKind::Block => {
             let comment = f
@@ -546,11 +564,11 @@ fn plan_file(
             Ok(Some(PlannedWrite {
                 path,
                 contents: edit.contents,
-                edit: Edit::Block {
+                edits: vec![Edit::Block {
                     comment,
                     before: edit.before,
                     appended_newline: edit.appended_newline,
-                },
+                }],
                 notes: Vec::new(),
             }))
         }
@@ -594,7 +612,7 @@ fn plan_file(
                 path,
                 contents: edit.contents,
                 notes,
-                edit: Edit::Key {
+                edits: vec![Edit::Key {
                     written,
                     key,
                     separator: opts.separator,
@@ -604,7 +622,7 @@ fn plan_file(
                     before: edit.before,
                     appended_newline: edit.appended_newline,
                     created_section: edit.created_section,
-                },
+                }],
             }))
         }
     }
@@ -691,13 +709,22 @@ fn plan_target<'t>(
             .map_err(|e| render_error(e.to_string()))?;
         let path = dirs.expand(&f.path);
         let prior_lines = prior.lines_of(&path);
-        match plan_file(f, path, rendered, &prior_lines) {
+        // A later edit of a file this target already edits builds on that text.
+        let earlier = writes.iter().position(|w: &PlannedWrite| w.path == path);
+        let start = earlier.map(|i| writes[i].contents.clone());
+        match plan_file(f, path, rendered, &prior_lines, start.as_deref()) {
             Ok(Some(mut w)) => {
                 if f.write == WriteKind::File && replaces_user_file(&w, &prior.paths) {
                     warnings.push(replaced_note(&w.path));
                 }
                 warnings.append(&mut w.notes);
-                writes.push(w);
+                match earlier {
+                    Some(i) => {
+                        writes[i].contents = w.contents;
+                        writes[i].edits.append(&mut w.edits);
+                    }
+                    None => writes.push(w),
+                }
             }
             Ok(None) => {}
             Err(warning) => warnings.push(warning),
@@ -711,11 +738,11 @@ fn plan_target<'t>(
                     path: w.path,
                     contents: w.contents,
                     notes: Vec::new(),
-                    edit: if w.undo.is_empty() {
+                    edits: vec![if w.undo.is_empty() {
                         Edit::File
                     } else {
                         Edit::Native(w.undo)
-                    },
+                    }],
                 }));
                 warnings.extend(plan.warnings);
             }
@@ -859,73 +886,75 @@ fn add_session_entries(rec: &mut RecordWriter, writes: &[&PlannedWrite]) -> io::
             }
             continue;
         }
-        if let Edit::Key { key, written, .. } = &w.edit {
-            // Undo must recognise the line this apply wrote there.
-            for e in rec.entries_mut() {
-                if let Entry::Key {
-                    path,
-                    key: k,
-                    written: wr,
-                    ..
-                } = e
-                    && *path == w.path
-                    && k == key
-                {
-                    wr.clone_from(written);
-                }
-            }
-            continue;
-        }
-        let Edit::Native(undo) = &w.edit else {
-            continue;
-        };
-        let (blob, text) = match rec.captured(&w.path)? {
-            Some((name, bytes)) => (Some(name), String::from_utf8(bytes).ok()),
-            None => (None, None),
-        };
-        for u in undo {
-            match u {
-                NativeUndo::TermScheme { mode, id, name, .. } => {
-                    let known = rec.entries_mut().iter_mut().find_map(|e| match e {
-                        Entry::TermScheme {
-                            path,
-                            mode: m,
-                            id: i,
-                            name: n,
-                            ..
-                        } if *path == w.path && m == mode && i == id => Some(n),
-                        _ => None,
-                    });
-                    match known {
-                        // Undo must recognise the scheme this apply wrote there.
-                        Some(n) => n.clone_from(name),
-                        None => rec.push(Entry::TermScheme {
-                            path: w.path.clone(),
-                            blob: blob.clone(),
-                            mode: *mode,
-                            id: *id,
-                            name: name.clone(),
-                            before: text
-                                .as_deref()
-                                .and_then(|t| cosmic_term::scheme_before(t, *id)),
-                        }),
+        for edit in &w.edits {
+            if let Edit::Key { key, written, .. } = edit {
+                // Undo must recognise the line this apply wrote there.
+                for e in rec.entries_mut() {
+                    if let Entry::Key {
+                        path,
+                        key: k,
+                        written: wr,
+                        ..
+                    } = e
+                        && *path == w.path
+                        && k == key
+                    {
+                        wr.clone_from(written);
                     }
                 }
-                NativeUndo::TermProfileTheme { profile, field, .. } => {
-                    let known = rec.record().entries.iter().any(|e| {
-                        matches!(e, Entry::TermProfileTheme { path, profile: p, field: f, .. }
-                            if *path == w.path && p == profile && f == field)
-                    });
-                    if !known {
-                        rec.push(Entry::TermProfileTheme {
-                            path: w.path.clone(),
-                            blob: blob.clone(),
-                            profile: *profile,
-                            field: field.clone(),
-                            before: text.as_deref().and_then(|t| {
-                                cosmic_term::profile_theme_before(t, *profile, field)
-                            }),
+                continue;
+            }
+            let Edit::Native(undo) = edit else {
+                continue;
+            };
+            let (blob, text) = match rec.captured(&w.path)? {
+                Some((name, bytes)) => (Some(name), String::from_utf8(bytes).ok()),
+                None => (None, None),
+            };
+            for u in undo {
+                match u {
+                    NativeUndo::TermScheme { mode, id, name, .. } => {
+                        let known = rec.entries_mut().iter_mut().find_map(|e| match e {
+                            Entry::TermScheme {
+                                path,
+                                mode: m,
+                                id: i,
+                                name: n,
+                                ..
+                            } if *path == w.path && m == mode && i == id => Some(n),
+                            _ => None,
                         });
+                        match known {
+                            // Undo must recognise the scheme this apply wrote there.
+                            Some(n) => n.clone_from(name),
+                            None => rec.push(Entry::TermScheme {
+                                path: w.path.clone(),
+                                blob: blob.clone(),
+                                mode: *mode,
+                                id: *id,
+                                name: name.clone(),
+                                before: text
+                                    .as_deref()
+                                    .and_then(|t| cosmic_term::scheme_before(t, *id)),
+                            }),
+                        }
+                    }
+                    NativeUndo::TermProfileTheme { profile, field, .. } => {
+                        let known = rec.record().entries.iter().any(|e| {
+                            matches!(e, Entry::TermProfileTheme { path, profile: p, field: f, .. }
+                                if *path == w.path && p == profile && f == field)
+                        });
+                        if !known {
+                            rec.push(Entry::TermProfileTheme {
+                                path: w.path.clone(),
+                                blob: blob.clone(),
+                                profile: *profile,
+                                field: field.clone(),
+                                before: text.as_deref().and_then(|t| {
+                                    cosmic_term::profile_theme_before(t, *profile, field)
+                                }),
+                            });
+                        }
                     }
                 }
             }
