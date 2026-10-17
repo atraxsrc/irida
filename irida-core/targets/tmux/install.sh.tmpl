@@ -57,7 +57,7 @@ else
     echo "  tmux.conf: $line"
 fi
 
-if tmux info >/dev/null 2>&1; then
+if tmux has-session >/dev/null 2>&1; then
     tmux source-file "$conf"
     echo "Done. Reloaded the running tmux server"
 else

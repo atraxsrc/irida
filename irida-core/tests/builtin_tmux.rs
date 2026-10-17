@@ -10,7 +10,7 @@ use irida_core::live::LiveSession;
 use irida_core::store::Settings;
 
 /// Apply tmux with a fake `tmux` on the path that logs its arguments to
-/// `tmux.log`; `info` succeeds only when `server` is true.
+/// `tmux.log`; `has-session` succeeds only when `server` is true.
 fn apply_with_tmux(env: &TestEnv, server: bool) -> ApplyReport {
     apply(
         &ctx_with_tmux(env, server),
@@ -31,11 +31,11 @@ fn ctx_with_tmux(env: &TestEnv, server: bool) -> Ctx {
     fs::create_dir_all(&bin).unwrap();
     let tmux = bin.join("tmux");
     let log = env.tmp.path().join("tmux.log");
-    let info = if server { 0 } else { 1 };
+    let probe = if server { 0 } else { 1 };
     fs::write(
         &tmux,
         format!(
-            "#!/bin/sh\necho \"$*\" >> '{}'\n[ \"$1\" = info ] && exit {info}\nexit 0\n",
+            "#!/bin/sh\necho \"$*\" >> '{}'\n[ \"$1\" = has-session ] && exit {probe}\nexit 0\n",
             log.display()
         ),
     )
@@ -169,6 +169,24 @@ fn no_server_is_not_a_failure() {
         "{}",
         tmux_log(&env)
     );
+}
+
+/// The reload and the install script ask whether a server runs with
+/// has-session, which needs no client: `tmux info` is show-messages, which
+/// fails outside a tmux client, so run from the app it never reloaded.
+#[test]
+fn server_probe_needs_no_client() {
+    let env = TestEnv::new();
+    apply_with_tmux(&env, true);
+    let log = tmux_log(&env);
+    assert_eq!(log.lines().next(), Some("has-session"), "{log}");
+    assert!(!log.contains("info"), "{log}");
+    let install = render_export("ember", "tmux", "install.sh.tmpl");
+    assert!(
+        install.contains("if tmux has-session >/dev/null 2>&1; then"),
+        "{install}"
+    );
+    assert!(!install.contains("tmux info"), "{install}");
 }
 
 /// source-file only sets options, so the reload first puts back tmux's
