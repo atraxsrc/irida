@@ -7,7 +7,8 @@
 # $XDG_CONFIG_HOME) and, when config.kdl has no theme line yet, adds
 # theme "emberday". An existing theme line is left for you to change by
 # hand. zellij 0.45 or newer picks it up live; restart older sessions.
-# Backs up a differing theme file to emberday.kdl.bak. Safe to run again.
+# Backs up a differing theme file to emberday.kdl.bak and config.kdl to
+# config.kdl.bak when it changes. Safe to run again.
 set -euo pipefail
 
 # Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
@@ -47,6 +48,9 @@ if [ -f "$conf" ] && grep -qxF "$line" "$conf"; then
 elif [ -f "$conf" ] && grep -qE '^[[:space:]]*theme[[:space:]]' "$conf"; then
     echo "  config.kdl has a theme line; change it to $line by hand"
 else
+    if [ -f "$conf" ]; then
+        backup "$conf"
+    fi
     if [ -s "$conf" ] && [ -n "$(tail -c 1 "$conf")" ]; then
         echo >> "$conf"
     fi

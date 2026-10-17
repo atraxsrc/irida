@@ -161,3 +161,58 @@ fn include_lines_follow_xdg_config_home() {
     );
     assert!(alacritty.contains(&want), "{alacritty}");
 }
+
+/// zellij and yazi append a selector line to the user's own config; the
+/// file is backed up first.
+#[test]
+fn appending_to_a_user_config_backs_it_up() {
+    let cases = [
+        (
+            "zellij",
+            &["ember.kdl"][..],
+            ".config/zellij/config.kdl",
+            "keybinds {\n}\n",
+        ),
+        (
+            "yazi",
+            &["ember.yazi/flavor.toml", "ember.yazi/tmtheme.xml"][..],
+            ".config/yazi/theme.toml",
+            "[mgr]\nborder_symbol = \"|\"\n",
+        ),
+    ];
+    for (target, files, conf, text) in cases {
+        let env = TestEnv::new();
+        let rice = env.tmp.path().join("rice").join(target);
+        for f in files {
+            let p = rice.join(f);
+            fs::create_dir_all(p.parent().unwrap()).unwrap();
+            fs::write(p, "x\n").unwrap();
+        }
+        fs::write(
+            rice.join("install.sh"),
+            render_export("ember", target, "install.sh.tmpl"),
+        )
+        .unwrap();
+        let conf = env.write(conf, text);
+        let out = Command::new("/bin/bash")
+            .arg(rice.join("install.sh"))
+            .env_clear()
+            .env("HOME", &env.dirs.home)
+            .env("PATH", "/usr/bin:/bin")
+            .output()
+            .unwrap();
+        assert!(out.status.success(), "{target}: {out:?}");
+        let name = conf.file_name().unwrap().to_string_lossy();
+        let stdout = String::from_utf8(out.stdout).unwrap();
+        assert!(
+            stdout.contains(&format!("backup: {name}.bak")),
+            "{target}: {stdout}"
+        );
+        let bak = conf.with_file_name(format!("{name}.bak"));
+        assert_eq!(fs::read_to_string(bak).unwrap(), text, "{target}");
+        assert!(
+            fs::read_to_string(&conf).unwrap().starts_with(text),
+            "{target}"
+        );
+    }
+}

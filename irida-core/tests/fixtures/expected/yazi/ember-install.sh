@@ -7,8 +7,8 @@
 # $XDG_CONFIG_HOME) and, when theme.toml does not set flavor yet, adds a
 # [flavor] section with dark and light both set to ember (yazi 25.12.29
 # or newer). An existing flavor setting is left for you to edit by hand.
-# Backs up differing flavor files to <file>.bak. Restart yazi to see it.
-# Safe to run again.
+# Backs up differing flavor files to <file>.bak and theme.toml to
+# theme.toml.bak when it changes. Restart yazi to see it. Safe to run again.
 set -euo pipefail
 
 # Copy a file to <file>.bak, or to <file>.bak-1, -2 and so on when that is
@@ -49,6 +49,9 @@ if [ -f "$conf" ] && grep -qxF 'dark = "ember"' "$conf" && grep -qxF 'light = "e
 elif [ -f "$conf" ] && grep -qE '^[[:space:]]*(\[flavor\]|flavor[[:space:]]*[=.])' "$conf"; then
     echo "  theme.toml already sets flavor; set dark and light to \"ember\" by hand"
 else
+    if [ -f "$conf" ]; then
+        backup "$conf"
+    fi
     if [ -s "$conf" ] && [ -n "$(tail -c 1 "$conf")" ]; then
         echo >> "$conf"
     fi
