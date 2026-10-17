@@ -1026,7 +1026,7 @@ pub(crate) fn apply_into(
         return Err(ApplyError::UnknownTarget(unknown.clone()));
     }
 
-    let renderer = Renderer::new(req.palette);
+    let renderer = Renderer::new(req.palette).with_dirs(&ctx.dirs);
     // Files Irida wrote last time: the newest record's, and an open session's.
     let latest = record::latest(&ctx.dirs)
         .ok()

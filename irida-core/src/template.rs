@@ -118,6 +118,15 @@ impl Renderer {
         Renderer::build(p, false)
     }
 
+    /// The same renderer with `config_dir`, which is `~/.config` until set,
+    /// naming `dirs`' config folder.
+    pub fn with_dirs(mut self, dirs: &crate::dirs::Dirs) -> Renderer {
+        self.fields
+            .insert("config_dir".into(), Value::from(dirs.config_display()));
+        self.ctx = Value::from_serialize(&self.fields);
+        self
+    }
+
     /// A renderer for exporting a rice repo: `export` is `true`.
     pub fn for_export(p: &Palette) -> Renderer {
         Renderer::build(p, true)
@@ -139,6 +148,8 @@ impl Renderer {
         ctx.insert("stem".into(), Value::from(p.stem()));
         ctx.insert("mode".into(), Value::from(p.mode.to_string()));
         ctx.insert("export".into(), Value::from(export));
+        // Where config files point at each other; `with_dirs` sets this machine's.
+        ctx.insert("config_dir".into(), Value::from("~/.config"));
         ctx.insert(
             "notes".into(),
             Value::from(p.notes.clone().unwrap_or_default()),

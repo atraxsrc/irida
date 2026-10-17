@@ -186,3 +186,26 @@ fn apply_keeps_existing_gitconfig() {
     undo(&env);
     assert_eq!(fs::read_to_string(&gc).unwrap(), "[user]\n    name = x\n");
 }
+
+#[test]
+fn include_path_follows_xdg_config_home() {
+    let mut env = TestEnv::new();
+    env.dirs.config = env.dirs.home.join("cfg");
+    apply_with_binary(&env, &palette("ember"));
+    let gc = fs::read_to_string(env.dirs.home.join(".gitconfig")).unwrap();
+    assert!(
+        gc.contains("    path = ~/cfg/delta/irida.gitconfig\n"),
+        "{gc}"
+    );
+    assert!(env.dirs.home.join("cfg/delta/irida.gitconfig").is_file());
+
+    let mut env = TestEnv::new();
+    env.dirs.config = env.tmp.path().join("elsewhere");
+    apply_with_binary(&env, &palette("ember"));
+    let gc = fs::read_to_string(env.dirs.home.join(".gitconfig")).unwrap();
+    let want = format!(
+        "    path = {}/delta/irida.gitconfig\n",
+        env.dirs.config.display()
+    );
+    assert!(gc.contains(&want), "{gc}");
+}

@@ -16,6 +16,7 @@ fn expand_paths() {
         config: "/x/cfg".into(),
         data: "/x/data".into(),
         state: "/x/state".into(),
+        vars: Default::default(),
     };
     assert_eq!(
         d.expand("~/.config/btop/btop.conf"),
@@ -478,4 +479,36 @@ fn saved_slug_test() {
     assert!(!is_saved_slug(env.tmp.path().to_str().unwrap()));
     let file = fixture("palettes/ember.toml");
     assert!(!is_saved_slug(file.to_str().unwrap()));
+}
+
+#[test]
+fn expand_variable_with_fallback() {
+    let mut d = Dirs::under(std::path::Path::new("/t"));
+    let path = "${EZA_CONFIG_DIR:-~/.config/eza}/theme.yml";
+    assert_eq!(
+        d.expand(path),
+        PathBuf::from("/t/home/.config/eza/theme.yml")
+    );
+    d.vars.insert("EZA_CONFIG_DIR".into(), "/e".into());
+    assert_eq!(d.expand(path), PathBuf::from("/e/theme.yml"));
+    assert_eq!(
+        d.expand("${EZA_CONFIG_DIR:-~/.config/eza}"),
+        PathBuf::from("/e")
+    );
+    // Not a whole path segment: left as it is.
+    assert_eq!(
+        d.expand("${EZA_CONFIG_DIR:-x}y"),
+        PathBuf::from("${EZA_CONFIG_DIR:-x}y")
+    );
+}
+
+#[test]
+fn config_dir_as_a_config_file_names_it() {
+    let o = |s: &str| Some(std::ffi::OsString::from(s));
+    let d = Dirs::from_vars(o("/h"), None, None, None).unwrap();
+    assert_eq!(d.config_display(), "~/.config");
+    let d = Dirs::from_vars(o("/h"), o("/h/cfg"), None, None).unwrap();
+    assert_eq!(d.config_display(), "~/cfg");
+    let d = Dirs::from_vars(o("/h"), o("/x/cfg"), None, None).unwrap();
+    assert_eq!(d.config_display(), "/x/cfg");
 }

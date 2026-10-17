@@ -181,3 +181,15 @@ fn every_theme_table_is_under_colors() {
         }
     }
 }
+
+#[test]
+fn import_follows_xdg_config_home() {
+    let mut env = TestEnv::new();
+    env.dirs.config = env.dirs.home.join("cfg");
+    let conf = env.write("cfg/alacritty/alacritty.toml", "[font]\nsize = 12\n");
+    apply_only(&env, &palette("ember"), "alacritty").unwrap();
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "[font]\nsize = 12\n[general]\nimport = [\"~/cfg/alacritty/themes/irida.toml\"]\n"
+    );
+}

@@ -114,3 +114,25 @@ fn apply_replaces_existing_theme_with_warning() {
     undo(&env);
     assert_eq!(fs::read_to_string(&theme).unwrap(), "colourful: false\n");
 }
+
+#[test]
+fn apply_follows_eza_config_dir() {
+    let mut env = TestEnv::new();
+    let dir = env.tmp.path().join("eza-cfg");
+    fs::create_dir_all(&dir).unwrap();
+    env.dirs.vars.insert("EZA_CONFIG_DIR".into(), dir.clone());
+    let report = apply_only(&env, &palette("ember"), "eza").unwrap();
+    let t = report.get("eza").unwrap();
+    assert!(
+        matches!(t.status, TargetStatus::Applied(_)),
+        "{:?}",
+        t.status
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join("theme.yml")).unwrap(),
+        render_apply("ember", "eza", "theme.yml.tmpl")
+    );
+    assert!(!env.dirs.config.join("eza").exists());
+    undo(&env);
+    assert!(!dir.join("theme.yml").exists());
+}

@@ -124,3 +124,15 @@ fn apply_keeps_users_own_include() {
     undo(&env);
     assert_eq!(fs::read_to_string(&conf).unwrap(), text);
 }
+
+#[test]
+fn include_follows_xdg_config_home() {
+    let mut env = TestEnv::new();
+    env.dirs.config = env.dirs.home.join("cfg");
+    let conf = env.write("cfg/foot/foot.ini", "[main]\nfont=monospace\n");
+    apply_only(&env, &palette("ember"), "foot").unwrap();
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "include=~/cfg/foot/irida.ini\n[main]\nfont=monospace\n"
+    );
+}

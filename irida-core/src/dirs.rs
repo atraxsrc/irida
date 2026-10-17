@@ -1,5 +1,6 @@
 //! XDG folders and path expansion.
 
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::fmt;
 use std::path::{Path, PathBuf};
@@ -10,6 +11,9 @@ pub struct Dirs {
     pub config: PathBuf,
     pub data: PathBuf,
     pub state: PathBuf,
+    /// Environment variables holding an absolute path, for `${NAME:-fallback}`
+    /// in target paths.
+    pub vars: BTreeMap<String, PathBuf>,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -37,12 +41,19 @@ fn xdg(value: Option<OsString>, fallback: PathBuf) -> PathBuf {
 impl Dirs {
     pub fn from_env() -> Result<Dirs, DirsError> {
         let var = std::env::var_os;
-        Dirs::from_vars(
+        let mut dirs = Dirs::from_vars(
             var("HOME"),
             var("XDG_CONFIG_HOME"),
             var("XDG_DATA_HOME"),
             var("XDG_STATE_HOME"),
-        )
+        )?;
+        dirs.vars = std::env::vars_os()
+            .filter_map(|(k, v)| {
+                let k = k.into_string().ok()?;
+                Path::new(&v).is_absolute().then(|| (k, PathBuf::from(v)))
+            })
+            .collect();
+        Ok(dirs)
     }
 
     /// Build the folders from raw variable values. `home` must be absolute;
@@ -62,6 +73,7 @@ impl Dirs {
             data: xdg(xdg_data, home.join(".local/share")),
             state: xdg(xdg_state, home.join(".local/state")),
             home,
+            vars: BTreeMap::new(),
         })
     }
 
@@ -73,11 +85,40 @@ impl Dirs {
             data: home.join(".local/share"),
             state: home.join(".local/state"),
             home,
+            vars: BTreeMap::new(),
         }
     }
 
-    /// Expand `~/`, `~/.config/` and `$XDG_*_HOME/` prefixes; other paths are unchanged.
+    /// The config folder as a config file names it: `~/` and the rest for a
+    /// folder in the home folder, else its absolute path.
+    pub fn config_display(&self) -> String {
+        match self.config.strip_prefix(&self.home) {
+            Ok(rest) if !rest.as_os_str().is_empty() => format!("~/{}", rest.display()),
+            _ => self.config.display().to_string(),
+        }
+    }
+
+    /// Expand `~/`, `~/.config/` and `$XDG_*_HOME/` prefixes, and a leading
+    /// `${NAME:-fallback}`: the variable's absolute path when it holds one, else
+    /// the expanded fallback. Other paths are unchanged.
     pub fn expand(&self, p: &str) -> PathBuf {
+        if let Some((name, fallback, rest)) = p
+            .strip_prefix("${")
+            .and_then(|r| r.split_once('}'))
+            .and_then(|(var, rest)| {
+                let (name, fallback) = var.split_once(":-")?;
+                (rest.is_empty() || rest.starts_with('/')).then_some((name, fallback, rest))
+            })
+        {
+            let base = match self.vars.get(name) {
+                Some(v) => v.clone(),
+                None => self.expand(fallback),
+            };
+            return match rest.strip_prefix('/') {
+                Some(r) => base.join(r),
+                None => base,
+            };
+        }
         let vars = [
             ("$XDG_CONFIG_HOME", &self.config),
             ("$XDG_DATA_HOME", &self.data),

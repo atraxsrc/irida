@@ -6,10 +6,10 @@
 # LS_COLORS keeps colouring them; this file colours the rest of the listing.
 name = "eza"
 display = "eza"
-detect = { binary = "eza", config = "~/.config/eza" }
+detect = { binary = "eza", config = "${EZA_CONFIG_DIR:-~/.config/eza}" }
 
 [[file]]
-path = "~/.config/eza/theme.yml"
+path = "${EZA_CONFIG_DIR:-~/.config/eza}/theme.yml"
 write = "file"
 template = "theme.yml.tmpl"
 
