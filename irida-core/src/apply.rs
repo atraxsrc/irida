@@ -724,6 +724,17 @@ fn plan_target<'t>(
         let prior_lines = prior.lines_of(&path);
         // A later edit of a file this target already edits builds on that text.
         let earlier = writes.iter().position(|w: &PlannedWrite| w.path == path);
+        // The load check compares paths as written; this one sees them expanded.
+        if let Some(i) = earlier
+            && (f.write == WriteKind::File
+                || writes[i].edits.iter().any(|e| matches!(e, Edit::File)))
+        {
+            warnings.push(format!(
+                "{}: several writes to one file must all be key or block; skipped",
+                path.display()
+            ));
+            continue;
+        }
         let start = earlier.map(|i| writes[i].contents.clone());
         match plan_file(f, path, rendered, &prior_lines, start.as_deref()) {
             Ok(Some(mut w)) => {

@@ -1545,3 +1545,34 @@ fn two_targets_one_path_still_guarded() {
     assert!(msg.contains("already written by y"), "{msg}");
     assert!(warnings(&report, "y").is_empty(), "{report:?}");
 }
+
+/// Two paths that differ as written but name one file: the whole-file write
+/// cannot be chained with the key edit, so the later write is skipped.
+#[test]
+fn file_write_sharing_an_expanded_path_is_skipped() {
+    let key = "[[file]]\npath = \"~/.config/s/s.conf\"\nwrite = \"key\"\nkey = \"k\"\ntemplate = \"k.tmpl\"\n";
+    let file =
+        "[[file]]\npath = \"$XDG_CONFIG_HOME/s/s.conf\"\nwrite = \"file\"\ntemplate = \"f.tmpl\"\n";
+    for (first, second, kept) in [(key, file, "k = 1\n"), (file, key, "whole\n")] {
+        let env = TestEnv::new();
+        put_target(
+            &env,
+            "s",
+            &format!("name = \"s\"\ndetect = {{}}\n\n{first}\n{second}"),
+            &[("k.tmpl", "1\n"), ("f.tmpl", "whole\n")],
+        );
+        let report = apply_only(&env, &palette("ember"), "s").unwrap();
+        let t = report.get("s").unwrap();
+        assert!(matches!(t.status, TargetStatus::Applied(_)), "{t:?}");
+        assert!(
+            t.warnings.iter().any(|w| w
+                .ends_with("s.conf: several writes to one file must all be key or block; skipped")),
+            "{:?}",
+            t.warnings
+        );
+        let conf = env.dirs.home.join(".config/s/s.conf");
+        assert_eq!(fs::read_to_string(&conf).unwrap(), kept);
+        common::undo(&env);
+        assert!(!conf.exists());
+    }
+}
