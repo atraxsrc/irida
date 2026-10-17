@@ -249,3 +249,37 @@ fn apply_and_undo() {
     undo(&ctx).unwrap();
     assert_eq!(listing(&env.dirs.config), before);
 }
+
+#[test]
+fn current_mode_reads_dark() {
+    let env = TestEnv::new();
+    put(&env, MODE, 1, "is_dark", "true");
+    assert_eq!(
+        irida_core::native::cosmic_desktop::current_mode(&env.dirs),
+        Some(irida_core::palette::Mode::Dark)
+    );
+}
+
+#[test]
+fn current_mode_reads_light() {
+    let env = TestEnv::new();
+    put(&env, MODE, 1, "is_dark", "false");
+    assert_eq!(
+        irida_core::native::cosmic_desktop::current_mode(&env.dirs),
+        Some(irida_core::palette::Mode::Light)
+    );
+}
+
+#[test]
+fn current_mode_is_none_when_missing_or_garbage() {
+    let env = TestEnv::new();
+    assert_eq!(
+        irida_core::native::cosmic_desktop::current_mode(&env.dirs),
+        None
+    );
+    put(&env, MODE, 1, "is_dark", "maybe");
+    assert_eq!(
+        irida_core::native::cosmic_desktop::current_mode(&env.dirs),
+        None
+    );
+}

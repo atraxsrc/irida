@@ -264,6 +264,17 @@ fn plan_one(
     Ok(())
 }
 
+/// COSMIC's current appearance from its `is_dark` setting: `None` when the
+/// key is missing or is not a RON bool. Reads only.
+pub fn current_mode(dirs: &Dirs) -> Option<Mode> {
+    let path = key_dir(&dirs.config, THEME_MODE_ID, 1).join("is_dark");
+    let text = fs::read_to_string(path).ok()?;
+    match ron::from_str::<bool>(&text).ok()? {
+        true => Some(Mode::Dark),
+        false => Some(Mode::Light),
+    }
+}
+
 pub(crate) fn plan(palettes: &[&Palette], dirs: &Dirs) -> Result<NativePlan, TargetError> {
     super::check_palettes(palettes)?;
     let tmp =

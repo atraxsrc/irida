@@ -570,3 +570,11 @@ fn start_refuses_while_a_session_is_open() {
     assert_eq!(err.kind(), std::io::ErrorKind::AlreadyExists);
     assert_eq!(live::pending(&env.dirs).unwrap().record_id(), s.record_id());
 }
+
+#[test]
+fn session_open_is_false_without_a_marker() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    assert!(!live::session_open(&irida_core::dirs::Dirs::under(
+        tmp.path()
+    )));
+}
