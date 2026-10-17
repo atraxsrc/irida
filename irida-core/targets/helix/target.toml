@@ -1,0 +1,34 @@
+# Checked against docs.helix-editor.com (themes.html, configuration.html,
+# commands.html) on 2026-10-17: user themes live in ~/.config/helix/themes/
+# and are selected by file stem with `theme = "name"` at the top of
+# config.toml, before any [section]; dotted scope keys are quoted; a scope
+# takes a "#RRGGBB" string, a palette name or a table with fg/bg/modifiers;
+# the [palette] table must come last in the file. `:config-reload` re-reads
+# the config and `:theme name` switches at once.
+name = "helix"
+display = "Helix"
+detect = { binary = "hx", config = "~/.config/helix" }
+
+[[file]]
+path = "~/.config/helix/themes/irida.toml"
+write = "file"
+template = "irida.toml.tmpl"
+
+[[file]]
+path = "~/.config/helix/config.toml"
+write = "key"
+key = "theme"
+place = "top"
+template = "theme.tmpl"
+
+[reload]
+hint = "run :config-reload in Helix"
+
+[[rice]]
+path = "helix/themes/{{ slug }}.toml"
+template = "irida.toml.tmpl"
+
+[[rice]]
+path = "helix/install.sh"
+template = "install.sh.tmpl"
+executable = true

@@ -1,0 +1,71 @@
+# {{ name }} ({{ mode }}) for Helix, written by Irida. Scopes refer to the
+# palette at the end of the file.
+
+"ui.background" = { bg = "bg" }
+"ui.text" = "text"
+"ui.text.focus" = { fg = "text", modifiers = ["bold"] }
+"ui.text.inactive" = "muted"
+"ui.cursor" = { fg = "bg", bg = "cursor" }
+"ui.cursor.primary" = { fg = "bg", bg = "cursor" }
+"ui.cursor.match" = { fg = "accent", modifiers = ["bold"] }
+"ui.selection" = { bg = "select" }
+"ui.selection.primary" = { bg = "select" }
+"ui.cursorline.primary" = { bg = "container" }
+"ui.statusline" = { fg = "text", bg = "container" }
+"ui.statusline.inactive" = { fg = "muted", bg = "container" }
+"ui.linenr" = "comment"
+"ui.linenr.selected" = "text"
+"ui.gutter" = { bg = "bg" }
+"ui.menu" = { fg = "text", bg = "container" }
+"ui.menu.selected" = { fg = "bg", bg = "accent" }
+"ui.popup" = { fg = "text", bg = "container" }
+"ui.help" = { fg = "text", bg = "container" }
+"ui.window" = "comment"
+"ui.virtual.ruler" = { bg = "container" }
+"ui.virtual.whitespace" = "comment"
+"ui.virtual.indent-guide" = "comment"
+"ui.virtual.wrap" = "comment"
+"ui.virtual.jump-label" = { fg = "accent", modifiers = ["bold"] }
+"ui.virtual.inlay-hint" = "muted"
+
+"comment" = { fg = "comment", modifiers = ["italic"] }
+"keyword" = "magenta"
+"string" = "warning"
+"constant" = "cyan"
+"function" = "blue"
+"type" = "cyan"
+"variable" = "text"
+"operator" = "accent"
+"attribute" = "success"
+"namespace" = "blue"
+"label" = "accent"
+"punctuation" = "muted"
+
+"diagnostic.error" = { underline = { color = "error", style = "curl" } }
+"diagnostic.warning" = { underline = { color = "warning", style = "curl" } }
+"diagnostic.info" = { underline = { color = "blue", style = "curl" } }
+"diagnostic.hint" = { underline = { color = "cyan", style = "curl" } }
+"diff.plus" = "success"
+"diff.minus" = "error"
+"diff.delta" = "warning"
+"markup.heading" = { fg = "accent", modifiers = ["bold"] }
+"error" = "error"
+"warning" = "warning"
+"info" = "blue"
+"hint" = "cyan"
+
+[palette]
+bg = "{{ term.background or pane }}"
+container = "{{ container }}"
+text = "{{ text }}"
+muted = "{{ muted }}"
+comment = "{{ comment }}"
+accent = "{{ accent }}"
+cursor = "{{ term.cursor }}"
+select = "{{ mix(term.background or pane, "accent", 0.35) }}"
+success = "{{ success }}"
+warning = "{{ warning }}"
+error = "{{ error }}"
+blue = "{{ blue }}"
+magenta = "{{ magenta }}"
+cyan = "{{ cyan }}"

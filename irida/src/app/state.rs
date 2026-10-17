@@ -4052,7 +4052,7 @@ mod tests {
     }
 
     /// The built-in targets' display names, in id order.
-    const BUILTIN_DISPLAYS: [&str; 15] = [
+    const BUILTIN_DISPLAYS: [&str; 16] = [
         "Alacritty",
         "btop",
         "cava",
@@ -4064,6 +4064,7 @@ mod tests {
         "fish",
         "foot",
         "Ghostty",
+        "Helix",
         "kitty",
         "lsd",
         "Neovim",
