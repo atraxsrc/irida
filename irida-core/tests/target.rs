@@ -186,6 +186,7 @@ fn def() -> TargetDef {
     TargetDef {
         name: "t".into(),
         display: None,
+        note: None,
         detect: Detect::default(),
         native: None,
         files: vec![],

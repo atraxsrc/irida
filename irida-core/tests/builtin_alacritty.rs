@@ -127,3 +127,25 @@ fn apply_creates_general_section_when_missing() {
     undo(&env);
     assert_eq!(fs::read_to_string(&conf).unwrap(), text);
 }
+
+#[test]
+fn multi_line_import_array_is_replaced_whole() {
+    let env = TestEnv::new();
+    let text = "[general]\nimport = [\n  \"~/a.toml\",\n]\n\n[font]\nsize = 12\n";
+    let conf = env.write(".config/alacritty/alacritty.toml", text);
+    apply_only(&env, &palette("ember"), "alacritty").unwrap();
+    let after = fs::read_to_string(&conf).unwrap();
+    assert_eq!(
+        after,
+        "[general]\nimport = [\"~/.config/alacritty/themes/irida.toml\"]\n\n[font]\nsize = 12\n"
+    );
+    toml::from_str::<toml::Table>(&after).unwrap_or_else(|e| panic!("{e}\n{after}"));
+    undo(&env);
+    assert_eq!(fs::read_to_string(&conf).unwrap(), text);
+}
+
+#[test]
+fn install_script_never_duplicates_general() {
+    let script = render_export("ember", "alacritty", "install.sh.tmpl");
+    assert!(script.contains("\\[general\\]"), "{script}");
+}

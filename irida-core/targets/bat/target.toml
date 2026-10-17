@@ -8,6 +8,7 @@
 # `batcat`; the README's `bat` symlink makes it detectable here.
 name = "bat"
 display = "bat"
+note = "bat's theme cache was rebuilt; after irida undo run bat cache --build, or bat cache --clear when you have no other custom themes"
 detect = { binary = "bat" }
 
 [[file]]

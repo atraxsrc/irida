@@ -503,3 +503,52 @@ fn repeatable_restore_leaves_a_user_line_with_same_key() {
     );
     assert_eq!(out, "include a.conf\n");
 }
+
+#[test]
+fn multi_line_value_is_replaced_whole_and_restored() {
+    let text = "[general]\nimport = [\n  \"~/a.toml\",\n]\nlive_config_reload = true\n";
+    let e = set_key(
+        Some(text),
+        "import",
+        "[\"irida.toml\"]",
+        &section("general"),
+    );
+    assert_eq!(
+        e.contents,
+        "[general]\nimport = [\"irida.toml\"]\nlive_config_reload = true\n"
+    );
+    assert_eq!(e.before.as_deref(), Some("import = [\n  \"~/a.toml\",\n]"));
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "import",
+            "import = [\"irida.toml\"]",
+            e.before.as_deref(),
+            false,
+            false,
+            &section("general")
+        ),
+        text
+    );
+}
+
+#[test]
+fn header_with_comment_or_inner_spaces_is_a_header() {
+    let text = "[ general ] # terminal\nlive_config_reload = true\n[font]\nsize = 12\n";
+    let e = set_key(
+        Some(text),
+        "import",
+        "[\"irida.toml\"]",
+        &section("general"),
+    );
+    assert_eq!(
+        e.contents,
+        "[ general ] # terminal\nlive_config_reload = true\nimport = [\"irida.toml\"]\n[font]\nsize = 12\n"
+    );
+    let text = "[editor] # x\nline-number = \"relative\"\n";
+    let e = set_key(Some(text), "theme", "\"irida\"", &top());
+    assert_eq!(
+        e.contents,
+        "theme = \"irida\"\n[editor] # x\nline-number = \"relative\"\n"
+    );
+}

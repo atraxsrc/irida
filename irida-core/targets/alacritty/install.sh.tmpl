@@ -6,8 +6,9 @@
 # Copies {{ slug }}.toml to ~/.config/alacritty/themes/ and, when
 # alacritty.toml has no import line naming it yet, appends a [general]
 # section with the import (Alacritty 0.14 or newer). An existing import
-# array is left for you to edit by hand, since TOML allows only one. Backs
-# up a differing theme file to {{ slug }}.toml.bak. Safe to run again.
+# array, or an existing [general] section, is left for you to edit by hand,
+# since TOML allows only one of each. Backs up a differing theme file to
+# {{ slug }}.toml.bak. Safe to run again.
 set -euo pipefail
 
 dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -33,6 +34,8 @@ if [ -f "$conf" ] && grep -qF "$import" "$conf"; then
     echo "  alacritty.toml already imports it"
 elif [ -f "$conf" ] && grep -qE '^[[:space:]]*import[[:space:]]*=' "$conf"; then
     echo "  alacritty.toml has an import array; add \"$import\" to it by hand"
+elif [ -f "$conf" ] && grep -qE '^[[:space:]]*\[general\]' "$conf"; then
+    echo "  alacritty.toml has a [general] section; add import = [\"$import\"] to it by hand"
 else
     if [ -s "$conf" ] && [ -n "$(tail -c 1 "$conf")" ]; then
         echo >> "$conf"

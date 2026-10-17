@@ -58,10 +58,10 @@ result to your desktop, terminal, editor and tools in one step.
 | fish | `conf.d/irida.fish` | |
 | eza | `theme.yml` | |
 | kitty | `irida.conf`, included from `kitty.conf` | |
-| Alacritty | `themes/irida.toml`, imported from `[general]` (0.14 or newer) | |
+| Alacritty | `themes/irida.toml`, imported from `[general]` of `~/.config/alacritty/alacritty.toml` (0.14 or newer; a config kept at `~/.config/alacritty.toml` or `~/.alacritty.toml` is shadowed while applied) | |
 | foot | `irida.ini`, included from `foot.ini` (1.26 or newer) | |
 | Helix | `themes/irida.toml`, selected in `config.toml` | |
-| bat | `themes/irida.tmTheme`, selected in `config`, cache rebuilt; after undo run `bat cache --build`; `BAT_THEME` in your shell wins | |
+| bat | `themes/irida.tmTheme`, selected in `config`, cache rebuilt; after undo run `bat cache --build` (or `--clear`); `BAT_THEME` in your shell wins | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in

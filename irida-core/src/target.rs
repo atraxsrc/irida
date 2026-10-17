@@ -117,6 +117,9 @@ pub struct TargetDef {
     /// The name shown to the user; the folder name when absent.
     #[serde(default)]
     pub display: Option<String>,
+    /// A sentence added to every apply result, such as a step undo cannot take back.
+    #[serde(default)]
+    pub note: Option<String>,
     #[serde(default)]
     pub detect: Detect,
     #[serde(default)]
@@ -371,6 +374,7 @@ mod tests {
                 def: TargetDef {
                     name: name.into(),
                     display: None,
+                    note: None,
                     detect: Detect::default(),
                     native: None,
                     files: vec![],

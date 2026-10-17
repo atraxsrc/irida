@@ -654,7 +654,7 @@ fn plan_target<'t>(
 ) -> Result<TargetPlan<'t>, ApplyError> {
     let name = &target.def.name;
     let mut writes = Vec::new();
-    let mut warnings = Vec::new();
+    let mut warnings: Vec<String> = target.def.note.iter().cloned().collect();
     for f in &target.def.files {
         let render_error = |message: String| ApplyError::Render {
             target: name.clone(),

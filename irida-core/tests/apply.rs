@@ -1374,3 +1374,26 @@ fn repeatable_key_round_trips() {
     common::undo(&env);
     assert_eq!(fs::read_to_string(&conf).unwrap(), "include mine.conf\n");
 }
+
+const N_TOML: &str = r#"name = "n"
+detect = {}
+note = "after undo run n --rebuild"
+
+[[file]]
+path = "~/.config/n/n.conf"
+write = "file"
+template = "n.tmpl"
+"#;
+
+#[test]
+fn target_note_is_reported_on_apply() {
+    let env = TestEnv::new();
+    put_target(&env, "n", N_TOML, &[("n.tmpl", "{{ accent }}\n")]);
+    let report = apply_only(&env, &palette("ember"), "n").unwrap();
+    let t = report.get("n").unwrap();
+    assert!(
+        t.warnings.iter().any(|w| w == "after undo run n --rebuild"),
+        "{:?}",
+        t.warnings
+    );
+}

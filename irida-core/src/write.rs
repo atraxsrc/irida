@@ -274,10 +274,37 @@ fn strip_eol(line: &str) -> (&str, &str) {
     }
 }
 
+/// The name of a `[section]` header line, with spaces inside the brackets
+/// and a trailing `#` or `;` comment ignored; `None` for any other line.
+fn header_name(line: &str) -> Option<&str> {
+    let t = line.trim().strip_prefix('[')?;
+    let close = t.find(']')?;
+    let rest = t[close + 1..].trim();
+    if !(rest.is_empty() || rest.starts_with('#') || rest.starts_with(';')) {
+        return None;
+    }
+    Some(t[..close].trim())
+}
+
 /// Whether `line` is a `[section]` header.
 fn is_header(line: &str) -> bool {
-    let t = line.trim();
-    t.starts_with('[') && t.ends_with(']')
+    header_name(line).is_some()
+}
+
+/// `depth` after the brackets of `s` outside double quotes and before a
+/// `#` comment: `[` and `{` open, `]` and `}` close.
+fn bracket_depth(s: &str, mut depth: i32) -> i32 {
+    let mut quoted = false;
+    for c in s.chars() {
+        match c {
+            '"' => quoted = !quoted,
+            '[' | '{' if !quoted => depth += 1,
+            ']' | '}' if !quoted => depth -= 1,
+            '#' if !quoted => break,
+            _ => {}
+        }
+    }
+    depth
 }
 
 /// Where a missing line goes.
@@ -300,8 +327,10 @@ fn locate(lines: &[&str], scope: &KeyScope) -> (std::ops::Range<usize>, Insert) 
             None => (0..n, Insert::Append),
         },
         KeyScope::Section(name) => {
-            let header = format!("[{name}]");
-            let Some(h) = lines.iter().position(|l| l.trim() == header) else {
+            let Some(h) = lines
+                .iter()
+                .position(|l| header_name(l) == Some(name.as_str()))
+            else {
                 return (n..n, Insert::NewSection(name.clone()));
             };
             let end = (h + 1..n).find(|&i| is_header(lines[i])).unwrap_or(n);
@@ -348,12 +377,25 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
     let new_line = format!("{key}{}{value}", opts.separator);
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
     let (range, insert) = locate(&lines, &opts.scope);
+    let end = range.end;
     if let Some(i) = find_line(&lines, range, key, Some(&new_line), opts) {
-        let (old, eol) = strip_eol(lines[i]);
+        // A value that opens a bracket and closes it on a later line (a TOML
+        // array over several lines) is replaced as a whole.
+        let mut j = i;
+        if !opts.repeatable {
+            let after_key = lines[i].trim_start().strip_prefix(key).unwrap_or("");
+            let mut depth = bracket_depth(after_key, 0);
+            while depth > 0 && j + 1 < end {
+                j += 1;
+                depth = bracket_depth(lines[j], depth);
+            }
+        }
+        let span = lines[i..=j].concat();
+        let (old, eol) = strip_eol(&span);
         let contents = format!(
             "{}{new_line}{eol}{}",
             lines[..i].concat(),
-            lines[i + 1..].concat()
+            lines[j + 1..].concat()
         );
         return KeyEdit {
             contents,
@@ -421,15 +463,17 @@ pub fn restore_key(
     }
     let mut kept: Vec<&str> = lines[..i].to_vec();
     kept.extend_from_slice(&lines[i + 1..]);
-    if created_section && let KeyScope::Section(name) = &opts.scope {
-        let header = format!("[{name}]");
-        if let Some(h) = kept.iter().position(|l| l.trim() == header) {
-            let end = (h + 1..kept.len())
-                .find(|&j| is_header(kept[j]))
-                .unwrap_or(kept.len());
-            if kept[h + 1..end].iter().all(|l| l.trim().is_empty()) {
-                kept.drain(h..end);
-            }
+    if created_section
+        && let KeyScope::Section(name) = &opts.scope
+        && let Some(h) = kept
+            .iter()
+            .position(|l| header_name(l) == Some(name.as_str()))
+    {
+        let end = (h + 1..kept.len())
+            .find(|&j| is_header(kept[j]))
+            .unwrap_or(kept.len());
+        if kept[h + 1..end].iter().all(|l| l.trim().is_empty()) {
+            kept.drain(h..end);
         }
     }
     let mut out = kept.concat();
