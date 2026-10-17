@@ -1,0 +1,29 @@
+# Ember Day (light) for delta, written by Irida. Syntax colours come from
+# bat's theme; this feature sets backgrounds, line numbers and decorations.
+[delta "emberday"]
+    light = true
+    minus-style = syntax "#CDB1AB"
+    minus-emph-style = syntax "#BE8A86"
+    minus-non-emph-style = minus-style
+    plus-style = syntax "#B9BEAE"
+    plus-emph-style = syntax "#94A28B"
+    plus-non-emph-style = plus-style
+    zero-style = syntax
+    line-numbers = true
+    line-numbers-left-style = "#25272E"
+    line-numbers-right-style = "#25272E"
+    line-numbers-minus-style = "#9E3A3A"
+    line-numbers-plus-style = "#4C6B45"
+    line-numbers-zero-style = "#25272E"
+    file-style = bold "#A4441A"
+    file-decoration-style = "#A4441A" ul
+    hunk-header-style = file line-number syntax
+    hunk-header-decoration-style = "#25272E" box
+    hunk-header-file-style = "#A4441A"
+    hunk-header-line-number-style = "#8A5E12"
+    commit-style = bold "#8A5E12"
+    commit-decoration-style = "#8A5E12" box ul
+    blame-palette = "#DDD9D1" "#CFCBC5"
+    merge-conflict-ours-diff-header-style = bold "#4C6B45"
+    merge-conflict-theirs-diff-header-style = bold "#2F5C8A"
+    whitespace-error-style = "#9E3A3A" reverse

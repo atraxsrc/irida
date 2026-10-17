@@ -1,0 +1,30 @@
+# {{ name }} ({{ mode }}) for delta, written by Irida. Syntax colours come from
+# bat's theme; this feature sets backgrounds, line numbers and decorations.
+{%- set bg = term.background or pane %}
+[delta "{% if export %}{{ slug }}{% else %}irida{% endif %}"]
+    {{ mode }} = true
+    minus-style = syntax "{{ mix(bg, "error", 0.25) }}"
+    minus-emph-style = syntax "{{ mix(bg, "error", 0.5) }}"
+    minus-non-emph-style = minus-style
+    plus-style = syntax "{{ mix(bg, "success", 0.25) }}"
+    plus-emph-style = syntax "{{ mix(bg, "success", 0.5) }}"
+    plus-non-emph-style = plus-style
+    zero-style = syntax
+    line-numbers = true
+    line-numbers-left-style = "{{ term.bright.black }}"
+    line-numbers-right-style = "{{ term.bright.black }}"
+    line-numbers-minus-style = "{{ error }}"
+    line-numbers-plus-style = "{{ success }}"
+    line-numbers-zero-style = "{{ term.bright.black }}"
+    file-style = bold "{{ accent }}"
+    file-decoration-style = "{{ accent }}" ul
+    hunk-header-style = file line-number syntax
+    hunk-header-decoration-style = "{{ term.bright.black }}" box
+    hunk-header-file-style = "{{ accent }}"
+    hunk-header-line-number-style = "{{ warning }}"
+    commit-style = bold "{{ warning }}"
+    commit-decoration-style = "{{ warning }}" box ul
+    blame-palette = "{{ bg }}" "{{ mix(bg, "text", 0.08) }}"
+    merge-conflict-ours-diff-header-style = bold "{{ success }}"
+    merge-conflict-theirs-diff-header-style = bold "{{ blue }}"
+    whitespace-error-style = "{{ error }}" reverse

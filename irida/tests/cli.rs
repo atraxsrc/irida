@@ -644,6 +644,7 @@ fn only_help_names_every_builtin() {
         "lsd",
         "zsh",
         "ghostty",
+        "delta",
     ] {
         assert!(help.contains(id), "{id} missing from --only help:\n{help}");
     }
