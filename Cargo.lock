@@ -2782,6 +2782,7 @@ name = "irida-applet"
 version = "0.1.0"
 dependencies = [
  "cosmic-config 1.0.0 (git+https://github.com/pop-os/libcosmic?rev=e1f2cd2e52226aa50d59bb2cd6d43ffe290106ed)",
+ "iced_test",
  "irida-core",
  "libcosmic",
  "serde",

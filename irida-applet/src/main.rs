@@ -5,6 +5,8 @@ mod actions;
 mod copy;
 mod menu;
 mod panel;
+#[cfg(test)]
+mod shots;
 mod window;
 
 use std::process::ExitCode;

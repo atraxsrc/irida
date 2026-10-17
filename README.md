@@ -99,6 +99,18 @@ commands below work anywhere.
 `<palette>` is a saved palette's slug, a path to a `palette.toml`, or a rice
 repository folder.
 
+### Panel applet
+
+Irida ships a COSMIC panel applet. Click its icon to apply any saved palette
+or pair in one click, see which one was applied last, undo the last apply,
+open Irida, or take the applet off the panel again. It follows your COSMIC
+theme and is never painted in palette colours.
+
+Add it once: Settings, Desktop, Panel, Configure panel applets, Add applet,
+Irida.
+
+![The applet popup: Pairs, Dark and Light palettes with a tick on the one applied last, then Undo last apply, Open Irida, Close Irida window and Remove from panel](assets/screenshots/applet.png)
+
 ### Where things live
 
 | Path | What |
