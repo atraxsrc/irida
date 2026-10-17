@@ -1,58 +1,106 @@
+<div align="center">
+
+<img src="irida/res/icons/hicolor/scalable/apps/io.github.atraxsrc.Irida.svg" width="128" height="128" alt="Irida">
+
 # Irida
 
-Irida is a native COSMIC app for designing a colour palette and applying it to
-the desktop and the apps around it. It is named after Iris, the Greek goddess
-of the rainbow.
+Design a colour palette and apply it to COSMIC and the apps around it.
 
-- Pick a palette, draft one from a wallpaper, or edit its 13 roles by hand
-  while the preview and the contrast ratios follow every change.
-- Apply it to the COSMIC desktop, COSMIC Terminal, btop, Neovim, fastfetch,
-  lsd, zsh and cava in one step, and undo it in one step.
-- Link a dark and a light palette as a pair, compare with saved versions and
-  snapshots.
-- Export a palette as a complete rice repository.
+![COSMIC](https://img.shields.io/badge/COSMIC-native_app-2c71ea?style=for-the-badge)
+![Pop!_OS](https://img.shields.io/badge/Pop!_OS-24.04_LTS-21b1b1?style=for-the-badge&logo=popos&logoColor=white)
+![Rust](https://img.shields.io/badge/Rust-1.93+-ef282d?style=for-the-badge&logo=rust&logoColor=white)
+![Version](https://img.shields.io/badge/Version-0.1.0-8f42d0?style=for-the-badge)
+![License](https://img.shields.io/badge/License-MIT-42b75c?style=for-the-badge)
+
+</div>
+
+---
+
+Irida is a palette designer for the COSMIC desktop, named after Iris, the Greek
+goddess of the rainbow. A palette is 13 roles (background, text, accent, the
+semantic and ANSI colours); Irida keeps every one readable and writes the
+result to your desktop, terminal, editor and tools in one step.
+
+## Features
+
+- **Edit with live feedback.** Change any role by hand; the preview of the
+  desktop, terminal, Neovim, btop and cava and every contrast ratio follow at
+  once.
+- **Draft from a wallpaper.** Pick an image and get a dark or light palette
+  whose roles already pass their contrast minimums.
+- **Apply and undo.** One step writes every installed app; one step puts back
+  exactly the files it changed.
+- **Try it live.** Watch the desktop and terminal change while you edit, then
+  Keep or Revert. A crash mid-session offers Revert on the next start.
+- **Pairs, versions and snapshots.** Link a dark and a light palette, compare
+  with any saved version, and pin the ones worth keeping.
+- **Import and export rices.** Open an existing `cosmic-*-theme` repository, or
+  export a palette as a complete one.
+
+## Supported apps
+
+| App | What Irida writes | Live |
+|-----|-------------------|:----:|
+| COSMIC desktop | Dark or light theme colours and the mode; your radii, gaps and frosting stay | ✓ |
+| COSMIC Terminal | Its own colour scheme and profile | ✓ |
+| cava | The colour block in `~/.config/cava/config` | ✓ |
+| btop | `themes/irida.theme`, selected in `btop.conf` | |
+| Neovim | `colors/irida.lua` | |
+| fastfetch | `config.jsonc` and its logo | |
+| lsd | `colors.yaml` and `config.yaml` | |
+| zsh | A marked block in `~/.zshrc` | |
+
+Apps that are not installed are skipped. To add your own, put a folder with a
+`target.toml` and its templates in `~/.config/irida/targets/`; the built-in
+ones in [`irida-core/targets`](irida-core/targets) are the examples.
 
 ## Install
 
-Download the .deb from the GitHub releases page and install it:
+Build the .deb (see [Build](#build)) and install it:
 
 ```sh
-sudo apt install ./irida_0.1.0-1_amd64.deb
+sudo apt install ./target/debian/irida_0.1.0-1_amd64.deb
 ```
 
-Irida then shows in the launcher. It needs a graphical session to open its
-window; the commands below work anywhere.
+Irida then shows in the launcher. The window needs a graphical session; the
+commands below work anywhere.
 
 ## Use
 
 `irida` with no arguments opens the app. The same binary has these commands:
 
-```
-irida check <palette>                    contrast table; exit 1 on a failure
-irida apply <palette> [--only btop,nvim]
-irida undo
-irida export <palette> <folder>
-irida draft <image> [--mode dark|light] [--name NAME]
-irida list
-```
-
-- `check` prints the palette's contrast against its background and pane.
-- `apply` writes the palette to every installed app, or only the ones named.
-- `undo` puts back the files from the most recent apply.
-- `export` writes a `cosmic-<slug>-theme` rice repository.
-- `draft` makes a palette from a JPEG, PNG or WebP image and saves it.
-- `list` lists the saved palettes.
+| Command | What it does |
+|---------|--------------|
+| `irida check <palette>` | Contrast table against the background and pane; exit 1 on a failure |
+| `irida apply <palette> [--only btop,nvim]` | Write the palette to every installed app, or only the ones named |
+| `irida undo` | Put back the files from the most recent apply |
+| `irida export <palette> <folder>` | Write a `cosmic-<slug>-theme` rice repository |
+| `irida draft <image> [--mode dark\|light] [--name NAME]` | Make a palette from a JPEG, PNG or WebP image and save it |
+| `irida list` | List the saved palettes |
 
 `<palette>` is a saved palette's slug, a path to a `palette.toml`, or a rice
-repository folder. Saved palettes live in `~/.local/share/irida/palettes`.
+repository folder.
+
+### Where things live
+
+| Path | What |
+|------|------|
+| `~/.local/share/irida/palettes/<slug>/` | Each palette, its saved versions and snapshots |
+| `~/.config/irida/settings.toml` | App settings, such as the last open palette |
+| `~/.config/irida/targets/` | Your own targets |
+| `~/.local/state/irida/` | Apply records for undo, and the live session while one runs |
+
+The `XDG_DATA_HOME`, `XDG_CONFIG_HOME` and `XDG_STATE_HOME` variables are
+honoured when set.
 
 ## Build
 
-Irida needs Rust 1.93 or newer and the libraries libcosmic builds against
-(on Ubuntu: `pkg-config libxkbcommon-dev libwayland-dev libexpat1-dev
-libfontconfig-dev libfreetype-dev cmake`).
+Irida needs Rust 1.93 or newer and the libraries libcosmic builds against. On
+Ubuntu or Pop!_OS:
 
 ```sh
+sudo apt install pkg-config libxkbcommon-dev libwayland-dev libexpat1-dev \
+    libfontconfig-dev libfreetype-dev cmake
 cargo build --release
 ```
 
