@@ -15,14 +15,18 @@ use super::scene::{CardColors, Scene, Span};
 use super::state::Msg;
 
 /// A decoded wallpaper, or the reason the flat background is used instead.
+/// `handle` is made once here, so the renderer keeps its decoded copy
+/// across redraws instead of uploading the bitmap again every frame.
 #[derive(Debug)]
 pub enum ImageStatus {
-    Ready {
-        width: u32,
-        height: u32,
-        rgba: Vec<u8>,
-    },
+    Ready { handle: widget::image::Handle },
     Missing,
+}
+
+fn ready(width: u32, height: u32, rgba: Vec<u8>) -> ImageStatus {
+    ImageStatus::Ready {
+        handle: widget::image::Handle::from_rgba(width, height, rgba),
+    }
 }
 
 const PREVIEW_LONGEST: u32 = 1280;
@@ -46,11 +50,7 @@ pub fn load_preview_image(path: &Path) -> ImageStatus {
     }
     let longest = w.max(h);
     if longest <= PREVIEW_LONGEST {
-        return ImageStatus::Ready {
-            width: w,
-            height: h,
-            rgba: img.into_raw(),
-        };
+        return ready(w, h, img.into_raw());
     }
     let scale = |side: u32| -> u32 {
         let scaled = (u64::from(side) * u64::from(PREVIEW_LONGEST) + u64::from(longest) / 2)
@@ -61,11 +61,7 @@ pub fn load_preview_image(path: &Path) -> ImageStatus {
     let height = scale(h);
     let rgba = image::imageops::resize(&img, width, height, image::imageops::FilterType::Triangle)
         .into_raw();
-    ImageStatus::Ready {
-        width,
-        height,
-        rgba,
-    }
+    ready(width, height, rgba)
 }
 
 /// libcosmic embeds Noto Sans Mono, so the box drawing always lines up.
@@ -312,22 +308,19 @@ pub fn view(s: Scene, image: Option<&ImageStatus>) -> Element<'static, Msg> {
         .push(pane(line(s.panel), s.panel_bg, panel_a, Length::Fill))
         .push(desktop)
         .width(Length::Fill);
-    let Some(ImageStatus::Ready {
-        width,
-        height,
-        rgba,
-    }) = image
-    else {
+    let Some(ImageStatus::Ready { handle, .. }) = image else {
         return column.into();
     };
-    let handle = widget::image::Handle::from_rgba(*width, *height, rgba.clone());
-    let photo = widget::image(handle)
+    let photo = widget::image(handle.clone())
         .content_fit(ContentFit::Cover)
         .width(Length::Fill)
         .height(Length::Fill);
-    // The column sets the size. The image sits under it and covers that area.
+    // The column sets the size. The image sits under it and covers that area;
+    // `clip` keeps the covered image from drawing past it, since the image
+    // widget itself does not cut the overflow.
     cosmic::iced::widget::stack([column.into()])
         .push_under(photo)
+        .clip(true)
         .width(Length::Fill)
         .into()
 }
@@ -344,17 +337,10 @@ mod tests {
         image::RgbaImage::from_pixel(4, 4, image::Rgba([1, 2, 3, 255]))
             .save(&png)
             .unwrap();
-        match load_preview_image(&png) {
-            ImageStatus::Ready {
-                width,
-                height,
-                rgba,
-            } => {
-                assert_eq!((width, height), (4, 4));
-                assert_eq!(rgba.len(), 64);
-            }
-            ImageStatus::Missing => panic!("a png is readable"),
-        }
+        assert!(matches!(
+            load_preview_image(&png),
+            ImageStatus::Ready { .. }
+        ));
         let text = tmp.path().join("note.txt");
         std::fs::write(&text, "not an image").unwrap();
         assert!(matches!(load_preview_image(&text), ImageStatus::Missing));
