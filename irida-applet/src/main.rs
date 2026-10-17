@@ -2,6 +2,8 @@
 
 // Used by the window once it exists.
 #[allow(dead_code)]
+mod copy;
+#[allow(dead_code)]
 mod menu;
 
 fn main() {}
