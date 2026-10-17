@@ -66,6 +66,7 @@ pub enum Message {
     TokenGone,
     OpenTimeout,
     Close,
+    Closed(Result<(), String>),
     Remove,
     Surface(cosmic::surface::Action<Message>),
 }
@@ -169,7 +170,7 @@ impl Application for Window {
                 if self.popup == Some(id) {
                     self.popup = None;
                     self.status = None;
-                    self.opening = false;
+                    // `opening` stays: a token or the timeout still starts Irida.
                 }
                 Task::none()
             }
@@ -267,7 +268,13 @@ impl Application for Window {
                 self.token_tx = None;
                 Task::none()
             }
-            Message::Close => match actions::close_irida() {
+            Message::Close => cosmic::task::future(async {
+                let result = tokio::task::spawn_blocking(actions::close_irida)
+                    .await
+                    .unwrap_or_else(|_| Err(copy::CANNOT_REACH.to_string()));
+                Message::Closed(result)
+            }),
+            Message::Closed(result) => match result {
                 Ok(()) => self.close_popup(),
                 Err(reason) => {
                     self.status = Some(reason);
@@ -388,6 +395,9 @@ pub fn popup_body(
     status: Option<&str>,
 ) -> Element<'static, Message> {
     let enabled = blocked.is_none();
+    // Rows and Undo wait for any block; the other actions only while an
+    // apply or undo runs, so nothing is started under a half-written apply.
+    let actions = !blocked.is_some_and(Blocked::busy);
     let mut items: Vec<Element<'static, Message>> = Vec::new();
     let mut index = 0;
     let mut section = |items: &mut Vec<Element<'static, Message>>, label, rows: &[Row]| {
@@ -421,15 +431,49 @@ pub fn popup_body(
             .into(),
     );
     items.push(action(copy::UNDO, enabled.then_some(Message::Undo)));
-    items.push(action(copy::OPEN, Some(Message::Open)));
+    items.push(action(copy::OPEN, actions.then_some(Message::Open)));
     if window_open {
-        items.push(action(copy::CLOSE, Some(Message::Close)));
+        items.push(action(copy::CLOSE, actions.then_some(Message::Close)));
     }
-    items.push(action(copy::REMOVE, Some(Message::Remove)));
+    items.push(action(copy::REMOVE, actions.then_some(Message::Remove)));
     if let Some(s) = status {
         items.push(cosmic::applet::padded_control(text::caption(s.to_string())).into());
     }
     widget::Column::with_children(items)
         .width(Length::Fill)
         .into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use irida_core::dirs::Dirs;
+
+    fn window() -> (tempfile::TempDir, Window) {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let ctx = Ctx {
+            dirs: Dirs::under(tmp.path()),
+            path: vec![],
+        };
+        let (w, _) = Window::init(Core::default(), ctx);
+        (tmp, w)
+    }
+
+    #[test]
+    fn popup_closed_keeps_an_open_in_flight() {
+        let (_tmp, mut w) = window();
+        let id = Id::unique();
+        w.popup = Some(id);
+        w.opening = true;
+        let _ = w.update(Message::PopupClosed(id));
+        assert!(w.popup.is_none());
+        assert!(w.opening, "the token or the timeout still starts Irida");
+    }
+
+    #[test]
+    fn closed_error_shows_its_reason() {
+        let (_tmp, mut w) = window();
+        let _ = w.update(Message::Closed(Err(copy::CANNOT_REACH.to_string())));
+        assert_eq!(w.status.as_deref(), Some(copy::CANNOT_REACH));
+    }
 }

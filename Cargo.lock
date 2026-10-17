@@ -2785,6 +2785,7 @@ dependencies = [
  "iced_test",
  "irida-core",
  "libcosmic",
+ "ron",
  "serde",
  "tempfile",
  "tokio",

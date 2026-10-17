@@ -70,9 +70,10 @@ impl Kind {
 
 /// Group the store's entries. Entries are visited in the order given;
 /// unreadable ones are skipped. A pair row joins `p` with the palette its
-/// `pair` names, or else with the first later palette whose `pair` names
-/// `p`, when that palette loads, has the opposite mode and is not yet in a
-/// row. Everything else is a single under its mode. `latest` is the slug of
+/// `pair` names when that palette's own `pair` is unset or names `p` back,
+/// or else with the first later palette whose `pair` names `p`; in both
+/// cases the partner must load, have the opposite mode and not be in a row
+/// yet. Everything else is a single under its mode. `latest` is the slug of
 /// the last apply record.
 pub fn menu(entries: Vec<StoreEntry>, latest: Option<&str>) -> Menu {
     let palettes: Vec<Palette> = entries.into_iter().filter_map(|e| e.result.ok()).collect();
@@ -88,7 +89,8 @@ pub fn menu(entries: Vec<StoreEntry>, latest: Option<&str>) -> Menu {
             .pair
             .as_deref()
             .and_then(|slug| palettes.iter().position(|q| q.slug == slug))
-            .filter(|&j| free(j))
+            // A palette's own `pair` wins over a third party's claim on it.
+            .filter(|&j| free(j) && palettes[j].pair.as_deref().is_none_or(|s| s == p.slug))
             .or_else(|| {
                 (0..palettes.len())
                     .find(|&j| free(j) && palettes[j].pair.as_deref() == Some(&p.slug))
@@ -278,5 +280,17 @@ mod tests {
         );
         let (p, q) = m.dark[0].kind.pick(Some(Mode::Light));
         assert_eq!((p.slug.as_str(), q.is_none()), ("noir", true));
+    }
+
+    #[test]
+    fn one_sided_claim_loses_to_a_mutual_pair() {
+        let mut v = unpaired();
+        set_pair(&mut v, "dossier", "ember");
+        set_pair(&mut v, "ember", "emberday");
+        set_pair(&mut v, "emberday", "ember");
+        let m = menu(entries(v), None);
+        assert_eq!(slugs(&m.pairs), vec![vec!["ember", "emberday"]]);
+        assert_eq!(slugs(&m.dark), vec![vec!["noir"]]);
+        assert_eq!(slugs(&m.light), vec![vec!["dossier"]]);
     }
 }

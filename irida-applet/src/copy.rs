@@ -16,6 +16,11 @@ pub enum Blocked {
 }
 
 impl Blocked {
+    /// An apply or undo is running: the actions wait too (spec 3.3).
+    pub fn busy(&self) -> bool {
+        matches!(self, Blocked::Applying(_) | Blocked::Undoing)
+    }
+
     pub fn text(&self) -> String {
         match self {
             Blocked::Live => "Live session in Irida".to_string(),
@@ -145,5 +150,13 @@ mod tests {
         let after = after_apply(&before, "noir");
         assert_eq!(after.last_palette.as_deref(), Some("noir"));
         assert_eq!(after.disabled, before.disabled);
+    }
+
+    #[test]
+    fn busy_is_applying_or_undoing() {
+        assert!(Blocked::Applying("x".to_string()).busy());
+        assert!(Blocked::Undoing.busy());
+        assert!(!Blocked::Live.busy());
+        assert!(!Blocked::Settings("r".to_string()).busy());
     }
 }

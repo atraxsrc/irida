@@ -26,11 +26,14 @@ pub fn without(lists: &Lists, id: &str) -> Option<Lists> {
     (out != *lists).then_some(out)
 }
 
-/// A list key, `None` when the panel's config has no such key.
+/// A list key. The panel stores each list as an `Option` (`Some(([..], [..]))`
+/// or `None`), so that is what is parsed; a missing key is `None` too.
 fn list<T: serde::de::DeserializeOwned>(config: &Config, key: &str) -> Result<Option<T>, String> {
-    match config.get::<T>(key) {
-        Ok(v) => Ok(Some(v)),
-        Err(cosmic_config::Error::NotFound) => Ok(None),
+    match config.get::<Option<T>>(key) {
+        Ok(v) => Ok(v),
+        // A key absent locally is looked up in the system defaults; with no
+        // such directory that is `NoConfigDirectory`, still just "no key".
+        Err(cosmic_config::Error::NotFound | cosmic_config::Error::NoConfigDirectory) => Ok(None),
         Err(cosmic_config::Error::GetKey(_, e)) if e.kind() == std::io::ErrorKind::NotFound => {
             Ok(None)
         }
@@ -44,9 +47,14 @@ pub fn remove_self(panel_name: Option<&str>) -> Result<(), String> {
     let name = panel_name.ok_or_else(|| NOT_ON_PANEL.to_string())?;
     let config = Config::new(&format!("com.system76.CosmicPanel.{name}"), 1)
         .map_err(|e| panel_failed(&e.to_string()))?;
+    remove_from(&config)
+}
+
+/// `remove_self` on an open panel config.
+fn remove_from(config: &Config) -> Result<(), String> {
     let lists = Lists {
-        wings: list(&config, "plugins_wings").map_err(|e| panel_failed(&e))?,
-        center: list(&config, "plugins_center").map_err(|e| panel_failed(&e))?,
+        wings: list(config, "plugins_wings").map_err(|e| panel_failed(&e))?,
+        center: list(config, "plugins_center").map_err(|e| panel_failed(&e))?,
     };
     let out = without(&lists, APPLET_ID).ok_or_else(|| NOT_ON_PANEL.to_string())?;
     if out.wings != lists.wings {
@@ -108,5 +116,47 @@ mod tests {
             center: None,
         };
         assert_eq!(without(&l, APPLET_ID), None);
+    }
+
+    #[test]
+    fn remove_from_a_real_panel_config() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config = Config::with_custom_path(
+            "com.system76.CosmicPanel.Panel",
+            1,
+            tmp.path().to_path_buf(),
+        )
+        .unwrap();
+        let dir = tmp.path().join("cosmic/com.system76.CosmicPanel.Panel/v1");
+        // The shape the panel writes: an Option around the tuple, over lines.
+        std::fs::write(
+            dir.join("plugins_wings"),
+            "Some(([\n    \"a\",\n    \"io.github.atraxsrc.IridaApplet\",\n], [\n    \"b\",\n]))",
+        )
+        .unwrap();
+        std::fs::write(dir.join("plugins_center"), "None").unwrap();
+        assert_eq!(remove_from(&config), Ok(()));
+        let wings: Option<(Vec<String>, Vec<String>)> =
+            ron::from_str(&std::fs::read_to_string(dir.join("plugins_wings")).unwrap()).unwrap();
+        assert_eq!(wings, Some((vec!["a".to_string()], vec!["b".to_string()])));
+        assert_eq!(
+            std::fs::read_to_string(dir.join("plugins_center")).unwrap(),
+            "None",
+            "an untouched list is not rewritten"
+        );
+    }
+
+    #[test]
+    fn remove_from_when_absent_is_not_on_panel() {
+        let tmp = tempfile::TempDir::new().unwrap();
+        let config =
+            Config::with_custom_path("com.system76.CosmicPanel.Dock", 1, tmp.path().to_path_buf())
+                .unwrap();
+        assert_eq!(remove_from(&config), Err(NOT_ON_PANEL.to_string()));
+        let dir = tmp.path().join("cosmic/com.system76.CosmicPanel.Dock/v1");
+        std::fs::write(dir.join("plugins_center"), "Some([\"c\"])").unwrap();
+        std::fs::write(dir.join("plugins_wings"), "None").unwrap();
+        assert_eq!(remove_from(&config), Err(NOT_ON_PANEL.to_string()));
+        assert_eq!(remove_self(None), Err(NOT_ON_PANEL.to_string()));
     }
 }
