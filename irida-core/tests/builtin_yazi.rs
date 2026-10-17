@@ -139,3 +139,20 @@ fn stated_floor_matches_flavor() {
         assert!(!old.contains("0.4 or newer"), "{old}");
     }
 }
+
+/// Both selector lines read theme.toml; a read error is reported once.
+#[test]
+fn unreadable_theme_toml_warns_once() {
+    let env = TestEnv::new();
+    let conf = env.dirs.home.join(".config/yazi/theme.toml");
+    fs::create_dir_all(&conf).unwrap();
+    let report = apply_only(&env, &palette("ember"), "yazi").unwrap();
+    let t = report.get("yazi").unwrap();
+    assert!(matches!(t.status, TargetStatus::Applied(_)), "{t:?}");
+    let about: Vec<&String> = t
+        .warnings
+        .iter()
+        .filter(|w| w.contains("theme.toml"))
+        .collect();
+    assert_eq!(about.len(), 1, "{:?}", t.warnings);
+}

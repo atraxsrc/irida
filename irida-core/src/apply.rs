@@ -727,6 +727,8 @@ fn plan_target<'t>(
                 }
             }
             Ok(None) => {}
+            // Each edit of an unreadable file fails the same way; say it once.
+            Err(warning) if warnings.contains(&warning) => {}
             Err(warning) => warnings.push(warning),
         }
     }
