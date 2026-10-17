@@ -274,14 +274,66 @@ fn strip_eol(line: &str) -> (&str, &str) {
     }
 }
 
+/// Whether `line` is a `[section]` header.
+fn is_header(line: &str) -> bool {
+    let t = line.trim();
+    t.starts_with('[') && t.ends_with(']')
+}
+
+/// Where a missing line goes.
+enum Insert {
+    /// At the end of the file.
+    Append,
+    /// Before line `i`.
+    Before(usize),
+    /// At the end of the file, after a new `[section]` header.
+    NewSection(String),
+}
+
+/// The lines a scope covers and where a missing line is inserted.
+fn locate(lines: &[&str], scope: &KeyScope) -> (std::ops::Range<usize>, Insert) {
+    let n = lines.len();
+    match scope {
+        KeyScope::End => (0..n, Insert::Append),
+        KeyScope::Top => match lines.iter().position(|l| is_header(l)) {
+            Some(h) => (0..h, Insert::Before(h)),
+            None => (0..n, Insert::Append),
+        },
+        KeyScope::Section(name) => {
+            let header = format!("[{name}]");
+            let Some(h) = lines.iter().position(|l| l.trim() == header) else {
+                return (n..n, Insert::NewSection(name.clone()));
+            };
+            let end = (h + 1..n).find(|&i| is_header(lines[i])).unwrap_or(n);
+            let last = (h + 1..end)
+                .rev()
+                .find(|&i| !lines[i].trim().is_empty())
+                .map_or(h + 1, |i| i + 1);
+            (h + 1..end, Insert::Before(last))
+        }
+    }
+}
+
+/// The line in `range` that `set_key` would replace, or that it wrote.
+fn find_line(
+    lines: &[&str],
+    range: std::ops::Range<usize>,
+    key: &str,
+    written: Option<&str>,
+    opts: &KeyOpts,
+) -> Option<usize> {
+    range.into_iter().find(|&i| match written {
+        Some(w) if opts.repeatable => lines[i].trim() == w.trim(),
+        _ => is_key_line(lines[i], key, &opts.separator),
+    })
+}
+
 pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -> KeyEdit {
     let text = existing.unwrap_or("");
     let new_line = format!("{key}{}{value}", opts.separator);
     let lines: Vec<&str> = text.split_inclusive('\n').collect();
-    if let Some(i) = lines
-        .iter()
-        .position(|l| is_key_line(l, key, &opts.separator))
-    {
+    let (range, insert) = locate(&lines, &opts.scope);
+    if let Some(i) = find_line(&lines, range, key, Some(&new_line), opts) {
         let (old, eol) = strip_eol(lines[i]);
         let contents = format!(
             "{}{new_line}{eol}{}",
@@ -295,23 +347,41 @@ pub fn set_key(existing: Option<&str>, key: &str, value: &str, opts: &KeyOpts) -
             created_section: false,
         };
     }
+    if let Insert::Before(i) = insert
+        && i < lines.len()
+    {
+        let contents = format!("{}{new_line}\n{}", lines[..i].concat(), lines[i..].concat());
+        return KeyEdit {
+            contents,
+            before: None,
+            appended_newline: false,
+            created_section: false,
+        };
+    }
     let mut contents = text.to_string();
     let appended_newline = !contents.is_empty() && !contents.ends_with('\n');
     if appended_newline {
         contents.push('\n');
     }
+    let created_section = if let Insert::NewSection(name) = &insert {
+        contents.push_str(&format!("[{name}]\n"));
+        true
+    } else {
+        false
+    };
     contents.push_str(&new_line);
     contents.push('\n');
     KeyEdit {
         contents,
         before: None,
         appended_newline,
-        created_section: false,
+        created_section,
     }
 }
 
 /// Put back the line a `set_key` replaced, or remove the one it added.
-/// `written` is the line Irida wrote.
+/// `written` is the line Irida wrote; `created_section` removes the header
+/// Irida added when nothing else is left under it.
 pub fn restore_key(
     current: &str,
     key: &str,
@@ -321,30 +391,35 @@ pub fn restore_key(
     created_section: bool,
     opts: &KeyOpts,
 ) -> String {
-    let _ = (written, created_section);
     let lines: Vec<&str> = current.split_inclusive('\n').collect();
-    let Some(i) = lines
-        .iter()
-        .position(|l| is_key_line(l, key, &opts.separator))
-    else {
+    let (range, _) = locate(&lines, &opts.scope);
+    let Some(i) = find_line(&lines, range, key, Some(written), opts) else {
         return current.to_string();
     };
-    match before {
-        Some(old) => {
-            let (_, eol) = strip_eol(lines[i]);
-            format!(
-                "{}{old}{eol}{}",
-                lines[..i].concat(),
-                lines[i + 1..].concat()
-            )
-        }
-        None => {
-            let mut head = lines[..i].concat();
-            let after = lines[i + 1..].concat();
-            if appended_newline && after.is_empty() && head.ends_with('\n') {
-                head.pop();
+    if let Some(old) = before {
+        let (_, eol) = strip_eol(lines[i]);
+        return format!(
+            "{}{old}{eol}{}",
+            lines[..i].concat(),
+            lines[i + 1..].concat()
+        );
+    }
+    let mut kept: Vec<&str> = lines[..i].to_vec();
+    kept.extend_from_slice(&lines[i + 1..]);
+    if created_section && let KeyScope::Section(name) = &opts.scope {
+        let header = format!("[{name}]");
+        if let Some(h) = kept.iter().position(|l| l.trim() == header) {
+            let end = (h + 1..kept.len())
+                .find(|&j| is_header(kept[j]))
+                .unwrap_or(kept.len());
+            if kept[h + 1..end].iter().all(|l| l.trim().is_empty()) {
+                kept.drain(h..end);
             }
-            head + &after
         }
     }
+    let mut out = kept.concat();
+    if appended_newline && out.ends_with('\n') && lines[i + 1..].concat().is_empty() {
+        out.pop();
+    }
+    out
 }

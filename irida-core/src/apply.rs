@@ -15,10 +15,11 @@ use crate::record::{self, Entry, Record, RecordWriter, RestoreMode};
 use crate::reload::{ReloadStatus, reload};
 use crate::store::Settings;
 use crate::target::{
-    FileEntry, LoadedTarget, Source, Target, WriteKind, is_detected, is_executable, load_targets,
+    FileEntry, LoadedTarget, Place, Source, Target, WriteKind, is_detected, is_executable,
+    load_targets,
 };
 use crate::template::{Renderer, check_syntax};
-use crate::write::{KeyOpts, atomic_write, resolve_write_path, set_block, set_key};
+use crate::write::{KeyOpts, KeyScope, atomic_write, resolve_write_path, set_block, set_key};
 
 /// Apply records kept after an apply.
 pub(crate) const KEEP_RECORDS: usize = 10;
@@ -549,8 +550,14 @@ fn plan_file(
         _ => {
             let key = f.key.clone().ok_or_else(|| skip(&"key needs key"))?;
             let value = rendered.trim_end_matches(['\n', '\r']);
+            let scope = match (&f.place, &f.section) {
+                (_, Some(s)) => KeyScope::Section(s.clone()),
+                (Some(Place::Top), None) => KeyScope::Top,
+                _ => KeyScope::End,
+            };
             let opts = KeyOpts {
                 separator: f.separator.clone().unwrap_or_else(|| " = ".to_string()),
+                scope,
                 ..KeyOpts::default()
             };
             let edit = set_key(existing.as_deref(), &key, value, &opts);
@@ -561,8 +568,8 @@ fn plan_file(
                     written: format!("{key}{}{value}", opts.separator),
                     key,
                     separator: opts.separator,
-                    place: None,
-                    section: None,
+                    place: matches!(f.place, Some(Place::Top)).then(|| "top".to_string()),
+                    section: f.section.clone(),
                     repeatable: opts.repeatable,
                     before: edit.before,
                     appended_newline: edit.appended_newline,

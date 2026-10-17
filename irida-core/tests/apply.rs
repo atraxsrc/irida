@@ -1245,3 +1245,61 @@ fn key_with_space_separator_round_trips() {
         "font 12\ninclude mine.conf\n"
     );
 }
+
+const E_TOML: &str = r#"name = "e"
+detect = {}
+
+[[file]]
+path = "~/.config/e/e.toml"
+write = "key"
+template = "e.tmpl"
+key = "import"
+section = "general"
+"#;
+
+const F_TOML: &str = r#"name = "f"
+detect = {}
+
+[[file]]
+path = "~/.config/f/config.toml"
+write = "key"
+template = "f.tmpl"
+key = "theme"
+place = "top"
+"#;
+
+#[test]
+fn key_in_section_round_trips() {
+    let env = TestEnv::new();
+    put_target(&env, "e", E_TOML, &[("e.tmpl", "[\"{{ slug }}.toml\"]\n")]);
+    let text =
+        "[font]\nsize = 12\n\n[general]\nlive_config_reload = true\n\n[window]\nimport = [\"x\"]\n";
+    let conf = env.write(".config/e/e.toml", text);
+    apply_only(&env, &palette("ember"), "e").unwrap();
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "[font]\nsize = 12\n\n[general]\nlive_config_reload = true\nimport = [\"ember.toml\"]\n\n[window]\nimport = [\"x\"]\n"
+    );
+    common::undo(&env);
+    assert_eq!(fs::read_to_string(&conf).unwrap(), text);
+}
+
+#[test]
+fn key_at_top_round_trips_without_trailing_newline() {
+    let env = TestEnv::new();
+    put_target(&env, "f", F_TOML, &[("f.tmpl", "\"{{ slug }}\"\n")]);
+    let conf = env.write(
+        ".config/f/config.toml",
+        "[editor]\nline-number = \"relative\"",
+    );
+    apply_only(&env, &palette("ember"), "f").unwrap();
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "theme = \"ember\"\n[editor]\nline-number = \"relative\""
+    );
+    common::undo(&env);
+    assert_eq!(
+        fs::read_to_string(&conf).unwrap(),
+        "[editor]\nline-number = \"relative\""
+    );
+}

@@ -256,3 +256,197 @@ fn planted_temp_symlink_is_not_followed() {
     assert!(!fs::symlink_metadata(&f).unwrap().file_type().is_symlink());
     assert_eq!(fs::read_to_string(&f).unwrap(), "new");
 }
+
+fn top() -> KeyOpts {
+    KeyOpts {
+        scope: KeyScope::Top,
+        ..KeyOpts::default()
+    }
+}
+
+fn section(n: &str) -> KeyOpts {
+    KeyOpts {
+        scope: KeyScope::Section(n.into()),
+        ..KeyOpts::default()
+    }
+}
+
+#[test]
+fn top_inserts_before_first_header() {
+    let e = set_key(
+        Some("# helix\n[editor]\nline-number = \"relative\"\n"),
+        "theme",
+        "\"irida\"",
+        &top(),
+    );
+    assert_eq!(
+        e.contents,
+        "# helix\ntheme = \"irida\"\n[editor]\nline-number = \"relative\"\n"
+    );
+    assert_eq!(e.before, None);
+    let back = restore_key(
+        &e.contents,
+        "theme",
+        "theme = \"irida\"",
+        None,
+        false,
+        false,
+        &top(),
+    );
+    assert_eq!(back, "# helix\n[editor]\nline-number = \"relative\"\n");
+}
+
+#[test]
+fn top_replaces_only_a_top_level_key() {
+    let e = set_key(
+        Some("theme = \"old\"\n[editor.x]\ntheme = \"inner\"\n"),
+        "theme",
+        "\"irida\"",
+        &top(),
+    );
+    assert_eq!(
+        e.contents,
+        "theme = \"irida\"\n[editor.x]\ntheme = \"inner\"\n"
+    );
+    assert_eq!(e.before.as_deref(), Some("theme = \"old\""));
+}
+
+#[test]
+fn top_appends_when_no_headers() {
+    let e = set_key(Some("a = 1"), "theme", "\"irida\"", &top());
+    assert_eq!(e.contents, "a = 1\ntheme = \"irida\"\n");
+    assert!(e.appended_newline);
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "theme",
+            "theme = \"irida\"",
+            None,
+            true,
+            false,
+            &top()
+        ),
+        "a = 1"
+    );
+}
+
+#[test]
+fn section_replaces_inside_its_section_only() {
+    let text = "[font]\nsize = 12\n\n[general]\nimport = [\"a\"]\n\n[window]\nimport = [\"b\"]\n";
+    let e = set_key(Some(text), "import", "[\"irida\"]", &section("general"));
+    assert_eq!(
+        e.contents,
+        "[font]\nsize = 12\n\n[general]\nimport = [\"irida\"]\n\n[window]\nimport = [\"b\"]\n"
+    );
+    assert_eq!(e.before.as_deref(), Some("import = [\"a\"]"));
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "import",
+            "import = [\"irida\"]",
+            e.before.as_deref(),
+            false,
+            false,
+            &section("general")
+        ),
+        text
+    );
+}
+
+#[test]
+fn section_appends_after_last_line_of_section() {
+    let text = "[general]\nlive_config_reload = true\n\n[window]\nopacity = 1\n";
+    let e = set_key(Some(text), "import", "[\"irida\"]", &section("general"));
+    assert_eq!(
+        e.contents,
+        "[general]\nlive_config_reload = true\nimport = [\"irida\"]\n\n[window]\nopacity = 1\n"
+    );
+    assert!(!e.created_section);
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "import",
+            "import = [\"irida\"]",
+            None,
+            false,
+            false,
+            &section("general")
+        ),
+        text
+    );
+}
+
+#[test]
+fn section_created_and_removed() {
+    let text = "[window]\nopacity = 1\n";
+    let e = set_key(Some(text), "import", "[\"irida\"]", &section("general"));
+    assert_eq!(
+        e.contents,
+        "[window]\nopacity = 1\n[general]\nimport = [\"irida\"]\n"
+    );
+    assert!(e.created_section);
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "import",
+            "import = [\"irida\"]",
+            None,
+            false,
+            true,
+            &section("general")
+        ),
+        text
+    );
+}
+
+#[test]
+fn created_section_kept_when_user_added_to_it() {
+    let e = set_key(Some(""), "import", "[\"irida\"]", &section("general"));
+    assert_eq!(e.contents, "[general]\nimport = [\"irida\"]\n");
+    let edited = e.contents.replace(
+        "import = [\"irida\"]\n",
+        "import = [\"irida\"]\nworking_directory = \"/x\"\n",
+    );
+    assert_eq!(
+        restore_key(
+            &edited,
+            "import",
+            "import = [\"irida\"]",
+            None,
+            false,
+            true,
+            &section("general")
+        ),
+        "[general]\nworking_directory = \"/x\"\n"
+    );
+}
+
+#[test]
+fn header_match_is_exact() {
+    let text = "[general.sub]\nimport = [\"a\"]\n";
+    let e = set_key(Some(text), "import", "[\"irida\"]", &section("general"));
+    assert_eq!(
+        e.contents,
+        "[general.sub]\nimport = [\"a\"]\n[general]\nimport = [\"irida\"]\n"
+    );
+}
+
+#[test]
+fn comments_only_and_empty_files() {
+    let e = set_key(Some("# just a comment\n"), "theme", "\"irida\"", &top());
+    assert_eq!(e.contents, "# just a comment\ntheme = \"irida\"\n");
+    let e = set_key(None, "theme", "\"irida\"", &top());
+    assert_eq!(e.contents, "theme = \"irida\"\n");
+    assert_eq!(
+        restore_key(
+            &e.contents,
+            "theme",
+            "theme = \"irida\"",
+            None,
+            false,
+            false,
+            &top()
+        ),
+        ""
+    );
+}

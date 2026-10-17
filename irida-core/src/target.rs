@@ -44,6 +44,20 @@ pub struct FileEntry {
     /// For `key` writes: the exact text between key and value, `" = "` when absent.
     #[serde(default)]
     pub separator: Option<String>,
+    /// For `key` writes: `top` keeps the line before the first `[section]`.
+    #[serde(default)]
+    pub place: Option<Place>,
+    /// For `key` writes: the `[section]` the line lives in.
+    #[serde(default)]
+    pub section: Option<String>,
+}
+
+/// Where a key line lives when it has no section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Place {
+    Top,
+    End,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -193,6 +207,20 @@ fn build(
         }
         if f.separator.as_deref() == Some("") {
             return invalid(format!("{}: separator must not be empty", f.path));
+        }
+        if (f.place.is_some() || f.section.is_some()) && f.write != WriteKind::Key {
+            return invalid(format!(
+                "{}: place and section need write = \"key\"",
+                f.path
+            ));
+        }
+        if f.place.is_some() && f.section.is_some() {
+            return invalid(format!("{}: place and section cannot both be set", f.path));
+        }
+        if let Some(s) = &f.section
+            && (s.is_empty() || s.contains(['[', ']']))
+        {
+            return invalid(format!("{}: section {s:?} is not a section name", f.path));
         }
         if !templates.contains_key(&f.template) {
             return invalid(format!("{}: missing template {}", f.path, f.template));

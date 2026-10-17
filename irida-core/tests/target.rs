@@ -4,8 +4,8 @@ use std::path::PathBuf;
 
 use common::TestEnv;
 use irida_core::target::{
-    Detect, LoadedTarget, NativeKind, Source, TargetDef, TargetError, WriteKind, is_detected,
-    load_targets,
+    Detect, LoadedTarget, NativeKind, Place, Source, TargetDef, TargetError, WriteKind,
+    is_detected, load_targets,
 };
 
 const CAVA: &str = r##"name = "cava"
@@ -406,4 +406,37 @@ fn separator_only_on_key_writes() {
     let all = load_targets(&env.dirs);
     let t = find(&all, "t").result.as_ref().unwrap();
     assert_eq!(t.def.files[0].separator.as_deref(), Some(" "));
+}
+
+fn key_entry(extra: &str) -> String {
+    format!(
+        "name = \"p\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"key\"\nkey = \"k\"\ntemplate = \"a\"\n{extra}\n"
+    )
+}
+
+#[test]
+fn place_and_section_validation() {
+    let env = TestEnv::new();
+    for (bad, toml) in [
+        ("middle", key_entry("place = \"middle\"")),
+        ("both", key_entry("place = \"top\"\nsection = \"s\"")),
+        ("bracket", key_entry("section = \"a]\"")),
+        ("empty", key_entry("section = \"\"")),
+        (
+            "file",
+            "name = \"p\"\n\n[[file]]\npath = \"~/.x\"\nwrite = \"file\"\ntemplate = \"a\"\nplace = \"top\"\n".to_string(),
+        ),
+    ] {
+        put(&env, "p", &toml, &["a"]);
+        // An unknown `place` value is a parse error, the rest are invalid.
+        assert!(find(&load_targets(&env.dirs), "p").result.is_err(), "{bad}");
+    }
+    put(&env, "p", &key_entry("place = \"top\""), &["a"]);
+    let all = load_targets(&env.dirs);
+    let f = &find(&all, "p").result.as_ref().unwrap().def.files[0];
+    assert_eq!(f.place, Some(Place::Top));
+    put(&env, "p", &key_entry("section = \"general\""), &["a"]);
+    let all = load_targets(&env.dirs);
+    let f = &find(&all, "p").result.as_ref().unwrap().def.files[0];
+    assert_eq!(f.section.as_deref(), Some("general"));
 }
