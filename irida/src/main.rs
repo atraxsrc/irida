@@ -50,12 +50,8 @@ enum Command {
     Apply {
         /// Palette slug, palette file or rice folder
         palette: String,
-        /// Apply only these targets by id (comma separated), even when turned
-        /// off: cosmic-desktop, cosmic-term, cava, btop, nvim, fastfetch, lsd,
-        /// zsh, ghostty, delta, fish, eza, kitty, alacritty, foot, helix, bat, or
-        /// a folder of your own under
-        /// ~/.config/irida/targets/
-        #[arg(long, value_delimiter = ',')]
+        // The help lists every built-in id; see `only_help`.
+        #[arg(long, value_delimiter = ',', help = only_help())]
         only: Option<Vec<String>>,
     },
     /// Undo the most recent apply
@@ -78,6 +74,15 @@ enum Command {
         #[arg(long)]
         name: Option<String>,
     },
+}
+
+/// The `--only` help, with every built-in target's id.
+fn only_help() -> String {
+    format!(
+        "Apply only these targets by id (comma separated), even when turned off: {}, or a \
+         folder of your own under ~/.config/irida/targets/",
+        irida_core::target::builtin_names().join(", ")
+    )
 }
 
 /// The palette `arg` names, as `Store::resolve` finds it. A rice folder

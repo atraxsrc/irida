@@ -16,7 +16,7 @@ use irida_core::native::cosmic_term::config_dir;
 use irida_core::palette::Palette;
 use irida_core::reload::ReloadStatus;
 use irida_core::store::Settings;
-use irida_core::target::load_targets;
+use irida_core::target::{builtin_names, load_targets};
 use irida_core::template::Renderer;
 use irida_core::term::ColorScheme;
 
@@ -973,49 +973,12 @@ fn listing(root: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
     out
 }
 
-const BUILTINS: [&str; 17] = [
-    "alacritty",
-    "bat",
-    "btop",
-    "cava",
-    "cosmic-desktop",
-    "cosmic-term",
-    "delta",
-    "eza",
-    "fastfetch",
-    "fish",
-    "foot",
-    "ghostty",
-    "helix",
-    "kitty",
-    "lsd",
-    "nvim",
-    "zsh",
-];
 const LIVE: [&str; 3] = ["cava", "cosmic-desktop", "cosmic-term"];
 
-/// The display name each built-in target sets.
-fn builtin_display(name: &str) -> &'static str {
-    match name {
-        "alacritty" => "Alacritty",
-        "bat" => "bat",
-        "cosmic-desktop" => "COSMIC desktop",
-        "cosmic-term" => "COSMIC Terminal",
-        "delta" => "delta",
-        "eza" => "eza",
-        "nvim" => "Neovim",
-        "btop" => "btop",
-        "cava" => "cava",
-        "fastfetch" => "fastfetch",
-        "fish" => "fish",
-        "foot" => "foot",
-        "ghostty" => "Ghostty",
-        "helix" => "Helix",
-        "kitty" => "kitty",
-        "lsd" => "lsd",
-        "zsh" => "zsh",
-        other => panic!("no display for {other}"),
-    }
+/// The display name a built-in target's `target.toml` sets.
+fn builtin_display(name: &str) -> String {
+    let def: toml::Table = common::target_file(name, "target.toml").parse().unwrap();
+    def["display"].as_str().unwrap().to_string()
 }
 
 fn info<'a>(status: &'a [TargetInfo], name: &str) -> &'a TargetInfo {
@@ -1040,7 +1003,7 @@ fn status_lists_without_writing() {
     assert_eq!(listing(env.tmp.path()), before);
 
     let names: Vec<&str> = status.iter().map(|t| t.name.as_str()).collect();
-    let mut expected: Vec<&str> = BUILTINS.iter().copied().chain(["a", "bad"]).collect();
+    let mut expected: Vec<&str> = builtin_names().into_iter().chain(["a", "bad"]).collect();
     expected.sort();
     assert_eq!(names, expected);
 
@@ -1062,12 +1025,12 @@ fn status_lists_without_writing() {
         "{bad:?}"
     );
     assert!(!bad.builtin && !bad.live && bad.enabled, "{bad:?}");
-    for name in BUILTINS {
+    for name in builtin_names() {
         assert_eq!(
             info(&status, name),
             &TargetInfo {
                 name: name.into(),
-                display: builtin_display(name).into(),
+                display: builtin_display(name),
                 builtin: true,
                 live: LIVE.contains(&name),
                 detected: false,

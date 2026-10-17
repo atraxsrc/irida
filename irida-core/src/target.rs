@@ -328,6 +328,16 @@ fn merge(builtin: Vec<LoadedTarget>, user: Vec<LoadedTarget>) -> Vec<LoadedTarge
     map.into_values().collect()
 }
 
+/// The ids of the built-in targets, sorted.
+pub fn builtin_names() -> Vec<&'static str> {
+    let mut names: Vec<&'static str> = BUILTIN
+        .dirs()
+        .filter_map(|d| d.path().file_name()?.to_str())
+        .collect();
+    names.sort();
+    names
+}
+
 /// All targets, sorted by name. Failures are reported per target, never fatal.
 pub fn load_targets(dirs: &Dirs) -> Vec<LoadedTarget> {
     let builtin: Vec<LoadedTarget> = BUILTIN.dirs().map(load_builtin).collect();

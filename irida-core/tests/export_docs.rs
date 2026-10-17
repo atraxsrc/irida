@@ -377,25 +377,19 @@ fn user_target_cannot_take_an_unmarked_readme() {
 #[test]
 fn skeleton_lists_every_install_script() {
     let text = readme_skeleton(&palette("ember"), "x");
-    for app in [
-        "nvim",
-        "fastfetch",
-        "lsd",
-        "zsh",
-        "cava",
-        "ghostty",
-        "delta",
-        "fish",
-        "eza",
-        "kitty",
-        "alacritty",
-        "foot",
-        "helix",
-        "bat",
-    ] {
-        assert!(
-            text.contains(&format!("`./{app}/install.sh`")),
-            "{app}: {text}"
-        );
+    let env = TestEnv::new();
+    let mut apps = 0;
+    for t in irida_core::target::load_targets(&env.dirs) {
+        let target = t.result.unwrap();
+        for r in &target.def.rice {
+            if let Some(app) = r.path.strip_suffix("/install.sh") {
+                apps += 1;
+                assert!(
+                    text.contains(&format!("`./{app}/install.sh`")),
+                    "{app}: {text}"
+                );
+            }
+        }
     }
+    assert!(apps >= 14, "{apps}");
 }

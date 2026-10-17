@@ -638,27 +638,13 @@ fn only_help_names_every_builtin() {
     let tmp = TempDir::new().unwrap();
     let out = irida(&tmp).args(["apply", "--help"]).output().unwrap();
     let help = String::from_utf8(out.stdout).unwrap();
-    for id in [
-        "cosmic-desktop",
-        "cosmic-term",
-        "cava",
-        "btop",
-        "nvim",
-        "fastfetch",
-        "lsd",
-        "zsh",
-        "ghostty",
-        "delta",
-        "fish",
-        "eza",
-        "kitty",
-        "alacritty",
-        "foot",
-        "helix",
-        "bat",
-    ] {
-        assert!(help.contains(id), "{id} missing from --only help:\n{help}");
-    }
+    // clap wraps long help lines, so compare with the line breaks folded.
+    let help = help.split_whitespace().collect::<Vec<_>>().join(" ");
+    let ids = irida_core::target::builtin_names().join(", ");
+    assert!(
+        help.contains(&ids),
+        "{ids} missing from --only help:\n{help}"
+    );
 }
 
 #[test]

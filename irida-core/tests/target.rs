@@ -465,3 +465,16 @@ fn note_overrides_only_on_key_writes() {
     let k = find(&all, "k").result.as_ref().unwrap();
     assert_eq!(k.def.files[0].note_overrides, ["background", "[colors]"]);
 }
+
+#[test]
+fn builtin_names_are_the_target_folders() {
+    let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("targets");
+    let mut folders: Vec<String> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|e| e.unwrap())
+        .filter(|e| e.path().is_dir())
+        .map(|e| e.file_name().into_string().unwrap())
+        .collect();
+    folders.sort();
+    assert_eq!(irida_core::target::builtin_names(), folders);
+}
