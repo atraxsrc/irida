@@ -152,6 +152,12 @@ scripts/check-deb.sh target/debian/irida_0.3.0-1_amd64.deb
 `scripts/check-deb.sh` checks the files and their modes, the desktop entry,
 the AppStream data and, when it is installed, lintian.
 
+## Contributing
+
+Bug reports and new apps are welcome. Each app is one folder with a
+`target.toml` and templates; [CONTRIBUTING.md](CONTRIBUTING.md) explains how to
+add one.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
