@@ -49,6 +49,14 @@ tmp=$(mktemp -d "${TMPDIR:-/tmp}/irida-check-deb.XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
 dpkg-deb -x "$deb" "$tmp"
 
+echo "== no build paths in the binaries"
+for bin in irida irida-applet; do
+    if strings "$tmp/usr/bin/$bin" | grep -q -E '^/home/|/home/[^/]+/\.cargo/'; then
+        fail "usr/bin/$bin embeds a home folder path; build with scripts/deb.sh"
+    fi
+    echo "ok usr/bin/$bin"
+done
+
 echo "== desktop-file-validate"
 desktop-file-validate "$tmp/usr/share/applications/$app_id.desktop"
 desktop-file-validate "$tmp/usr/share/applications/$applet_id.desktop"

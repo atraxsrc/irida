@@ -36,7 +36,11 @@ while IFS= read -r line || [ -n "$line" ]; do
 done <irida/res/debian/changelog.in
 
 # The .deb ships two binaries from two packages, so the whole workspace is
-# built first and cargo deb only packages.
+# built first and cargo deb only packages. Panic and log locations inside
+# dependencies would otherwise embed the builder's home folder in the
+# binaries, so the cargo home and the repository are remapped to fixed names.
+cargo_home=${CARGO_HOME:-$HOME/.cargo}
+export RUSTFLAGS="${RUSTFLAGS:-} --remap-path-prefix=$cargo_home=/cargo --remap-path-prefix=$root=/build/irida"
 cargo build --release --workspace --locked
 out=$(cargo deb -p irida --locked --no-build --maintainer "$DEB_MAINTAINER")
 deb=$(printf '%s\n' "$out" | grep '\.deb$' | tail -n 1)
