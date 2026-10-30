@@ -195,7 +195,7 @@ fn build(
     source: Source,
 ) -> Result<Target, TargetError> {
     let def: TargetDef =
-        toml::from_str(toml_text).map_err(|e| TargetError::Parse(e.to_string()))?;
+        toml::from_str(toml_text).map_err(|e| TargetError::Parse(crate::toml_message(&e)))?;
     let invalid = |m: String| Err(TargetError::Invalid(m));
     if def.name != folder {
         return invalid(format!(
@@ -315,16 +315,17 @@ fn load_user_folder(path: &Path) -> LoadedTarget {
         .map(|n| n.to_string_lossy().into_owned())
         .unwrap_or_default();
     let result = (|| {
-        let io = |e: std::io::Error| TargetError::Io(e.to_string());
-        let toml_text = std::fs::read_to_string(path.join("target.toml")).map_err(io)?;
+        let io = |p: &Path, e: std::io::Error| TargetError::Io(format!("{}: {e}", p.display()));
+        let toml_path = path.join("target.toml");
+        let toml_text = std::fs::read_to_string(&toml_path).map_err(|e| io(&toml_path, e))?;
         let mut templates = BTreeMap::new();
-        for entry in std::fs::read_dir(path).map_err(io)? {
-            let entry = entry.map_err(io)?;
+        for entry in std::fs::read_dir(path).map_err(|e| io(path, e))? {
+            let entry = entry.map_err(|e| io(path, e))?;
             let fname = entry.file_name().to_string_lossy().into_owned();
             if fname == "target.toml" || !entry.path().is_file() {
                 continue;
             }
-            let text = std::fs::read_to_string(entry.path()).map_err(io)?;
+            let text = std::fs::read_to_string(entry.path()).map_err(|e| io(&entry.path(), e))?;
             templates.insert(fname, text);
         }
         build(

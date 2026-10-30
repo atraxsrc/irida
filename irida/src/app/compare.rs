@@ -1,4 +1,4 @@
-//! The split preview (Compare and the pair) and its dialogs: Pair with...
+//! The split preview (Compare and the pair) and its dialogs: Pair with\u{2026}
 //! and the snapshot name. Views only read `State` and emit `Msg`.
 
 use cosmic::Element;
@@ -84,7 +84,7 @@ fn versions(choice: VersionChoice) -> Element<'static, Msg> {
     row.into()
 }
 
-/// Pair with...: every palette of the other mode; one that is paired
+/// Pair with\u{2026}: every palette of the other mode; one that is paired
 /// already asks before it is taken.
 pub fn pair_dialog<'a>(
     state: &'a State,
@@ -117,7 +117,7 @@ pub fn pair_dialog<'a>(
             )
         });
     widget::dialog()
-        .title(format!("Pair {name} with..."))
+        .title(format!("Pair {name} with\u{2026}"))
         .body("Apply and export use both halves of a pair.")
         .control(widget::scrollable(list).height(Length::Shrink))
         .secondary_action(button::standard("Cancel").on_press(Msg::CloseDialog))

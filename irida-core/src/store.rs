@@ -302,7 +302,7 @@ impl Store {
         };
         toml::from_str(&text).map_err(|e| StoreError::Unreadable {
             path,
-            message: e.to_string(),
+            message: crate::toml_message(&e),
         })
     }
 
@@ -394,7 +394,7 @@ impl Store {
         };
         toml::from_str(&text).map_err(|e| StoreError::Unreadable {
             path,
-            message: e.to_string(),
+            message: crate::toml_message(&e),
         })
     }
 

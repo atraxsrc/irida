@@ -721,6 +721,13 @@ fn plan_target<'t>(
             .render(&f.template, source)
             .map_err(|e| render_error(e.to_string()))?;
         let path = dirs.expand(&f.path);
+        if path.is_relative() {
+            warnings.push(format!(
+                "{}: not an absolute path after expansion; skipped",
+                f.path
+            ));
+            continue;
+        }
         let prior_lines = prior.lines_of(&path);
         // A later edit of a file this target already edits builds on that text.
         let earlier = writes.iter().position(|w: &PlannedWrite| w.path == path);

@@ -96,6 +96,9 @@ pub fn format_undo(r: &UndoReport) -> String {
             path.display()
         ));
     }
+    if !r.failures.is_empty() {
+        out.push_str("  the apply record was kept; irida undo tries again\n");
+    }
     out
 }
 

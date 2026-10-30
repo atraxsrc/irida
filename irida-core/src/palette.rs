@@ -159,7 +159,8 @@ fn quote(s: &str) -> String {
 
 impl Palette {
     pub fn from_toml(s: &str) -> Result<Palette, PaletteError> {
-        let raw: Raw = toml::from_str(s).map_err(|e| PaletteError::Toml(e.to_string()))?;
+        let raw: Raw =
+            toml::from_str(s).map_err(|e| PaletteError::Toml(crate::toml_message(&e)))?;
         validate_slug(&raw.slug)?;
         validate_name(&raw.name)?;
 

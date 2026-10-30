@@ -120,6 +120,7 @@ fn apply_palette(ctx: &Ctx, palette: &Palette, pair: Option<&Palette>, settings:
 fn undo_done(r: &UndoReport, again: &str) -> UndoDone {
     UndoDone {
         record_id: r.record_id,
+        palette: r.palette.clone(),
         failures: r
             .failures
             .iter()

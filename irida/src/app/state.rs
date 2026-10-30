@@ -159,7 +159,7 @@ pub enum Dialog {
     },
     /// What an export wrote.
     Exported(ExportSummary),
-    /// Pair with...: the palettes of the other mode. `confirm` is a chosen
+    /// Pair with\u{2026}: the palettes of the other mode. `confirm` is a chosen
     /// palette that is paired already, waiting for a yes.
     PairWith {
         choices: Vec<PairChoice>,
@@ -496,6 +496,8 @@ pub fn applied_text(report: &ApplyReport) -> String {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UndoDone {
     pub record_id: u32,
+    /// The palette slug the undone apply wrote.
+    pub palette: String,
     /// One line per file that could not be restored.
     pub failures: Vec<String>,
 }
@@ -654,10 +656,11 @@ pub const COMPARE_NEEDS_VERSION: &str = "Save a version first (Ctrl+S)";
 pub const LIVE_DELAY: Duration = Duration::from_millis(400);
 
 /// The try-live toggle's tooltip for a draft that was never saved.
-pub const LIVE_NEEDS_SAVE: &str = "Save the palette first";
+pub const LIVE_NEEDS_SAVE: &str = "Save the palette first (Ctrl+S)";
 
 /// The try-live toggle's tooltip when no target reloads live.
-pub const LIVE_NEEDS_TARGET: &str = "Try it live needs COSMIC, COSMIC Terminal or cava";
+pub const LIVE_NEEDS_TARGET: &str =
+    "Try it live needs COSMIC, COSMIC Terminal, cava, tmux or Starship";
 
 /// The try-live toggle's tooltip while another Irida window is open.
 pub const LIVE_IN_OTHER_WINDOW: &str = "Irida is open in another window: use Try it live there";
@@ -940,7 +943,7 @@ pub enum Msg {
         /// Boxed: a found pair is a whole palette.
         lookup: Box<PairLookup>,
     },
-    /// A palette chosen in Pair with...
+    /// A palette chosen in Pair with\u{2026}
     PairChoose(String),
     /// Yes, pair with the chosen palette although it is paired.
     PairConfirm,
@@ -1333,7 +1336,7 @@ impl State {
             .to_string()
     }
 
-    /// The pair chip: "Pair: Ember Day", or "Pair with..." when unpaired.
+    /// The pair chip: "Pair: Ember Day", or "Pair with\u{2026}" when unpaired.
     pub fn pair_label(&self) -> String {
         match self
             .current
@@ -1342,7 +1345,7 @@ impl State {
             .and_then(|w| w.pair.as_deref())
         {
             Some(slug) => format!("Pair: {}", self.entry_label(slug)),
-            None => "Pair with...".to_string(),
+            None => "Pair with\u{2026}".to_string(),
         }
     }
 
@@ -1352,7 +1355,7 @@ impl State {
             HeaderItem::Compare if self.editable() && !self.header_enabled(item) => {
                 Some(COMPARE_NEEDS_VERSION)
             }
-            HeaderItem::Pair if self.unsaved_draft() => Some("Save it first (Ctrl+S)"),
+            HeaderItem::Pair if self.unsaved_draft() => Some(LIVE_NEEDS_SAVE),
             HeaderItem::TryLive if self.live.is_none() => {
                 if self.other_window {
                     Some(LIVE_IN_OTHER_WINDOW)
@@ -2174,7 +2177,24 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
                     .iter()
                     .find(|e| e.slug == slug)
                     .map_or_else(|| slug.clone(), |e| e.label().to_string());
-                let mut effects = vec![state.toast(format!("Deleted {label}"))];
+                // The store clears the partner's pair when it pointed back.
+                let unpaired = state
+                    .entries
+                    .iter()
+                    .find(|e| e.slug == slug)
+                    .and_then(|e| e.pair.clone())
+                    .filter(|partner| {
+                        state
+                            .entries
+                            .iter()
+                            .any(|e| &e.slug == partner && e.pair.as_deref() == Some(&slug))
+                    })
+                    .map(|partner| state.entry_label(&partner));
+                let text = match unpaired {
+                    Some(partner) => format!("Deleted {label}, and unpaired {partner}"),
+                    None => format!("Deleted {label}"),
+                };
+                let mut effects = vec![state.toast(text)];
                 if let Some(i) = state.entries.iter().position(|e| e.slug == slug) {
                     state.entries.remove(i);
                     if state.current.as_ref().is_some_and(|c| c.slug() == slug) {
@@ -2503,6 +2523,20 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             Vec::new()
         }
         Msg::CloseDialog => {
+            // With no dialog or menu up, Escape closes the open role column,
+            // or leaves the wallpaper screen when it has a Cancel.
+            if state.dialog.is_none() && !state.menu_open {
+                if state.selected.is_some() {
+                    state.selected = None;
+                    return Vec::new();
+                }
+                if matches!(
+                    state.screen,
+                    Screen::Wallpaper(WallpaperDraft { cancel: true, .. })
+                ) {
+                    return update(state, Msg::CloseWallpaper);
+                }
+            }
             // Cancel on the unsaved-changes question drops an earlier answer.
             if matches!(state.dialog, Some(Dialog::Unsaved(_))) {
                 state.after_save = None;
@@ -2672,7 +2706,11 @@ pub fn update(state: &mut State, msg: Msg) -> Vec<Effect> {
             vec![Effect::Undo]
         }
         Msg::Undone(Ok(done)) => {
-            let mut lines = vec![format!("Restored apply {}", done.record_id)];
+            let mut lines = vec![format!(
+                "Restored apply {} ({})",
+                done.record_id,
+                state.entry_label(&done.palette)
+            )];
             lines.extend(done.failures);
             vec![state.toast(lines.join("\n"))]
         }
@@ -5792,7 +5830,7 @@ mod tests {
         assert!(!state.dirty());
         new_named(&mut state, "Moss", Mode::Dark);
         assert_eq!(state.split, Split::Off, "a new palette closes the split");
-        assert_eq!(state.pair_label(), "Pair with...");
+        assert_eq!(state.pair_label(), "Pair with\u{2026}");
         assert!(!state.menu_enabled(MenuItem::Unpair));
         drive(&mut state, Msg::PairChip);
         assert_eq!(state.split, Split::Off);
@@ -5818,7 +5856,7 @@ mod tests {
         let moss = state.entries.iter().find(|e| e.slug == "moss").unwrap();
         assert_eq!(moss.palette, Ok(("Moss".to_string(), Mode::Light)));
 
-        // Pair with... offers the dark palettes, not Moss itself.
+        // Pair with\u{2026} offers the dark palettes, not Moss itself.
         drive(&mut state, Msg::PairChip);
         let Some(Dialog::PairWith { choices, .. }) = &state.dialog else {
             panic!("{:?}", state.dialog);

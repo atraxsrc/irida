@@ -173,7 +173,11 @@ pub fn reload(r: Option<&Reload>, target: &str, path: &[PathBuf]) -> ReloadStatu
     if let Some(min) = &r.min_version
         && !version_ok(&min.command, &min.version, path)
     {
-        return ReloadStatus::Restart(format!("restart {target} to see it"));
+        return ReloadStatus::Restart(
+            r.hint
+                .clone()
+                .unwrap_or_else(|| format!("restart {target} to see it")),
+        );
     }
     if let Some(sig) = &r.signal {
         let Some(signal) = signal_by_name(&sig.signal) else {
@@ -193,9 +197,12 @@ pub fn reload(r: Option<&Reload>, target: &str, path: &[PathBuf]) -> ReloadStatu
         match run_shell(command, path) {
             Ok(out) if out.status.success() => {}
             Ok(out) => {
-                return ReloadStatus::Failed(
-                    String::from_utf8_lossy(&out.stderr).trim().to_string(),
-                );
+                let msg = String::from_utf8_lossy(&out.stderr).trim().to_string();
+                return ReloadStatus::Failed(if msg.is_empty() {
+                    out.status.to_string()
+                } else {
+                    msg
+                });
             }
             Err(e) => return ReloadStatus::Failed(e.to_string()),
         }

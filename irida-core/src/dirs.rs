@@ -98,7 +98,7 @@ impl Dirs {
         }
     }
 
-    /// Expand `~/`, `~/.config/` and `$XDG_*_HOME/` prefixes, and a leading
+    /// Expand `~/`, `~/.config/`, `$HOME/` and `$XDG_*_HOME/` prefixes, and a leading
     /// `${NAME:-fallback}`: the variable's absolute path when it holds one, else
     /// the expanded fallback. Other paths are unchanged.
     pub fn expand(&self, p: &str) -> PathBuf {
@@ -120,6 +120,7 @@ impl Dirs {
             };
         }
         let vars = [
+            ("$HOME", &self.home),
             ("$XDG_CONFIG_HOME", &self.config),
             ("$XDG_DATA_HOME", &self.data),
             ("$XDG_STATE_HOME", &self.state),

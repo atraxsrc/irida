@@ -21,3 +21,14 @@ pub mod template;
 pub mod term;
 pub mod wallpaper;
 pub mod write;
+
+/// A TOML parse error on one line: where it is, then what it is. The Display
+/// form carries a code frame, which does not fit a status line or a toast.
+pub(crate) fn toml_message(e: &toml::de::Error) -> String {
+    let first = e.to_string().lines().next().unwrap_or_default().to_string();
+    if first == e.message() {
+        first
+    } else {
+        format!("{first}: {}", e.message())
+    }
+}

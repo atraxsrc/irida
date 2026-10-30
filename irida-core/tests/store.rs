@@ -23,6 +23,8 @@ fn expand_paths() {
         PathBuf::from("/x/cfg/btop/btop.conf")
     );
     assert_eq!(d.expand("~/.zshrc"), PathBuf::from("/h/.zshrc"));
+    assert_eq!(d.expand("$HOME/.zshrc"), PathBuf::from("/h/.zshrc"));
+    assert_eq!(d.expand("$HOME"), PathBuf::from("/h"));
     assert_eq!(
         d.expand("$XDG_CONFIG_HOME/cava/config"),
         PathBuf::from("/x/cfg/cava/config")

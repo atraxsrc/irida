@@ -12,7 +12,7 @@ use irida_core::draft;
 use irida_core::export::{ExportRequest, export};
 use irida_core::import;
 use irida_core::palette::{Mode, Palette, slug_from_name, validate_name};
-use irida_core::store::{PairLookup, Store, is_saved_slug};
+use irida_core::store::{PairLookup, Store, StoreError, is_saved_slug};
 use irida_core::wallpaper;
 
 #[derive(Parser)]
@@ -97,7 +97,12 @@ fn resolve(store: &Store, arg: &str) -> Result<Palette, String> {
         }
         return Ok(p);
     }
-    store.resolve(arg).map_err(|e| e.to_string())
+    store.resolve(arg).map_err(|e| match e {
+        StoreError::NotFound(_) if is_saved_slug(arg) => format!(
+            "no saved palette called {arg:?}, and no such file or folder; irida list shows the saved palettes"
+        ),
+        e => e.to_string(),
+    })
 }
 
 /// The palette's pair, when it names one that exists with the opposite mode.
@@ -123,6 +128,13 @@ fn load_pair(store: &Store, p: &Palette, doing: &str) -> Option<Palette> {
 
 fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<ExitCode, String> {
     let ctx = Ctx::from_env().map_err(|e| e.to_string())?;
+    // "--only btop," names an empty target otherwise.
+    let only = only.map(|ids| {
+        ids.iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+    });
     let p = resolve(&store, palette)?;
     let pair = load_pair(&store, &p, "applying");
     let settings = store.settings().map_err(|e| e.to_string())?;
@@ -148,6 +160,9 @@ fn run_apply(store: Store, palette: &str, only: Option<Vec<String>>) -> Result<E
             print!("{}", output::format_targets(&results));
             Err(ApplyError::NothingToApply(results).to_string())
         }
+        Err(ApplyError::UnknownTarget(id)) => Err(format!(
+            "unknown target {id:?}; irida apply --help lists the ids"
+        )),
         Err(e) => Err(e.to_string()),
     }
 }
@@ -182,6 +197,7 @@ fn run_draft(
     mode: Option<ModeArg>,
     name: Option<String>,
 ) -> Result<ExitCode, String> {
+    let named = name.is_some();
     let name = name.unwrap_or_else(|| wallpaper::name_from_file(image));
     validate_name(&name).map_err(|e| e.to_string())?;
     let slug = slug_from_name(&name);
@@ -191,9 +207,12 @@ fn run_draft(
         ));
     }
     if store.exists(&slug) {
-        return Err(format!(
-            "a palette called {slug} already exists; pass --name"
-        ));
+        let advice = if named {
+            "choose another name"
+        } else {
+            "pass --name"
+        };
+        return Err(format!("a palette called {slug} already exists; {advice}"));
     }
     let pixels = wallpaper::load_pixels(image).map_err(|e| e.to_string())?;
     let clusters = draft::clusters(&pixels);
@@ -238,7 +257,11 @@ fn run(cli: Cli) -> Result<ExitCode, String> {
             })
         }
         Command::List => {
-            for entry in store.list() {
+            let entries = store.list();
+            if entries.is_empty() {
+                eprintln!("irida: no palettes yet; open Irida or run irida draft <image>");
+            }
+            for entry in entries {
                 match entry.result {
                     Ok(p) => println!("{}  {} ({})", entry.slug, p.name, p.mode),
                     Err(e) => println!("{}  unreadable: {e}", entry.slug),
