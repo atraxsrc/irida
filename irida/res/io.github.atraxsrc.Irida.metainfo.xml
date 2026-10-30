@@ -52,6 +52,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.3.1" date="2026-10-31">
+      <description>
+        <p>Escape closes the open role column and leaves the wallpaper screen. Deleting a paired palette and undoing an apply say which palette they touched, and the Try it live tooltip names tmux and Starship. On the command line, an unknown palette, an unknown target id, a second draft with the same name and an empty list all say what to do next. A user target path may start with $HOME, a path that is not absolute is skipped with a warning, the kitty and Ghostty reload hints show below their minimum versions, and TOML errors fit on one line. The .deb no longer embeds the build machine's home folder.</p>
+      </description>
+    </release>
     <release version="0.3.0" date="2026-10-18">
       <description>
         <p>Four new targets: tmux, zellij, yazi and Starship. Starship and tmux apply live. A target may write several blocks and key lines into one file, and review fixes to undo, live sessions and the install scripts.</p>
