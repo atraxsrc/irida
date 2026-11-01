@@ -52,6 +52,11 @@
   </supports>
   <content_rating type="oars-1.1"/>
   <releases>
+    <release version="0.4.0" date="2026-11-01">
+      <description>
+        <p>Six new targets: WezTerm, lazygit, GTK, qt5ct, qt6ct and Discord (Vencord or Vesktop, packaged or Flatpak; only the clients that are installed get the theme). The exported rice's switch.sh runs every install script the rice carries. A target entry may be limited to a folder that exists, and detection may list several config folders or Flatpak ids.</p>
+      </description>
+    </release>
     <release version="0.3.1" date="2026-10-31">
       <description>
         <p>Escape closes the open role column and leaves the wallpaper screen. Deleting a paired palette and undoing an apply say which palette they touched, and the Try it live tooltip names tmux and Starship. On the command line, an unknown palette, an unknown target id, a second draft with the same name and an empty list all say what to do next. A user target path may start with $HOME, a path that is not absolute is skipped with a warning, the kitty and Ghostty reload hints show below their minimum versions, and TOML errors fit on one line. The .deb no longer embeds the build machine's home folder.</p>
