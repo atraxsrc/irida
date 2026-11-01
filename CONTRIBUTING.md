@@ -26,15 +26,19 @@ The quickest start is to copy the closest existing target:
 | takes a theme name from one config line | `helix`, `bat`, `delta` |
 | keeps colours in a block inside its main config | `tmux`, `starship` |
 | loads a theme or flavor from its own folder | `zellij`, `yazi` |
+| lives in one of several places (a Flatpak, say) | `discord` (`only_if_dir` on each entry) |
 
 A `target.toml` has:
 
-- `name`, `display` and `detect` (a binary and, optionally, a config folder)
+- `name`, `display` and `detect` (a binary and, optionally, config folders
+  or Flatpak ids, one or a list; any one present counts)
 - one or more `[[file]]` writes, each with a `path`, a `write` kind and a
   `template`:
   - `file`: Irida owns the whole file
   - `key`: one line in the user's config, set to a value
   - `block`: a marked block inside the user's config
+- `only_if_dir` on an entry skips it when that folder is missing, so an app
+  that may live in several places gets one entry per place
 - optional `[reload]`: a signal, a command, or just a `hint` telling the user
   how to reload
 - `[[rice]]` entries for what a rice export includes, usually the theme file

@@ -187,7 +187,7 @@ fn changed_switch(fixture: &str) -> String {
     let changes = [
         (
             "# Terminal tools; bat and starship only exist in some repos\nfor tool in fastfetch lsd bat starship; do\n",
-            "# Terminal tools; bat, starship and cava only exist in some repos\nfor tool in fastfetch lsd bat starship cava; do\n",
+            "# Terminal tools and the other install scripts; each runs only when its folder is here\nfor tool in fastfetch lsd bat starship cava ghostty delta fish eza kitty alacritty foot helix tmux zellij yazi wezterm lazygit gtk qt discord; do\n",
         ),
         (
             "# Updater banner\nln -sfn \"$R/scripts/update_system.sh\" \"$HOME/update_system.sh\"\necho \"  ~/update_system.sh -> $NAME\"\n\n",

@@ -68,6 +68,11 @@ result to your desktop, terminal, editor and tools in one step.
 | zellij | `themes/irida.kdl`, selected in `config.kdl`; 0.45 or newer reloads it live, restart older sessions | |
 | yazi | The flavor `flavors/irida.yazi`, selected for dark and light in `theme.toml` (25.12.29 or newer) | |
 | Starship | A `[palettes.irida]` table in `starship.toml` (or `$STARSHIP_CONFIG`), selected with `palette` at the top | ✓ |
+| WezTerm | `colors/irida.toml`; add `config.color_scheme = "irida"` to `wezterm.lua` once | |
+| lazygit | `irida.yml` beside `config.yml`, read through `LG_CONFIG_FILE` from the zsh block | |
+| GTK | `irida.css` in `gtk-4.0/` and `gtk-3.0/`, imported from `gtk.css` after COSMIC's own import | |
+| qt5ct, qt6ct | `colors/irida.conf`, selected under `[Appearance]` of the tool's conf; Qt apps need `QT_QPA_PLATFORMTHEME` set to it | |
+| Discord | `themes/irida.theme.css` for every Vencord or Vesktop it finds, packaged or Flatpak; tick it under Settings, Vencord, Themes once | |
 
 Apps that are not installed are skipped. To add your own, put a folder with a
 `target.toml` and its templates in `~/.config/irida/targets/`; the built-in
