@@ -709,6 +709,12 @@ fn plan_target<'t>(
     let mut writes = Vec::new();
     let mut warnings: Vec<String> = target.def.note.iter().cloned().collect();
     for f in &target.def.files {
+        // The place this entry serves is not installed: nothing to do, no note.
+        if let Some(dir) = &f.only_if_dir
+            && !dirs.expand(dir).is_dir()
+        {
+            continue;
+        }
         let render_error = |message: String| ApplyError::Render {
             target: name.clone(),
             message,

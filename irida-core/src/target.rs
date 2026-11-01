@@ -16,8 +16,27 @@ static BUILTIN: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/targets");
 #[serde(default, deny_unknown_fields)]
 pub struct Detect {
     pub binary: Option<String>,
-    pub config: Option<String>,
-    pub flatpak: Option<String>,
+    /// Config files or folders; any one present means installed.
+    #[serde(deserialize_with = "one_or_many")]
+    pub config: Vec<String>,
+    /// Flatpak app ids; any one with a config folder means installed.
+    #[serde(deserialize_with = "one_or_many")]
+    pub flatpak: Vec<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(untagged)]
+enum OneOrMany {
+    One(String),
+    Many(Vec<String>),
+}
+
+/// A string or a list of strings, as a list.
+fn one_or_many<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<String>, D::Error> {
+    Ok(match OneOrMany::deserialize(d)? {
+        OneOrMany::One(s) => vec![s],
+        OneOrMany::Many(v) => v,
+    })
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
@@ -41,6 +60,11 @@ pub struct FileEntry {
     /// Write only when the file does not exist yet.
     #[serde(default)]
     pub create_only: bool,
+    /// Write only when this folder exists, expanded like `path`: an app that
+    /// may live in one of several places (a Flatpak, say) gets one entry per
+    /// place and no folder is created for the ones it is not in.
+    #[serde(default)]
+    pub only_if_dir: Option<String>,
     /// For `key` writes: the exact text between key and value, `" = "` when absent.
     #[serde(default)]
     pub separator: Option<String>,
@@ -228,6 +252,12 @@ fn build(
         if f.separator.as_deref() == Some("") {
             return invalid(format!("{}: separator must not be empty", f.path));
         }
+        if f.only_if_dir
+            .as_deref()
+            .is_some_and(|d| d.trim().is_empty())
+        {
+            return invalid(format!("{}: only_if_dir must not be empty", f.path));
+        }
         if (f.place.is_some()
             || f.section.is_some()
             || f.repeatable
@@ -382,7 +412,7 @@ pub fn is_executable(p: &Path) -> bool {
 /// Whether the application behind a target appears to be installed.
 pub fn is_detected(def: &TargetDef, dirs: &Dirs, path: &[PathBuf]) -> bool {
     let d = &def.detect;
-    if d.binary.is_none() && d.config.is_none() && d.flatpak.is_none() {
+    if d.binary.is_none() && d.config.is_empty() && d.flatpak.is_empty() {
         return true;
     }
     if let Some(bin) = &d.binary
@@ -390,17 +420,10 @@ pub fn is_detected(def: &TargetDef, dirs: &Dirs, path: &[PathBuf]) -> bool {
     {
         return true;
     }
-    if let Some(cfg) = &d.config
-        && dirs.expand(cfg).exists()
-    {
-        return true;
-    }
-    if let Some(id) = &d.flatpak
-        && dirs.home.join(".var/app").join(id).join("config").is_dir()
-    {
-        return true;
-    }
-    false
+    d.config.iter().any(|cfg| dirs.expand(cfg).exists())
+        || d.flatpak
+            .iter()
+            .any(|id| dirs.home.join(".var/app").join(id).join("config").is_dir())
 }
 
 #[cfg(test)]

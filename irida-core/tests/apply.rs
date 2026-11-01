@@ -1576,3 +1576,52 @@ fn file_write_sharing_an_expanded_path_is_skipped() {
         assert!(!conf.exists());
     }
 }
+
+/// A target with one entry per place the app may live in writes only the
+/// places that exist, and is skipped as "nothing to write" when none does.
+#[test]
+fn only_if_dir_writes_the_places_that_exist() {
+    let toml = r#"name = "od"
+detect = {}
+
+[[file]]
+path = "~/.config/App/themes/irida.css"
+write = "file"
+template = "t.tmpl"
+only_if_dir = "~/.config/App"
+
+[[file]]
+path = "~/.var/app/org.App/config/App/themes/irida.css"
+write = "file"
+template = "t.tmpl"
+only_if_dir = "~/.var/app/org.App"
+"#;
+    let ember = palette("ember");
+
+    let env = TestEnv::new();
+    put_target(&env, "od", toml, &[("t.tmpl", A_TMPL)]);
+    // Nothing else is installed in the fake home, so the apply as a whole has
+    // nothing to do; the target's own reason is still "nothing to write".
+    let Err(ApplyError::NothingToApply(results)) = run(&env, &ember) else {
+        panic!("expected nothing to apply");
+    };
+    let od = results.iter().find(|r| r.name == "od").expect("od");
+    assert_eq!(broken(&od.status), "nothing to write");
+    assert!(!home(&env, ".config/App").exists());
+
+    let env = TestEnv::new();
+    put_target(&env, "od", toml, &[("t.tmpl", A_TMPL)]);
+    fs::create_dir_all(home(&env, ".var/app/org.App/config")).unwrap();
+    let report = run(&env, &ember).unwrap();
+    applied(&report, "od");
+    let flatpak = home(&env, ".var/app/org.App/config/App/themes/irida.css");
+    assert_eq!(read(&flatpak), render(&ember, A_TMPL));
+    assert!(!home(&env, ".config/App").exists());
+    assert!(
+        warnings(&report, "od").is_empty(),
+        "{:?}",
+        warnings(&report, "od")
+    );
+    undo(&ctx(&env)).unwrap();
+    assert!(!flatpak.exists());
+}

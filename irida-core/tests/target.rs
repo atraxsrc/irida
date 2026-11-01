@@ -89,6 +89,11 @@ fn validation_errors() {
             file("key = \"k\"\nreplaced_hint = \"h\"", "key").replace("NAME", "hintonly"),
             true,
         ),
+        (
+            "emptydir",
+            file("only_if_dir = \" \"", "file").replace("NAME", "emptydir"),
+            true,
+        ),
     ];
     for (folder, toml, with_tmpl) in &cases {
         put(
@@ -156,7 +161,7 @@ fn detection() {
 
     let by_cfg = TargetDef {
         detect: Detect {
-            config: Some("~/.config/nothere".into()),
+            config: vec!["~/.config/nothere".into()],
             ..Default::default()
         },
         ..def()
@@ -167,7 +172,7 @@ fn detection() {
 
     let by_flat = TargetDef {
         detect: Detect {
-            flatpak: Some("io.github.x".into()),
+            flatpak: vec!["io.github.x".into()],
             ..Default::default()
         },
         ..def()
@@ -272,6 +277,26 @@ fn create_only_needs_file() {
 }
 
 #[test]
+fn only_if_dir_is_read_on_every_write_kind() {
+    let env = TestEnv::new();
+    for (name, write, extra) in [
+        ("odf", "file", ""),
+        ("odk", "key", "key = \"k\"\n"),
+        ("odb", "block", "comment = \"#\"\n"),
+    ] {
+        let toml = format!(
+            "name = \"{name}\"\n[[file]]\npath = \"~/a\"\nwrite = \"{write}\"\ntemplate = \"a.tmpl\"\n{extra}only_if_dir = \"~/.var/app/x\"\n"
+        );
+        put(&env, name, &toml, &["a.tmpl"]);
+    }
+    let all = load_targets(&env.dirs);
+    for name in ["odf", "odk", "odb"] {
+        let t = find(&all, name).result.as_ref().expect("loads");
+        assert_eq!(t.def.files[0].only_if_dir.as_deref(), Some("~/.var/app/x"));
+    }
+}
+
+#[test]
 fn reload_hint_parses() {
     let env = TestEnv::new();
     put(
@@ -289,11 +314,43 @@ fn reload_hint_parses() {
 }
 
 #[test]
+fn detect_lists_mean_any_of() {
+    let env = TestEnv::new();
+    put(
+        &env,
+        "many",
+        "name = \"many\"\ndetect = { config = [\"~/.config/A\", \"~/.config/B\"], flatpak = [\"org.A\", \"org.B\"] }\n",
+        &[],
+    );
+    put(
+        &env,
+        "one",
+        "name = \"one\"\ndetect = { config = \"~/.config/A\", flatpak = \"org.A\" }\n",
+        &[],
+    );
+    let all = load_targets(&env.dirs);
+    let many = find(&all, "many").result.as_ref().expect("loads");
+    assert_eq!(many.def.detect.config, ["~/.config/A", "~/.config/B"]);
+    assert_eq!(many.def.detect.flatpak, ["org.A", "org.B"]);
+    let one = find(&all, "one").result.as_ref().expect("loads");
+    assert_eq!(one.def.detect.config, ["~/.config/A"]);
+    assert_eq!(one.def.detect.flatpak, ["org.A"]);
+    assert!(!is_detected(&many.def, &env.dirs, &[]));
+    std::fs::create_dir_all(env.dirs.home.join(".var/app/org.B/config")).unwrap();
+    assert!(is_detected(&many.def, &env.dirs, &[]));
+    assert!(!is_detected(&one.def, &env.dirs, &[]));
+    std::fs::create_dir_all(env.dirs.config.join("B")).unwrap();
+    assert!(!is_detected(&one.def, &env.dirs, &[]));
+    std::fs::create_dir_all(env.dirs.config.join("A")).unwrap();
+    assert!(is_detected(&one.def, &env.dirs, &[]));
+}
+
+#[test]
 fn config_file_detects() {
     let env = TestEnv::new();
     let zsh = TargetDef {
         detect: Detect {
-            config: Some("~/.zshrc".into()),
+            config: vec!["~/.zshrc".into()],
             ..Default::default()
         },
         ..def()
