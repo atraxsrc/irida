@@ -1,0 +1,31 @@
+# Checked against wezterm.org/config/appearance (defining a color scheme in a
+# separate file) and wezterm's config/src/color.rs on 2026-11-01: a scheme is
+# a TOML file with a [colors] table that takes the keys of the Lua `colors`
+# table (the tab bar as [colors.tab_bar] subtables, copy mode and quick
+# select entries as { Color = "#RRGGBB" }) and an optional [metadata] with
+# `name`; files in ~/.config/wezterm/colors/ are found by that name and
+# `config.color_scheme` picks one. wezterm.lua is Lua ending in `return
+# config`, so Irida never edits it: the user adds the color_scheme line once.
+# WezTerm reloads its config on its own (automatically_reload_config) and
+# ctrl+shift+r reloads it by hand.
+name = "wezterm"
+display = "WezTerm"
+note = "wezterm.lua picks it with config.color_scheme = \"irida\""
+detect = { binary = "wezterm", config = "~/.config/wezterm" }
+
+[[file]]
+path = "~/.config/wezterm/colors/irida.toml"
+write = "file"
+template = "irida.toml.tmpl"
+
+[reload]
+hint = "press ctrl+shift+r in WezTerm to reload its config"
+
+[[rice]]
+path = "wezterm/colors/{{ slug }}.toml"
+template = "irida.toml.tmpl"
+
+[[rice]]
+path = "wezterm/install.sh"
+template = "install.sh.tmpl"
+executable = true

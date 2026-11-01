@@ -1,0 +1,53 @@
+{%- set scheme = slug if export else "irida" -%}
+{%- set bg = term.background or pane -%}
+# {{ name }} ({{ mode }}) for WezTerm, written by Irida. wezterm.lua picks it
+# with config.color_scheme = "{{ scheme }}".
+[colors]
+foreground = "{{ term.foreground }}"
+background = "{{ bg }}"
+cursor_bg = "{{ term.cursor }}"
+cursor_fg = "{{ bg }}"
+cursor_border = "{{ term.cursor }}"
+compose_cursor = "{{ warning }}"
+selection_fg = "{{ term.foreground }}"
+selection_bg = "{{ mix(bg, "accent", 0.35) }}"
+scrollbar_thumb = "{{ container }}"
+split = "{{ container }}"
+ansi = ["{{ term.normal.black }}", "{{ term.normal.red }}", "{{ term.normal.green }}", "{{ term.normal.yellow }}", "{{ term.normal.blue }}", "{{ term.normal.magenta }}", "{{ term.normal.cyan }}", "{{ term.normal.white }}"]
+brights = ["{{ term.bright.black }}", "{{ term.bright.red }}", "{{ term.bright.green }}", "{{ term.bright.yellow }}", "{{ term.bright.blue }}", "{{ term.bright.magenta }}", "{{ term.bright.cyan }}", "{{ term.bright.white }}"]
+copy_mode_active_highlight_bg = { Color = "{{ accent }}" }
+copy_mode_active_highlight_fg = { Color = "{{ bg }}" }
+copy_mode_inactive_highlight_bg = { Color = "{{ term.normal.yellow }}" }
+copy_mode_inactive_highlight_fg = { Color = "{{ bg }}" }
+quick_select_label_bg = { Color = "{{ warning }}" }
+quick_select_label_fg = { Color = "{{ bg }}" }
+quick_select_match_bg = { Color = "{{ term.normal.yellow }}" }
+quick_select_match_fg = { Color = "{{ bg }}" }
+
+[colors.tab_bar]
+background = "{{ background }}"
+
+[colors.tab_bar.active_tab]
+bg_color = "{{ accent }}"
+fg_color = "{{ bg }}"
+intensity = "Bold"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "{{ container }}"
+fg_color = "{{ muted }}"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "{{ container }}"
+fg_color = "{{ text }}"
+
+[colors.tab_bar.new_tab]
+bg_color = "{{ background }}"
+fg_color = "{{ muted }}"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "{{ container }}"
+fg_color = "{{ accent }}"
+
+[metadata]
+name = "{{ scheme }}"
+author = "Irida"

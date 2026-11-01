@@ -1,0 +1,51 @@
+# Ember (dark) for WezTerm, written by Irida. wezterm.lua picks it
+# with config.color_scheme = "ember".
+[colors]
+foreground = "#D6D9E0"
+background = "#1B1E24"
+cursor_bg = "#E8713A"
+cursor_fg = "#1B1E24"
+cursor_border = "#E8713A"
+compose_cursor = "#D9A441"
+selection_fg = "#D6D9E0"
+selection_bg = "#633B2C"
+scrollbar_thumb = "#22262E"
+split = "#22262E"
+ansi = ["#2A2F38", "#D85A5A", "#8FB58A", "#D9A441", "#7FA3C7", "#B08BC4", "#7FB7B3", "#D6D9E0"]
+brights = ["#7C8290", "#DD6E6E", "#9CBE98", "#DEAF58", "#8EAECE", "#B999CB", "#8EC0BC", "#E2E4E9"]
+copy_mode_active_highlight_bg = { Color = "#E8713A" }
+copy_mode_active_highlight_fg = { Color = "#1B1E24" }
+copy_mode_inactive_highlight_bg = { Color = "#D9A441" }
+copy_mode_inactive_highlight_fg = { Color = "#1B1E24" }
+quick_select_label_bg = { Color = "#D9A441" }
+quick_select_label_fg = { Color = "#1B1E24" }
+quick_select_match_bg = { Color = "#D9A441" }
+quick_select_match_fg = { Color = "#1B1E24" }
+
+[colors.tab_bar]
+background = "#15171C"
+
+[colors.tab_bar.active_tab]
+bg_color = "#E8713A"
+fg_color = "#1B1E24"
+intensity = "Bold"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#22262E"
+fg_color = "#7C8290"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#22262E"
+fg_color = "#D6D9E0"
+
+[colors.tab_bar.new_tab]
+bg_color = "#15171C"
+fg_color = "#7C8290"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#22262E"
+fg_color = "#E8713A"
+
+[metadata]
+name = "ember"
+author = "Irida"

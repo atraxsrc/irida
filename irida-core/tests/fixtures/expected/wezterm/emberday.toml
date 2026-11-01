@@ -1,0 +1,51 @@
+# Ember Day (light) for WezTerm, written by Irida. wezterm.lua picks it
+# with config.color_scheme = "emberday".
+[colors]
+foreground = "#2B2E36"
+background = "#DDD9D1"
+cursor_bg = "#A4441A"
+cursor_fg = "#DDD9D1"
+cursor_border = "#A4441A"
+compose_cursor = "#8A5E12"
+selection_fg = "#2B2E36"
+selection_bg = "#C9A591"
+scrollbar_thumb = "#E2DED6"
+split = "#E2DED6"
+ansi = ["#2B2E36", "#9E3A3A", "#4C6B45", "#8A5E12", "#2F5C8A", "#6E4E8C", "#2E6E6A", "#6B6F78"]
+brights = ["#25272E", "#863131", "#415B3B", "#75500F", "#284E75", "#5E4277", "#275E5A", "#5B5E66"]
+copy_mode_active_highlight_bg = { Color = "#A4441A" }
+copy_mode_active_highlight_fg = { Color = "#DDD9D1" }
+copy_mode_inactive_highlight_bg = { Color = "#8A5E12" }
+copy_mode_inactive_highlight_fg = { Color = "#DDD9D1" }
+quick_select_label_bg = { Color = "#8A5E12" }
+quick_select_label_fg = { Color = "#DDD9D1" }
+quick_select_match_bg = { Color = "#8A5E12" }
+quick_select_match_fg = { Color = "#DDD9D1" }
+
+[colors.tab_bar]
+background = "#E9E6DF"
+
+[colors.tab_bar.active_tab]
+bg_color = "#A4441A"
+fg_color = "#DDD9D1"
+intensity = "Bold"
+
+[colors.tab_bar.inactive_tab]
+bg_color = "#E2DED6"
+fg_color = "#6B6F78"
+
+[colors.tab_bar.inactive_tab_hover]
+bg_color = "#E2DED6"
+fg_color = "#2B2E36"
+
+[colors.tab_bar.new_tab]
+bg_color = "#E9E6DF"
+fg_color = "#6B6F78"
+
+[colors.tab_bar.new_tab_hover]
+bg_color = "#E2DED6"
+fg_color = "#A4441A"
+
+[metadata]
+name = "emberday"
+author = "Irida"
