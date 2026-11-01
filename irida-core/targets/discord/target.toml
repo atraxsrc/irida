@@ -1,0 +1,49 @@
+# Checked against docs.vencord.dev (themes) and the Flatpak layout reported
+# on 2026-11-01: Vencord loads every *.theme.css in its themes/ folder,
+# ~/.config/Vencord/themes/ for a packaged Discord and
+# ~/.var/app/com.discordapp.Discord/config/Vencord/themes/ for the Flatpak;
+# Vesktop keeps ~/.config/vesktop/themes/ and
+# ~/.var/app/dev.vencord.Vesktop/config/vesktop/themes/. A theme is ticked
+# under Settings -> Vencord -> Themes ("Load missing themes" when it is not
+# listed yet); that is a JSON setting, which Irida leaves alone. ctrl+r
+# reloads Discord. One entry per place, written only when that client is
+# there, so no folder appears for a client that is not installed.
+name = "discord"
+display = "Discord"
+detect = { config = ["~/.config/Vencord", "~/.config/vesktop"], flatpak = ["com.discordapp.Discord", "dev.vencord.Vesktop"] }
+
+[[file]]
+path = "~/.config/Vencord/themes/irida.theme.css"
+write = "file"
+template = "irida.theme.css.tmpl"
+only_if_dir = "~/.config/Vencord"
+
+[[file]]
+path = "~/.config/vesktop/themes/irida.theme.css"
+write = "file"
+template = "irida.theme.css.tmpl"
+only_if_dir = "~/.config/vesktop"
+
+[[file]]
+path = "~/.var/app/com.discordapp.Discord/config/Vencord/themes/irida.theme.css"
+write = "file"
+template = "irida.theme.css.tmpl"
+only_if_dir = "~/.var/app/com.discordapp.Discord"
+
+[[file]]
+path = "~/.var/app/dev.vencord.Vesktop/config/vesktop/themes/irida.theme.css"
+write = "file"
+template = "irida.theme.css.tmpl"
+only_if_dir = "~/.var/app/dev.vencord.Vesktop"
+
+[reload]
+hint = "tick it once under Settings, Vencord, Themes, then press ctrl+r in Discord"
+
+[[rice]]
+path = "discord/{{ slug }}.theme.css"
+template = "irida.theme.css.tmpl"
+
+[[rice]]
+path = "discord/install.sh"
+template = "install.sh.tmpl"
+executable = true

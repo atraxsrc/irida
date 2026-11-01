@@ -1,0 +1,180 @@
+/**
+ * @name Ember
+ * @author Irida
+ * @description Ember (dark), the COSMIC rice
+ * @version 1.0.0
+ */
+
+/* Only the colour variables, under Discord's dark selector: its layout
+ * stays, and the other mode keeps Discord's own colours. Discord renames
+ * its variables now and then; the long-standing names and the 2025 visual
+ * refresh names are both set. Settings -> Vencord -> Themes ticks it. */
+
+.theme-dark:not(.custom-user-profile-theme), .visual-refresh.theme-dark, .visual-refresh .theme-dark {
+  /* Ember */
+  --background-primary: #15171C;
+  --background-secondary: #1B1E24;
+  --background-tertiary: #0F1014;
+  --background-floating: #1B1E24;
+  --background-mobile-primary: #15171C;
+  --background-mobile-secondary: #1B1E24;
+  --background-modifier-hover: #1B1E2499;
+  --background-modifier-active: #22262E;
+  --background-modifier-selected: #22262E;
+  --background-modifier-accent: #383B43;
+  --background-message-hover: #1B1E2480;
+  --background-mentioned: #E8713A20;
+  --background-mentioned-hover: #E8713A30;
+  --channeltextarea-background: #1B1E24;
+  --deprecated-card-bg: #1B1E24;
+  --deprecated-quickswitcher-input-background: #1B1E24;
+  --input-background: #1B1E24;
+  --activity-card-background: #1B1E24;
+
+  /* 2025 layout names */
+  --bg-base-primary: #15171C;
+  --bg-base-secondary: #1B1E24;
+  --bg-base-tertiary: #0F1014;
+  --bg-surface-raised: #1B1E24;
+  --bg-surface-overlay: #22262E;
+  --bg-mod-faint: #1B1E2466;
+  --bg-mod-subtle: #22262E99;
+  --bg-mod-strong: #383B43;
+  --border-subtle: #383B43;
+  --border-normal: #4F535A;
+  --border-strong: #7C8290;
+  --border-faint: #22262E;
+
+  --text-normal: #D6D9E0;
+  --text-muted: #7C8290;
+  --text-link: #E8713A;
+  --text-link-low-saturation: #E3906C;
+  --text-positive: #8FB58A;
+  --text-warning: #D9A441;
+  --text-danger: #D85A5A;
+  --text-brand: #E8713A;
+  --header-primary: #D6D9E0;
+  --header-secondary: #7C8290;
+  --interactive-normal: #7C8290;
+  --interactive-hover: #D6D9E0;
+  --interactive-active: #E2E4E9;
+  --interactive-muted: #5A6070;
+  --channels-default: #7C8290;
+  --text-secondary: #7C8290;
+  --text-tertiary: #7C8290;
+  --text-feedback-positive: #8FB58A;
+  --text-feedback-warning: #D9A441;
+  --text-feedback-critical: #D85A5A;
+  --text-primary: #D6D9E0;
+
+  --brand-500: #E8713A;
+  --brand-560: #E8713A;
+  --brand-600: #8C4244;
+  --brand-experiment: #E8713A;
+  --brand-experiment-560: #E8713A;
+  --brand-experiment-600: #8C4244;
+  --control-brand-foreground: #E8713A;
+  --control-brand-foreground-new: #E8713A;
+  --mention-foreground: #E8713A;
+  --mention-background: #E8713A20;
+  --status-positive: #8FB58A;
+  --status-positive-background: #8FB58A;
+  --status-positive-text: #15171C;
+  --status-warning: #D9A441;
+  --status-warning-background: #D9A441;
+  --status-warning-text: #15171C;
+  --status-danger: #D85A5A;
+  --status-danger-background: #D85A5A;
+  --status-danger-text: #15171C;
+  --info-positive-foreground: #8FB58A;
+  --info-warning-foreground: #D9A441;
+  --info-danger-foreground: #D85A5A;
+  --button-positive-background: #8FB58A;
+  --button-positive-background-hover: #9CBE98;
+  --button-danger-background: #D85A5A;
+  --button-danger-background-hover: #D85A5A;
+  --button-secondary-background: #22262E;
+  --button-secondary-background-hover: #383B43;
+  --button-secondary-background-active: #4F535A;
+  --button-outline-brand-border: #E8713A;
+  --button-outline-brand-text: #E8713A;
+
+  --scrollbar-auto-thumb: #4F535A;
+  --scrollbar-auto-track: #15171C;
+  --scrollbar-thin-thumb: #4F535A;
+  --scrollbar-thin-track: transparent;
+  --scrollbar-auto-scrollbar-color-thumb: #4F535A;
+  --scrollbar-auto-scrollbar-color-track: #15171C;
+  --focus-primary: #E8713A;
+  --spoiler-background: #22262E;
+  --spoiler-hover-background: #383B43;
+  --text-code: #7FB7B3;
+
+  /* the 2025 visual refresh reads these instead */
+  --app-frame-background: #0F1014;
+  --app-frame-border: #383B43;
+  --background-base-lowest: #0F1014;
+  --background-base-lower: #1B1E24;
+  --background-base-low: #15171C;
+  --chat-background: #15171C;
+  --chat-background-default: #15171C;
+  --chat-border: #383B43;
+  --chat-text-muted: #7C8290;
+  --home-background: #15171C;
+  --background-surface-high: #1B1E24;
+  --background-surface-higher: #22262E;
+  --background-surface-highest: #383B43;
+  --bg-surface-overlay-tmp: #1B1E24;
+  --background-secondary-alt: #22262E;
+  --background-accent: #22262E;
+  --background-brand: #E8713A;
+  --background-code: #1B1E24;
+  --background-mod-muted: #1B1E2499;
+  --background-mod-subtle: #1B1E2499;
+  --background-mod-normal: #22262E;
+  --background-mod-strong: #383B43;
+  --background-feedback-positive: #8FB58A30;
+  --background-feedback-warning: #D9A44130;
+  --background-feedback-critical: #D85A5A30;
+  --background-feedback-info: #7FA3C730;
+  --background-feedback-notification: #E8713A;
+  --modal-background: #15171C;
+  --modal-footer-background: #1B1E24;
+  --input-background-default: #1B1E24;
+  --input-border-default: #383B43;
+  --input-border-hover: #4F535A;
+  --input-border-active: #E8713A;
+  --input-text-default: #D6D9E0;
+  --input-placeholder-text-default: #7C8290;
+  --channel-icon: #7C8290;
+  --channel-text-area-placeholder: #7C8290;
+  --text-default: #D6D9E0;
+  --text-strong: #E2E4E9;
+  --text-subtle: #7C8290;
+  --text-feedback-info: #7FA3C7;
+  --text-status-online: #8FB58A;
+  --text-status-idle: #D9A441;
+  --text-status-dnd: #D85A5A;
+  --text-status-offline: #5A6070;
+  --status-online: #8FB58A;
+  --status-idle: #D9A441;
+  --status-dnd: #D85A5A;
+  --status-offline: #5A6070;
+  --status-speaking: #8FB58A;
+  --interactive-icon-default: #7C8290;
+  --interactive-icon-hover: #D6D9E0;
+  --interactive-icon-active: #E2E4E9;
+  --interactive-text-default: #7C8290;
+  --interactive-text-hover: #D6D9E0;
+  --interactive-text-active: #E2E4E9;
+  --interactive-background-hover: #1B1E2499;
+  --interactive-background-selected: #22262E;
+  --interactive-background-active: #22262E;
+  --border-muted: #22262E;
+  --button-outline-primary-text: #D6D9E0;
+  --button-outline-brand-background-hover: #E8713A20;
+  --button-outline-brand-border-active: #E8713A;
+  --brand-260: #E8713A;
+  --brand-360: #E8713A;
+  --primary-400: #7C8290;
+}

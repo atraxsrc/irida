@@ -1,0 +1,185 @@
+{%- set deep = mix(background, "#000000", 0.3 if mode == "dark" else 0.12) -%}
+{%- set raised = mix(container, "text", 0.12) -%}
+{%- set lines = mix(container, "text", 0.25) -%}
+{%- set hover = mix(accent, "text", 0.3) -%}
+{%- set selector = ".theme-dark:not(.custom-user-profile-theme), .visual-refresh.theme-dark, .visual-refresh .theme-dark" if mode == "dark" else ".theme-light:not(.custom-user-profile-theme), .visual-refresh.theme-light, .visual-refresh .theme-light" -%}
+/**
+ * @name {% if export %}{{ name }}{% else %}Irida{% endif %}
+ * @author Irida
+ * @description {{ name }} ({{ mode }}){% if export %}, the COSMIC rice{% else %}, written by Irida{% endif %}
+ * @version 1.0.0
+ */
+
+/* Only the colour variables, under Discord's {{ mode }} selector: its layout
+ * stays, and the other mode keeps Discord's own colours. Discord renames
+ * its variables now and then; the long-standing names and the 2025 visual
+ * refresh names are both set. Settings -> Vencord -> Themes ticks it. */
+
+{{ selector }} {
+  /* {{ name }} */
+  --background-primary: {{ background }};
+  --background-secondary: {{ pane }};
+  --background-tertiary: {{ deep }};
+  --background-floating: {{ pane }};
+  --background-mobile-primary: {{ background }};
+  --background-mobile-secondary: {{ pane }};
+  --background-modifier-hover: {{ pane }}99;
+  --background-modifier-active: {{ container }};
+  --background-modifier-selected: {{ container }};
+  --background-modifier-accent: {{ raised }};
+  --background-message-hover: {{ pane }}80;
+  --background-mentioned: {{ accent }}20;
+  --background-mentioned-hover: {{ accent }}30;
+  --channeltextarea-background: {{ pane }};
+  --deprecated-card-bg: {{ pane }};
+  --deprecated-quickswitcher-input-background: {{ pane }};
+  --input-background: {{ pane }};
+  --activity-card-background: {{ pane }};
+
+  /* 2025 layout names */
+  --bg-base-primary: {{ background }};
+  --bg-base-secondary: {{ pane }};
+  --bg-base-tertiary: {{ deep }};
+  --bg-surface-raised: {{ pane }};
+  --bg-surface-overlay: {{ container }};
+  --bg-mod-faint: {{ pane }}66;
+  --bg-mod-subtle: {{ container }}99;
+  --bg-mod-strong: {{ raised }};
+  --border-subtle: {{ raised }};
+  --border-normal: {{ lines }};
+  --border-strong: {{ term.dim_foreground }};
+  --border-faint: {{ container }};
+
+  --text-normal: {{ text }};
+  --text-muted: {{ muted }};
+  --text-link: {{ accent }};
+  --text-link-low-saturation: {{ hover }};
+  --text-positive: {{ success }};
+  --text-warning: {{ warning }};
+  --text-danger: {{ error }};
+  --text-brand: {{ accent }};
+  --header-primary: {{ text }};
+  --header-secondary: {{ muted }};
+  --interactive-normal: {{ muted }};
+  --interactive-hover: {{ text }};
+  --interactive-active: {{ term.bright_foreground }};
+  --interactive-muted: {{ comment }};
+  --channels-default: {{ muted }};
+  --text-secondary: {{ muted }};
+  --text-tertiary: {{ term.dim_foreground }};
+  --text-feedback-positive: {{ success }};
+  --text-feedback-warning: {{ warning }};
+  --text-feedback-critical: {{ error }};
+  --text-primary: {{ text }};
+
+  --brand-500: {{ accent }};
+  --brand-560: {{ accent }};
+  --brand-600: {{ term.dim.red }};
+  --brand-experiment: {{ accent }};
+  --brand-experiment-560: {{ accent }};
+  --brand-experiment-600: {{ term.dim.red }};
+  --control-brand-foreground: {{ accent }};
+  --control-brand-foreground-new: {{ accent }};
+  --mention-foreground: {{ accent }};
+  --mention-background: {{ accent }}20;
+  --status-positive: {{ success }};
+  --status-positive-background: {{ success }};
+  --status-positive-text: {{ background }};
+  --status-warning: {{ warning }};
+  --status-warning-background: {{ warning }};
+  --status-warning-text: {{ background }};
+  --status-danger: {{ error }};
+  --status-danger-background: {{ error }};
+  --status-danger-text: {{ background }};
+  --info-positive-foreground: {{ success }};
+  --info-warning-foreground: {{ warning }};
+  --info-danger-foreground: {{ error }};
+  --button-positive-background: {{ success }};
+  --button-positive-background-hover: {{ term.bright.green }};
+  --button-danger-background: {{ error }};
+  --button-danger-background-hover: {{ error }};
+  --button-secondary-background: {{ container }};
+  --button-secondary-background-hover: {{ raised }};
+  --button-secondary-background-active: {{ lines }};
+  --button-outline-brand-border: {{ accent }};
+  --button-outline-brand-text: {{ accent }};
+
+  --scrollbar-auto-thumb: {{ lines }};
+  --scrollbar-auto-track: {{ background }};
+  --scrollbar-thin-thumb: {{ lines }};
+  --scrollbar-thin-track: transparent;
+  --scrollbar-auto-scrollbar-color-thumb: {{ lines }};
+  --scrollbar-auto-scrollbar-color-track: {{ background }};
+  --focus-primary: {{ accent }};
+  --spoiler-background: {{ container }};
+  --spoiler-hover-background: {{ raised }};
+  --text-code: {{ cyan }};
+
+  /* the 2025 visual refresh reads these instead */
+  --app-frame-background: {{ deep }};
+  --app-frame-border: {{ raised }};
+  --background-base-lowest: {{ deep }};
+  --background-base-lower: {{ pane }};
+  --background-base-low: {{ background }};
+  --chat-background: {{ background }};
+  --chat-background-default: {{ background }};
+  --chat-border: {{ raised }};
+  --chat-text-muted: {{ muted }};
+  --home-background: {{ background }};
+  --background-surface-high: {{ pane }};
+  --background-surface-higher: {{ container }};
+  --background-surface-highest: {{ raised }};
+  --bg-surface-overlay-tmp: {{ pane }};
+  --background-secondary-alt: {{ container }};
+  --background-accent: {{ container }};
+  --background-brand: {{ accent }};
+  --background-code: {{ pane }};
+  --background-mod-muted: {{ pane }}99;
+  --background-mod-subtle: {{ pane }}99;
+  --background-mod-normal: {{ container }};
+  --background-mod-strong: {{ raised }};
+  --background-feedback-positive: {{ success }}30;
+  --background-feedback-warning: {{ warning }}30;
+  --background-feedback-critical: {{ error }}30;
+  --background-feedback-info: {{ blue }}30;
+  --background-feedback-notification: {{ accent }};
+  --modal-background: {{ background }};
+  --modal-footer-background: {{ pane }};
+  --input-background-default: {{ pane }};
+  --input-border-default: {{ raised }};
+  --input-border-hover: {{ lines }};
+  --input-border-active: {{ accent }};
+  --input-text-default: {{ text }};
+  --input-placeholder-text-default: {{ term.dim_foreground }};
+  --channel-icon: {{ muted }};
+  --channel-text-area-placeholder: {{ term.dim_foreground }};
+  --text-default: {{ text }};
+  --text-strong: {{ term.bright_foreground }};
+  --text-subtle: {{ muted }};
+  --text-feedback-info: {{ blue }};
+  --text-status-online: {{ success }};
+  --text-status-idle: {{ warning }};
+  --text-status-dnd: {{ error }};
+  --text-status-offline: {{ comment }};
+  --status-online: {{ success }};
+  --status-idle: {{ warning }};
+  --status-dnd: {{ error }};
+  --status-offline: {{ comment }};
+  --status-speaking: {{ success }};
+  --interactive-icon-default: {{ muted }};
+  --interactive-icon-hover: {{ text }};
+  --interactive-icon-active: {{ term.bright_foreground }};
+  --interactive-text-default: {{ muted }};
+  --interactive-text-hover: {{ text }};
+  --interactive-text-active: {{ term.bright_foreground }};
+  --interactive-background-hover: {{ pane }}99;
+  --interactive-background-selected: {{ container }};
+  --interactive-background-active: {{ container }};
+  --border-muted: {{ container }};
+  --button-outline-primary-text: {{ text }};
+  --button-outline-brand-background-hover: {{ accent }}20;
+  --button-outline-brand-border-active: {{ accent }};
+  --brand-260: {{ accent }};
+  --brand-360: {{ accent }};
+  --primary-400: {{ muted }};
+}
