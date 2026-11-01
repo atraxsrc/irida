@@ -1,0 +1,53 @@
+# Checked against gtk's gtkcssprovider.c (main) on 2026-11-01:
+# $XDG_CONFIG_HOME/gtk-4.0/gtk.css and gtk-3.0/gtk.css are read when an app
+# starts; `@import url("file.css");` is accepted anywhere in the sheet and
+# parsed in place, and a later @define-color of a name wins. COSMIC's own
+# GTK theming puts `@import url("cosmic.css");` into both files, so Irida's
+# import is appended after it and its colours win. Nothing reloads a running
+# app.
+name = "gtk"
+display = "GTK"
+detect = { config = ["~/.config/gtk-4.0", "~/.config/gtk-3.0"] }
+
+[[file]]
+path = "~/.config/gtk-4.0/irida.css"
+write = "file"
+template = "irida.css.tmpl"
+only_if_dir = "~/.config/gtk-4.0"
+
+# `@import` may repeat (COSMIC's line stays); only Irida's own line is replaced.
+[[file]]
+path = "~/.config/gtk-4.0/gtk.css"
+write = "key"
+key = "@import"
+separator = " "
+repeatable = true
+template = "import.tmpl"
+only_if_dir = "~/.config/gtk-4.0"
+
+[[file]]
+path = "~/.config/gtk-3.0/irida.css"
+write = "file"
+template = "irida.css.tmpl"
+only_if_dir = "~/.config/gtk-3.0"
+
+[[file]]
+path = "~/.config/gtk-3.0/gtk.css"
+write = "key"
+key = "@import"
+separator = " "
+repeatable = true
+template = "import.tmpl"
+only_if_dir = "~/.config/gtk-3.0"
+
+[reload]
+hint = "restart GTK apps"
+
+[[rice]]
+path = "gtk/{{ slug }}.css"
+template = "irida.css.tmpl"
+
+[[rice]]
+path = "gtk/install.sh"
+template = "install.sh.tmpl"
+executable = true

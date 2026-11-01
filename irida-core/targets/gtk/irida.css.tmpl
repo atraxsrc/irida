@@ -1,0 +1,88 @@
+{%- set lines = mix(container, "text", 0.25) -%}
+{%- set faint = mix(container, "text", 0.12) -%}
+{%- set view = mix(background, "#000000", 0.3) if mode == "dark" else mix(background, "#FFFFFF", 0.45) -%}
+/* {{ name }} ({{ mode }}) for GTK 3 and GTK 4 / libadwaita apps, written by
+ * Irida. Only the named colours: window and container colours, the text
+ * colour, the accent for selection and buttons with the background colour on
+ * it, success, warning and error. Widgets keep the stock Adwaita shapes.
+ * Imported from gtk.css after COSMIC's own import, so these win. */
+
+/* libadwaita / GTK 4 */
+@define-color accent_bg_color {{ accent }};
+@define-color accent_fg_color {{ background }};
+@define-color accent_color {{ accent }};
+@define-color destructive_bg_color {{ error }};
+@define-color destructive_fg_color {{ background }};
+@define-color destructive_color {{ error }};
+@define-color success_bg_color {{ success }};
+@define-color success_fg_color {{ background }};
+@define-color success_color {{ success }};
+@define-color warning_bg_color {{ warning }};
+@define-color warning_fg_color {{ background }};
+@define-color warning_color {{ warning }};
+@define-color error_bg_color {{ error }};
+@define-color error_fg_color {{ background }};
+@define-color error_color {{ error }};
+
+@define-color window_bg_color {{ background }};
+@define-color window_fg_color {{ text }};
+@define-color view_bg_color {{ background }};
+@define-color view_fg_color {{ text }};
+@define-color headerbar_bg_color {{ background }};
+@define-color headerbar_fg_color {{ text }};
+@define-color headerbar_border_color {{ lines }};
+@define-color headerbar_backdrop_color {{ background }};
+@define-color headerbar_shade_color rgba(0, 0, 0, 0.36);
+@define-color headerbar_darker_shade_color rgba(0, 0, 0, 0.9);
+@define-color sidebar_bg_color {{ background }};
+@define-color sidebar_fg_color {{ text }};
+@define-color sidebar_backdrop_color {{ background }};
+@define-color sidebar_border_color {{ lines }};
+@define-color sidebar_shade_color rgba(0, 0, 0, 0.36);
+@define-color secondary_sidebar_bg_color {{ pane }};
+@define-color secondary_sidebar_fg_color {{ text }};
+@define-color secondary_sidebar_backdrop_color {{ pane }};
+@define-color secondary_sidebar_border_color {{ lines }};
+@define-color secondary_sidebar_shade_color rgba(0, 0, 0, 0.36);
+@define-color card_bg_color {{ pane }};
+@define-color card_fg_color {{ text }};
+@define-color card_shade_color rgba(0, 0, 0, 0.36);
+@define-color dialog_bg_color {{ pane }};
+@define-color dialog_fg_color {{ text }};
+@define-color popover_bg_color {{ pane }};
+@define-color popover_fg_color {{ text }};
+@define-color popover_shade_color rgba(0, 0, 0, 0.36);
+@define-color thumbnail_bg_color {{ pane }};
+@define-color thumbnail_fg_color {{ text }};
+@define-color shade_color rgba(0, 0, 0, 0.36);
+@define-color scrollbar_outline_color rgba(0, 0, 0, 0.5);
+
+/* GTK 3 */
+@define-color theme_bg_color {{ background }};
+@define-color theme_fg_color {{ text }};
+@define-color theme_base_color {{ view }};
+@define-color theme_text_color {{ text }};
+@define-color theme_selected_bg_color {{ accent }};
+@define-color theme_selected_fg_color {{ background }};
+@define-color theme_unfocused_bg_color {{ background }};
+@define-color theme_unfocused_fg_color {{ muted }};
+@define-color theme_unfocused_base_color {{ view }};
+@define-color theme_unfocused_text_color {{ muted }};
+@define-color theme_unfocused_selected_bg_color {{ container }};
+@define-color theme_unfocused_selected_fg_color {{ text }};
+@define-color insensitive_bg_color {{ pane }};
+@define-color insensitive_fg_color {{ comment }};
+@define-color insensitive_base_color {{ background }};
+@define-color borders {{ lines }};
+@define-color unfocused_borders {{ faint }};
+@define-color content_view_bg {{ background }};
+@define-color placeholder_text_color {{ comment }};
+@define-color wm_title {{ text }};
+@define-color wm_unfocused_title {{ muted }};
+@define-color wm_bg {{ background }};
+@define-color wm_border {{ lines }};
+@define-color wm_unfocused_border {{ faint }};
+
+/* links share the accent */
+@define-color link_color {{ accent }};
+@define-color visited_link_color {{ mix(accent, "text", 0.3) }};

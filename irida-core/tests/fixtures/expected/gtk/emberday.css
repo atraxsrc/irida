@@ -1,0 +1,85 @@
+/* Ember Day (light) for GTK 3 and GTK 4 / libadwaita apps, written by
+ * Irida. Only the named colours: window and container colours, the text
+ * colour, the accent for selection and buttons with the background colour on
+ * it, success, warning and error. Widgets keep the stock Adwaita shapes.
+ * Imported from gtk.css after COSMIC's own import, so these win. */
+
+/* libadwaita / GTK 4 */
+@define-color accent_bg_color #A4441A;
+@define-color accent_fg_color #E9E6DF;
+@define-color accent_color #A4441A;
+@define-color destructive_bg_color #9E3A3A;
+@define-color destructive_fg_color #E9E6DF;
+@define-color destructive_color #9E3A3A;
+@define-color success_bg_color #4C6B45;
+@define-color success_fg_color #E9E6DF;
+@define-color success_color #4C6B45;
+@define-color warning_bg_color #8A5E12;
+@define-color warning_fg_color #E9E6DF;
+@define-color warning_color #8A5E12;
+@define-color error_bg_color #9E3A3A;
+@define-color error_fg_color #E9E6DF;
+@define-color error_color #9E3A3A;
+
+@define-color window_bg_color #E9E6DF;
+@define-color window_fg_color #2B2E36;
+@define-color view_bg_color #E9E6DF;
+@define-color view_fg_color #2B2E36;
+@define-color headerbar_bg_color #E9E6DF;
+@define-color headerbar_fg_color #2B2E36;
+@define-color headerbar_border_color #B4B2AE;
+@define-color headerbar_backdrop_color #E9E6DF;
+@define-color headerbar_shade_color rgba(0, 0, 0, 0.36);
+@define-color headerbar_darker_shade_color rgba(0, 0, 0, 0.9);
+@define-color sidebar_bg_color #E9E6DF;
+@define-color sidebar_fg_color #2B2E36;
+@define-color sidebar_backdrop_color #E9E6DF;
+@define-color sidebar_border_color #B4B2AE;
+@define-color sidebar_shade_color rgba(0, 0, 0, 0.36);
+@define-color secondary_sidebar_bg_color #DDD9D1;
+@define-color secondary_sidebar_fg_color #2B2E36;
+@define-color secondary_sidebar_backdrop_color #DDD9D1;
+@define-color secondary_sidebar_border_color #B4B2AE;
+@define-color secondary_sidebar_shade_color rgba(0, 0, 0, 0.36);
+@define-color card_bg_color #DDD9D1;
+@define-color card_fg_color #2B2E36;
+@define-color card_shade_color rgba(0, 0, 0, 0.36);
+@define-color dialog_bg_color #DDD9D1;
+@define-color dialog_fg_color #2B2E36;
+@define-color popover_bg_color #DDD9D1;
+@define-color popover_fg_color #2B2E36;
+@define-color popover_shade_color rgba(0, 0, 0, 0.36);
+@define-color thumbnail_bg_color #DDD9D1;
+@define-color thumbnail_fg_color #2B2E36;
+@define-color shade_color rgba(0, 0, 0, 0.36);
+@define-color scrollbar_outline_color rgba(0, 0, 0, 0.5);
+
+/* GTK 3 */
+@define-color theme_bg_color #E9E6DF;
+@define-color theme_fg_color #2B2E36;
+@define-color theme_base_color #F3F1ED;
+@define-color theme_text_color #2B2E36;
+@define-color theme_selected_bg_color #A4441A;
+@define-color theme_selected_fg_color #E9E6DF;
+@define-color theme_unfocused_bg_color #E9E6DF;
+@define-color theme_unfocused_fg_color #6B6F78;
+@define-color theme_unfocused_base_color #F3F1ED;
+@define-color theme_unfocused_text_color #6B6F78;
+@define-color theme_unfocused_selected_bg_color #E2DED6;
+@define-color theme_unfocused_selected_fg_color #2B2E36;
+@define-color insensitive_bg_color #DDD9D1;
+@define-color insensitive_fg_color #8C9099;
+@define-color insensitive_base_color #E9E6DF;
+@define-color borders #B4B2AE;
+@define-color unfocused_borders #CCC9C3;
+@define-color content_view_bg #E9E6DF;
+@define-color placeholder_text_color #8C9099;
+@define-color wm_title #2B2E36;
+@define-color wm_unfocused_title #6B6F78;
+@define-color wm_bg #E9E6DF;
+@define-color wm_border #B4B2AE;
+@define-color wm_unfocused_border #CCC9C3;
+
+/* links share the accent */
+@define-color link_color #A4441A;
+@define-color visited_link_color #803D22;
