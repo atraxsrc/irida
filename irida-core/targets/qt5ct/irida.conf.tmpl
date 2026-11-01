@@ -1,0 +1,19 @@
+{%- set lines = mix(container, "text", 0.25) -%}
+{%- set midlight = mix(container, "text", 0.12) -%}
+{%- set deep = mix(background, "#000000", 0.3 if mode == "dark" else 0.12) -%}
+{%- set view = deep if mode == "dark" else mix(background, "#FFFFFF", 0.45) -%}
+{%- set edge = lines if mode == "dark" else pane -%}
+{%- set hover = mix(accent, "text", 0.3) -%}
+# {{ name }} ({{ mode }}) colour scheme for qt5ct / qt6ct, written by Irida.
+# The window colour for windows, the containers for buttons and tooltips, the
+# text colour, the accent as highlight with the background colour on it.
+# Qt apps read it with QT_QPA_PLATFORMTHEME=qt5ct or qt6ct in the environment.
+#
+# Roles, in order: WindowText, Button, Light, Midlight, Dark, Mid, Text,
+# BrightText, ButtonText, Base, Window, Shadow, Highlight, HighlightedText,
+# Link, LinkVisited, AlternateBase, NoRole, ToolTipBase, ToolTipText,
+# PlaceholderText
+[ColorScheme]
+active_colors={{ text|lower }}, {{ pane|lower }}, {{ edge|lower }}, {{ midlight|lower }}, {{ deep|lower }}, {{ container|lower }}, {{ text|lower }}, {{ term.bright_foreground|lower }}, {{ text|lower }}, {{ view|lower }}, {{ background|lower }}, {{ deep|lower }}, {{ accent|lower }}, {{ background|lower }}, {{ accent|lower }}, {{ hover|lower }}, {{ pane|lower }}, {{ background|lower }}, {{ pane|lower }}, {{ text|lower }}, {{ comment|lower }}
+disabled_colors={{ comment|lower }}, {{ pane|lower }}, {{ edge|lower }}, {{ midlight|lower }}, {{ deep|lower }}, {{ container|lower }}, {{ comment|lower }}, {{ muted|lower }}, {{ comment|lower }}, {{ background|lower }}, {{ background|lower }}, {{ deep|lower }}, {{ lines|lower }}, {{ muted|lower }}, {{ comment|lower }}, {{ comment|lower }}, {{ pane|lower }}, {{ background|lower }}, {{ pane|lower }}, {{ text|lower }}, {{ lines|lower }}
+inactive_colors={{ text|lower }}, {{ pane|lower }}, {{ edge|lower }}, {{ midlight|lower }}, {{ deep|lower }}, {{ container|lower }}, {{ text|lower }}, {{ term.bright_foreground|lower }}, {{ text|lower }}, {{ view|lower }}, {{ background|lower }}, {{ deep|lower }}, {{ accent|lower }}, {{ background|lower }}, {{ accent|lower }}, {{ hover|lower }}, {{ pane|lower }}, {{ background|lower }}, {{ pane|lower }}, {{ text|lower }}, {{ comment|lower }}

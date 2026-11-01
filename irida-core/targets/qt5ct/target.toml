@@ -1,0 +1,39 @@
+# Checked against qt6ct's src/qt6ct-common/qt6ct.cpp and
+# src/qt6ct-qtplugin/qt6ctplatformtheme.cpp (master) on 2026-11-01: a colour
+# scheme is an INI file with [ColorScheme] and active_colors, inactive_colors,
+# disabled_colors, each a comma list in QPalette::ColorRole order; 21 entries
+# (through PlaceholderText) are taken, qt6ct 6.6+ adds Accent itself. The
+# tool's own qt5ct.conf picks it under [Appearance] with
+# custom_palette=true and color_scheme_path=<file>, where ~ is expanded. Qt
+# apps read it at start, and only with QT_QPA_PLATFORMTHEME=qt5ct set.
+# qt5ct and qt6ct are separate tools with separate folders, so each has a
+# target of its own and a user with one of them gets no folder for the other.
+name = "qt5ct"
+display = "qt5ct"
+note = "Qt apps read it with QT_QPA_PLATFORMTHEME=qt5ct in the environment"
+detect = { binary = "qt5ct", config = "~/.config/qt5ct" }
+
+[[file]]
+path = "~/.config/qt5ct/colors/irida.conf"
+write = "file"
+template = "irida.conf.tmpl"
+
+[[file]]
+path = "~/.config/qt5ct/qt5ct.conf"
+write = "key"
+key = "color_scheme_path"
+separator = "="
+section = "Appearance"
+note_replaced = true
+template = "path.tmpl"
+
+[[file]]
+path = "~/.config/qt5ct/qt5ct.conf"
+write = "key"
+key = "custom_palette"
+separator = "="
+section = "Appearance"
+template = "custom.tmpl"
+
+[reload]
+hint = "restart Qt apps"

@@ -1,0 +1,50 @@
+# Checked against qt6ct's src/qt6ct-common/qt6ct.cpp and
+# src/qt6ct-qtplugin/qt6ctplatformtheme.cpp (master) on 2026-11-01: a colour
+# scheme is an INI file with [ColorScheme] and active_colors, inactive_colors,
+# disabled_colors, each a comma list in QPalette::ColorRole order; 21 entries
+# (through PlaceholderText) are taken, qt6ct 6.6+ adds Accent itself. The
+# tool's own qt6ct.conf picks it under [Appearance] with
+# custom_palette=true and color_scheme_path=<file>, where ~ is expanded. Qt
+# apps read it at start, and only with QT_QPA_PLATFORMTHEME=qt6ct set.
+# qt5ct and qt6ct are separate tools with separate folders, so each has a
+# target of its own and a user with one of them gets no folder for the other.
+name = "qt6ct"
+display = "qt6ct"
+note = "Qt apps read it with QT_QPA_PLATFORMTHEME=qt6ct in the environment"
+detect = { binary = "qt6ct", config = "~/.config/qt6ct" }
+
+[[file]]
+path = "~/.config/qt6ct/colors/irida.conf"
+write = "file"
+template = "irida.conf.tmpl"
+
+[[file]]
+path = "~/.config/qt6ct/qt6ct.conf"
+write = "key"
+key = "color_scheme_path"
+separator = "="
+section = "Appearance"
+note_replaced = true
+template = "path.tmpl"
+
+[[file]]
+path = "~/.config/qt6ct/qt6ct.conf"
+write = "key"
+key = "custom_palette"
+separator = "="
+section = "Appearance"
+template = "custom.tmpl"
+
+[reload]
+hint = "restart Qt apps"
+
+# The rice folder is shared: one qt/ with a file for both tools and an
+# install script that sets up qt5ct and qt6ct, so qt5ct exports nothing.
+[[rice]]
+path = "qt/{{ slug }}.conf"
+template = "irida.conf.tmpl"
+
+[[rice]]
+path = "qt/install.sh"
+template = "install.sh.tmpl"
+executable = true
