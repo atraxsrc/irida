@@ -26,12 +26,24 @@ fn export_matches_rice() {
     }
 }
 
+/// The apply block is the rice file's colour part plus the lazygit hook,
+/// which the rice keeps among its aliases and names after the rice.
 #[test]
-fn apply_block_is_colour_part() {
+fn apply_block_is_colour_part_and_lazygit_hook() {
     for slug in ["ember", "emberday"] {
         let rice = rice_text(slug, &format!("zsh/{slug}.zsh"));
-        let part: String = rice.split_inclusive('\n').skip(14).take(32).collect();
-        assert_eq!(render_apply(slug, "zsh", "zsh.tmpl"), part, "{slug}");
+        let colours: String = rice.split_inclusive('\n').skip(14).take(32).collect();
+        let hook_start = rice
+            .find("if (( $+commands[lazygit] )); then")
+            .expect("hook");
+        let hook_end = rice[hook_start..].find("\nfi\n").expect("hook end") + hook_start + 4;
+        let hook = rice[hook_start..hook_end]
+            .replace(&format!("_{slug}_lg"), "_irida_lg")
+            .replace(&format!("{slug}.yml"), "irida.yml");
+        let want = format!(
+            "{colours}\n# lazygit reads one config file; stack Irida's colours (lazygit/irida.yml) on\n# top of your own config.yml\n{hook}"
+        );
+        assert_eq!(render_apply(slug, "zsh", "zsh.tmpl"), want, "{slug}");
     }
 }
 

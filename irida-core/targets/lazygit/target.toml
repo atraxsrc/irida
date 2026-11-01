@@ -1,0 +1,28 @@
+# Checked against lazygit's docs/Config.md on 2026-11-01: one config file,
+# ~/.config/lazygit/config.yml, or the comma-separated list in
+# LG_CONFIG_FILE, a later file layering on the earlier; colours live under
+# gui.theme (lists of a colour and optional attributes) and gui.authorColors.
+# A second top-level `gui:` in config.yml would be a duplicate YAML key, so
+# Irida keeps its colours in a file of their own and the zsh block points
+# LG_CONFIG_FILE at config.yml plus that file. lazygit reads it at start.
+name = "lazygit"
+display = "lazygit"
+note = "the zsh block sets LG_CONFIG_FILE to read it; another shell needs that export itself"
+detect = { binary = "lazygit" }
+
+[[file]]
+path = "~/.config/lazygit/irida.yml"
+write = "file"
+template = "irida.yml.tmpl"
+
+[reload]
+hint = "restart lazygit"
+
+[[rice]]
+path = "lazygit/{{ slug }}.yml"
+template = "irida.yml.tmpl"
+
+[[rice]]
+path = "lazygit/install.sh"
+template = "install.sh.tmpl"
+executable = true

@@ -46,7 +46,18 @@ ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument]='fg={{ success }}'
 ZSH_HIGHLIGHT_STYLES[commandseparator]='fg={{ muted }}'
 ZSH_HIGHLIGHT_STYLES[redirection]='fg={{ muted }}'
 ZSH_HIGHLIGHT_STYLES[comment]='fg={{ comment }}'
-{% if export %}
+{% if not export %}
+# lazygit reads one config file; stack Irida's colours (lazygit/irida.yml) on
+# top of your own config.yml
+if (( $+commands[lazygit] )); then
+    _irida_lg="${XDG_CONFIG_HOME:-$HOME/.config}/lazygit"
+    if [[ -f $_irida_lg/irida.yml ]]; then
+        export LG_CONFIG_FILE="$_irida_lg/irida.yml"
+        [[ -f $_irida_lg/config.yml ]] && LG_CONFIG_FILE="$_irida_lg/config.yml,$LG_CONFIG_FILE"
+    fi
+    unset _irida_lg
+fi
+{% endif %}{% if export %}
 # ── Aliases (only when the tool is installed) ──────────────────────────────────
 
 if (( $+commands[lsd] )); then
@@ -64,6 +75,17 @@ elif (( $+commands[bat] )); then
 fi
 
 (( $+commands[cosmic-edit] )) && alias edit='cosmic-edit'
+
+# lazygit reads one config file; stack the rice colours (lazygit/{{ slug }}.yml,
+# installed by ./lazygit/install.sh) on top of your own config.yml
+if (( $+commands[lazygit] )); then
+    _{{ slug }}_lg="${XDG_CONFIG_HOME:-$HOME/.config}/lazygit"
+    if [[ -f $_{{ slug }}_lg/{{ slug }}.yml ]]; then
+        export LG_CONFIG_FILE="$_{{ slug }}_lg/{{ slug }}.yml"
+        [[ -f $_{{ slug }}_lg/config.yml ]] && LG_CONFIG_FILE="$_{{ slug }}_lg/config.yml,$LG_CONFIG_FILE"
+    fi
+    unset _{{ slug }}_lg
+fi
 
 if (( $+commands[nvim] )); then
     alias vi='nvim'
